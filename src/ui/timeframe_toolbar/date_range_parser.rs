@@ -3,7 +3,7 @@
 //! Parses various date range formats into timestamp pairs:
 //! - Absolute: "2024-01-01 to 2024-12-31"
 //! - Relative: "last 30 days", "last 6 months"
-//! - Presets: "YTD", "1M", "3M", "6M", "1Y", "5Y", "MAX"
+//! - Presets: "YTD", "MTD", "1M", "3M", "6M", "1Y", "5Y", "MAX"
 
 use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
 use thiserror::Error;
@@ -38,7 +38,7 @@ type DateRangeResult = Result<Option<(DateTime<Utc>, DateTime<Utc>)>, DateRangeP
 /// Supported formats:
 /// - Absolute: "2024-01-01 to 2024-12-31", "2024-01-01..2024-12-31"
 /// - Relative: "last 30 days", "last 6 months", "last 1 year"
-/// - Presets: "YTD", "1M", "3M", "6M", "1Y", "5Y", "MAX"
+/// - Presets: "YTD", "MTD", "1M", "3M", "6M", "1Y", "5Y", "MAX"
 ///
 /// Returns (start_timestamp, end_timestamp) in Unix seconds
 pub fn parse_date_range(input: &str) -> Result<(i64, i64), DateRangeParseError> {
@@ -62,24 +62,25 @@ pub fn parse_date_range(input: &str) -> Result<(i64, i64), DateRangeParseError> 
     Err(DateRangeParseError::UnsupportedFormat(trimmed.to_string()))
 }
 
-/// Try to parse preset formats: YTD, 1M, 3M, 6M, 1Y, 5Y, MAX
+/// Try to parse preset formats: YTD, MTD, 1M, 3M, 6M, 1Y, 5Y, MAX
 fn try_parse_preset(s: &str) -> DateRangeResult {
     let upper = s.to_uppercase();
     let now = Utc::now();
 
     let duration = match upper.as_str() {
-        "YTD" => {
-            // Year to date: Jan 1 of current year to now
-            let year_start = NaiveDate::from_ymd_opt(now.year(), 1, 1)
+        "YTD" | "MTD" => {
+            // Year or month to date: from 00:00 UTC on the first day of the year or month
+            let month = if upper == "YTD" { 1 } else { now.month() };
+            let period_start = NaiveDate::from_ymd_opt(now.year(), month, 1)
                 .and_then(|d| d.and_hms_opt(0, 0, 0))
-                .ok_or_else(|| DateRangeParseError::InvalidDateFormat("YTD".to_string()))?;
-            let start = Utc.from_utc_datetime(&year_start);
+                .ok_or_else(|| DateRangeParseError::InvalidDateFormat(upper.clone()))?;
+            let start = Utc.from_utc_datetime(&period_start);
             return Ok(Some((start, now)));
         }
         "1D" => Duration::days(1),
         "5D" => Duration::days(5),
         "1W" => Duration::weeks(1),
-        "1M" | "MTD" => Duration::days(30),
+        "1M" => Duration::days(30),
         "3M" => Duration::days(90),
         "6M" => Duration::days(180),
         "1Y" => Duration::days(365),
@@ -107,22 +108,29 @@ fn try_parse_relative(s: &str) -> DateRangeResult {
         return Err(DateRangeParseError::InvalidRangeFormat(s.to_string()));
     }
 
+    let invalid_number = || DateRangeParseError::InvalidNumber(parts[1].to_string());
     let n: i64 = parts[1]
         .parse()
-        .map_err(|_| DateRangeParseError::InvalidNumber(parts[1].to_string()))?;
+        .ok()
+        .filter(|&n| n > 0)
+        .ok_or_else(invalid_number)?;
 
     let unit = parts[2];
     let now = Utc::now();
 
-    let duration = match unit {
-        "day" | "days" => Duration::days(n),
-        "week" | "weeks" => Duration::weeks(n),
-        "month" | "months" => Duration::days(n * 30), // Approximate
-        "year" | "years" => Duration::days(n * 365),  // Approximate
+    let days_per_unit = match unit {
+        "day" | "days" => 1,
+        "week" | "weeks" => 7,
+        "month" | "months" => 30, // Approximate
+        "year" | "years" => 365,  // Approximate
         _ => return Err(DateRangeParseError::InvalidTimeUnit(unit.to_string())),
     };
 
-    let start = now - duration;
+    let start = n
+        .checked_mul(days_per_unit)
+        .and_then(Duration::try_days)
+        .and_then(|duration| now.checked_sub_signed(duration))
+        .ok_or_else(invalid_number)?;
     Ok(Some((start, now)))
 }
 
@@ -192,20 +200,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_preset_ytd() {
-        let result = parse_date_range("YTD");
-        assert!(result.is_ok());
-
-        let (start, _end) = result.unwrap();
-        let start_dt = Utc.timestamp_opt(start, 0).unwrap();
-        assert_eq!(start_dt.month(), 1);
-        assert_eq!(start_dt.day(), 1);
-    }
-
-    #[test]
-    fn test_preset_1m() {
-        let result = parse_date_range("1M");
-        assert!(result.is_ok());
+    fn test_preset_to_date() {
+        for preset in ["YTD", "MTD"] {
+            let (start, end) = parse_date_range(preset).unwrap();
+            let end_dt = Utc.timestamp_opt(end, 0).unwrap();
+            let month = if preset == "YTD" { 1 } else { end_dt.month() };
+            let expected = Utc
+                .with_ymd_and_hms(end_dt.year(), month, 1, 0, 0, 0)
+                .unwrap();
+            assert_eq!(start, expected.timestamp(), "{preset}");
+        }
     }
 
     #[test]
@@ -264,26 +268,25 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_order() {
-        let result = parse_date_range("2024-12-31 to 2024-01-01");
-        assert!(matches!(result, Err(DateRangeParseError::InvalidDateOrder)));
-    }
-
-    #[test]
-    fn test_invalid_format() {
-        let result = parse_date_range("invalid");
-        assert!(matches!(
-            result,
-            Err(DateRangeParseError::UnsupportedFormat(_))
-        ));
-    }
-
-    #[test]
-    fn test_invalid_date() {
-        let result = parse_date_range("2024-13-01 to 2024-12-31");
-        assert!(matches!(
-            result,
-            Err(DateRangeParseError::InvalidDateFormat(_))
-        ));
+    fn test_errors() {
+        use DateRangeParseError::*;
+        let cases = [
+            ("2024-12-31 to 2024-01-01", InvalidDateOrder),
+            ("invalid", UnsupportedFormat("invalid".into())),
+            (
+                "2024-13-01 to 2024-12-31",
+                InvalidDateFormat("2024-13-01".into()),
+            ),
+            ("last -5 days", InvalidNumber("-5".into())),
+            ("last 0 days", InvalidNumber("0".into())),
+            (
+                "last 9999999999999 days",
+                InvalidNumber("9999999999999".into()),
+            ),
+            ("last 100000000 days", InvalidNumber("100000000".into())),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(parse_date_range(input), Err(expected), "{input}");
+        }
     }
 }
