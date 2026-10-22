@@ -11,6 +11,7 @@ use crate::studies::*;
 use crate::styles::typography;
 use crate::theme::Theme;
 use crate::tokens::DESIGN_TOKENS;
+use crate::ui_kit::dialog::{centred_title, titled_window_size};
 use egui::{Color32, Pos2, Rect, Response, RichText, Sense, Ui, Vec2, Window};
 use std::collections::HashSet;
 
@@ -121,7 +122,7 @@ impl IndicatorDialog {
         let (dialog_width, dialog_height) = (self.config.width, self.config.height);
 
         // Show modal overlay to block interactions behind the dialog
-        egui::Area::new(egui::Id::new("indicator_dialog_overlay"))
+        egui::Area::new(egui::Id::unique("indicator_dialog_overlay"))
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
@@ -133,19 +134,22 @@ impl IndicatorDialog {
 
         // Corner radius - desktop style
         let corner_radius = DESIGN_TOKENS.rounding.lg;
+        let frame = egui::Frame::window(&ctx.global_style())
+            .fill(self.config.bg_color)
+            .corner_radius(corner_radius as u8);
 
-        Window::new("Indicators")
+        Window::new(centred_title(ctx, "Indicators"))
             .open(&mut is_open)
             .resizable(false)
             .collapsible(false)
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .fixed_size(Vec2::new(dialog_width, dialog_height))
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(self.config.bg_color)
-                    .corner_radius(corner_radius as u8),
-            )
+            .fixed_size(titled_window_size(
+                ctx,
+                &frame,
+                Vec2::new(dialog_width, dialog_height),
+            ))
+            .frame(frame)
             .show(ctx, |ui| {
                 action = self.draw_content(ui);
             });
@@ -210,7 +214,7 @@ impl IndicatorDialog {
                 let list_width = if self.show_config {
                     self.config.width - 420.0 // More space for config panel
                 } else {
-                    self.config.width - 160.0
+                    ui.available_width()
                 };
                 ui.set_width(list_width);
                 action = self.draw_indicator_list(ui);
@@ -220,7 +224,7 @@ impl IndicatorDialog {
             if self.show_config {
                 ui.separator();
                 ui.vertical(|ui| {
-                    ui.set_width(250.0); // Wider config panel
+                    ui.set_width(ui.available_width()); // The rest of the dialog
                     if let Some(a) = self.draw_config_panel(ui) {
                         action = a;
                     }

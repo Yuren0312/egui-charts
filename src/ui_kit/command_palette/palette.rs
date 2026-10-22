@@ -140,7 +140,7 @@ impl CommandPalette {
             .min(screen_rect.height() - DESIGN_TOKENS.sizing.command_palette.margin_y);
 
         // Modal window
-        egui::Area::new(egui::Id::new("command_palette"))
+        egui::Area::new(egui::Id::unique("command_palette"))
             .order(Order::Foreground)
             .anchor(
                 egui::Align2::CENTER_TOP,
@@ -187,7 +187,11 @@ impl CommandPalette {
                             let response = ui.add(
                                 TextEdit::singleline(&mut self.search_query)
                                     .hint_text("Search commands...")
-                                    .frame(false)
+                                    // No background, with egui's default text margin.
+                                    .frame(
+                                        egui::Frame::new()
+                                            .inner_margin(egui::Margin::symmetric(4, 2)),
+                                    )
                                     .desired_width(
                                         modal_width
                                             - DESIGN_TOKENS.sizing.command_palette.input_padding,

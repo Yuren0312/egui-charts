@@ -477,8 +477,8 @@ mod tests {
         ));
 
         let ctx = egui::Context::default();
-        let output = ctx.run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 overlay.render(ui, ui.max_rect(), |_| 100.0);
             });
         });
@@ -493,6 +493,7 @@ mod tests {
                 _ => None,
             })
             .expect("label text shape");
+        output.drop_without_applying_deltas();
         assert!(galley.elided);
         assert!(galley.size().x <= DESIGN_TOKENS.sizing.charts_ext.order_line_label_width);
     }

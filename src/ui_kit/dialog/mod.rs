@@ -7,6 +7,7 @@
 //! The kit `Modal`, `ConfirmDialog` and `PromptDialog` use the same frame, header and footer
 //! over a scrim.
 
+use egui::emath::GuiRounding as _;
 use egui::{
     Align, Align2, Context, Frame, Layout, RichText, Style, Ui, UiBuilder, UiStackInfo, Vec2,
 };
@@ -22,6 +23,38 @@ const FIXED_HEIGHT_TAG: &str = "egui_charts::dialog_frame::fixed_height";
 /// The dialog surface: the theme's window fill, border, radius and shadow, padded 16 px.
 pub(crate) fn dialog_frame(style: &Style) -> Frame {
     Frame::window(style).inner_margin(DESIGN_TOKENS.spacing.xxl)
+}
+
+/// The height of the heading row, which egui gives a window's title and its buttons.
+fn heading_row_height(ctx: &Context) -> f32 {
+    // Resolve the font first: `fonts_mut` holds the context's lock, which `global_style` takes too.
+    let font = egui::TextStyle::Heading.resolve(&ctx.global_style());
+    ctx.fonts_mut(|f| f.row_height(&font))
+}
+
+/// The size to give an `egui::Window` that has a title bar and `frame` so that its content gets
+/// `content`.
+///
+/// egui sizes a window from outside, frame and title bar included. The title bar is a heading row
+/// inside the frame's inner margin, above a line as wide as the frame's stroke; the title text's
+/// row is rounded to whole pixels and the buttons beside it are not.
+pub(crate) fn titled_window_size(ctx: &Context, frame: &Frame, content: Vec2) -> Vec2 {
+    let row = heading_row_height(ctx);
+    let row = row.max(row.round_to_pixels(ctx.pixels_per_point()));
+    let title_bar = row + frame.inner_margin.sum().y + frame.stroke.width;
+    content + frame.total_margin().sum() + Vec2::new(0.0, title_bar)
+}
+
+/// The title of an `egui::Window` with a close button, centred over the whole title bar.
+///
+/// egui centres a title in the space left of the close button, which it sizes to the heading
+/// row height; a blank atom of that size on the left balances it.
+pub(crate) fn centred_title<'a>(ctx: &Context, title: &'a str) -> egui::Atoms<'a> {
+    let blank = egui::Atom {
+        size: Some(Vec2::splat(heading_row_height(ctx))),
+        ..Default::default()
+    };
+    egui::Atoms::new((blank, title))
 }
 
 /// A centered dialog window with standard styling.
@@ -82,7 +115,7 @@ impl DialogFrame {
 
     /// Show the dialog. The closure receives `&mut Ui` for the dialog content.
     pub fn show(self, ctx: &Context, add_contents: impl FnOnce(&mut Ui)) {
-        let mut frame = dialog_frame(&ctx.style());
+        let mut frame = dialog_frame(&ctx.global_style());
         if let Some(r) = self.rounding {
             frame = frame.corner_radius(r);
         }
@@ -213,7 +246,7 @@ impl DialogFooter {
         // The footer height is measured on the previous frame; the window's sizing pass measures
         // it unpinned, so the first visible frame already has the window at its final size.
         let pinned = ui.stack().tags().contains(FIXED_HEIGHT_TAG);
-        let height_id = ui.id().with("dialog_footer_height");
+        let height_id = ui.scope_id().with("dialog_footer_height");
         if pinned && !ui.is_sizing_pass() {
             let height = ui.data(|d| d.get_temp::<f32>(height_id)).unwrap_or(0.0);
             ui.add_space((ui.available_height() - height).max(0.0));
@@ -266,22 +299,22 @@ mod tests {
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1000.0, 800.0));
         let frame = || {
             let mut row = egui::Rect::NOTHING;
+            let mut window = egui::Id::NULL;
             let input = egui::RawInput {
                 screen_rect: Some(screen),
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| {
-                DialogFrame::new("d", Vec2::new(420.0, 240.0)).show(ctx, |ui| {
+            ctx.run_ui(input, |ui| {
+                DialogFrame::new("d", Vec2::new(420.0, 240.0)).show(ui.ctx(), |ui| {
+                    window = ui.layer_id().id;
                     ui.label("Body");
                     DialogFooter::new("Apply")
                         .secondary("Cancel")
                         .show_with_left(ui, |ui| row = ui.max_rect());
                 });
-            });
-            (
-                ctx.memory(|m| m.area_rect(egui::Id::new("d"))).unwrap(),
-                row,
-            )
+            })
+            .drop_without_applying_deltas();
+            (ctx.memory(|m| m.area_rect(window)).unwrap(), row)
         };
         frame(); // sizing pass
         let first = frame();
@@ -292,5 +325,35 @@ mod tests {
         );
         let inner_bottom = second.0.bottom() - DESIGN_TOKENS.spacing.xxl;
         assert!((second.1.top() + ButtonSize::MD.pixels() - inner_bottom).abs() <= 1.5);
+    }
+
+    #[test]
+    fn a_titled_window_gives_its_content_the_requested_size() {
+        let ctx = Context::default();
+        crate::theme::apply_to_egui(&ctx, &crate::theme::Theme::default());
+        let content = Vec2::new(300.0, 200.0);
+        let mut available = Vec2::ZERO;
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1000.0, 800.0),
+                )),
+                ..Default::default()
+            };
+            ctx.run_ui(input, |ui| {
+                let ctx = ui.ctx();
+                let frame = Frame::window(&ctx.global_style());
+                egui::Window::new(centred_title(ctx, "Titled"))
+                    .open(&mut true)
+                    .collapsible(false)
+                    .resizable(false)
+                    .fixed_size(titled_window_size(ctx, &frame, content))
+                    .frame(frame)
+                    .show(ctx, |ui| available = ui.available_size());
+            })
+            .drop_without_applying_deltas();
+        }
+        assert_eq!(available, content);
     }
 }

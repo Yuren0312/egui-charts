@@ -107,7 +107,7 @@ mod tests {
                 screen_rect: Some(viewport),
                 ..Default::default()
             };
-            let output = ctx.run(input, |ctx| {
+            let output = ctx.run_ui(input, |_| {
                 let layer = LayerId::background();
                 let offset = TSTransform::from_translation(egui::vec2(layer_offset, 0.0));
                 ctx.set_transform_layer(layer, offset);
@@ -122,6 +122,7 @@ mod tests {
                 );
             });
             let n = output.shapes.len();
+            output.drop_without_applying_deltas();
             assert!(n > 0, "the visible part must still be drawn");
             assert!(
                 n <= (visible_width / (dash + gap)) as usize + 2,

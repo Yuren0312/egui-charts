@@ -39,6 +39,7 @@ use egui_charts::ui::widget_bar::panels::object_tree::{
     DataWindowInfo, ObjectTreeAction, ObjectTreePanel, SourceItem,
 };
 use egui_charts::ui::widget_bar::{RightBarIcon, WidgetBar, WidgetBarAction};
+use std::sync::{Arc, mpsc};
 
 use crate::sampledata::{
     DemoSymbol, bar_count_for_timeframe, chart_type_from_name, generate_sample_bars,
@@ -82,6 +83,9 @@ enum ScreenshotTarget {
     File(Option<std::path::PathBuf>),
     Clipboard,
 }
+
+/// A captured screenshot and where it goes.
+type Screenshot = (Arc<egui::ColorImage>, ScreenshotTarget);
 
 /// App state surfaced to the toolbars via `ChartAppState`.
 pub struct DemoAppState {
@@ -150,6 +154,8 @@ pub struct DemoApp {
 
     // A pending screenshot request the egui backend fulfils next frame.
     screenshot_requested: bool,
+    // egui's capture callback sends each screenshot here; the next frame delivers it.
+    screenshots: (mpsc::Sender<Screenshot>, mpsc::Receiver<Screenshot>),
 
     // Transient status notice (text, time shown). Controls whose backing is a
     // stub/network/broker surface an honest message here rather than silently
@@ -235,6 +241,7 @@ impl DemoApp {
             replay: None,
             replay_control: FloatingReplayControl::new(),
             screenshot_requested: false,
+            screenshots: mpsc::channel(),
             notice: None,
         }
     }
@@ -534,17 +541,15 @@ impl DemoApp {
         config: egui_charts::ui::export::ExportConfig,
         save_path: Option<std::path::PathBuf>,
     ) {
-        // Image exports route through the egui screenshot path, tagged with
-        // where the delivered image goes.
+        // Image exports go through egui's screenshot request, which hands the
+        // captured image to `target`.
         let target = match config.format {
             ExportFormat::Png => ScreenshotTarget::File(save_path),
             ExportFormat::Clipboard => ScreenshotTarget::Clipboard,
             ExportFormat::Csv => return self.export_csv(save_path),
             ExportFormat::Svg => unreachable!("SVG is not in EXPORT_FORMATS"),
         };
-        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(
-            target,
-        )));
+        self.request_screenshot(ctx, target);
     }
 
     fn export_csv(&self, save_path: Option<std::path::PathBuf>) {
@@ -587,36 +592,39 @@ impl DemoApp {
 // ---------------------------------------------------------------------------
 
 impl eframe::App for DemoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui_charts::theme::apply_to_egui(ctx, &self.theme);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        egui_charts::theme::apply_to_egui(&ctx, &self.theme);
+        // The root Ui was created before the theme was applied this frame.
+        ui.set_style(ctx.global_style());
 
         // Drive replay before laying out the chart so its window is current.
         self.advance_replay();
 
-        let panel_bg = ctx.style().visuals.panel_fill;
+        let panel_bg = ui.style().visuals.panel_fill;
 
-        self.show_top_toolbar(ctx, panel_bg);
-        self.show_symbol_header(ctx, panel_bg);
-        self.show_drawing_toolbar(ctx, panel_bg);
-        self.show_widget_bar(ctx, panel_bg);
-        self.show_side_panel(ctx);
-        self.show_bottom_toolbar(ctx, panel_bg);
-        self.show_chart(ctx, panel_bg);
+        self.show_top_toolbar(ui, panel_bg);
+        self.show_symbol_header(ui, panel_bg);
+        self.show_drawing_toolbar(ui, panel_bg);
+        self.show_widget_bar(ui, panel_bg);
+        self.show_side_panel(ui);
+        self.show_bottom_toolbar(ui, panel_bg);
+        self.show_chart(ui, panel_bg);
 
         // Floating replay transport, on top of the chart.
-        self.show_replay_control(ctx);
+        self.show_replay_control(&ctx);
 
         // All modal dialogs.
-        self.show_dialogs(ctx);
+        self.show_dialogs(&ctx);
 
         // Global keyboard shortcuts (e.g. the shortcuts help itself).
-        self.handle_keyboard(ctx);
+        self.handle_keyboard(&ctx);
 
         // Fulfil a pending screenshot request.
-        self.handle_screenshot(ctx);
+        self.handle_screenshot(&ctx);
 
         // Transient status notice.
-        self.show_notice(ctx);
+        self.show_notice(&ctx);
 
         // Keep the header OHLC in sync with whatever the chart last rendered.
         if let Some(last) = self.trading_chart.get_last_bar() {
@@ -641,14 +649,14 @@ impl eframe::App for DemoApp {
 // ---------------------------------------------------------------------------
 
 impl DemoApp {
-    fn show_top_toolbar(&mut self, ctx: &egui::Context, bg: egui::Color32) {
-        egui::TopBottomPanel::top("toolbar")
-            .exact_height(38.0)
+    fn show_top_toolbar(&mut self, ui: &mut egui::Ui, bg: egui::Color32) {
+        egui::Panel::top("toolbar")
+            .exact_size(38.0)
             .show_separator_line(false)
             .frame(panel_frame(bg))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 let action = self.top_toolbar.show_with_state(ui, &self.state);
-                self.handle_top_toolbar(ctx, action);
+                self.handle_top_toolbar(ui.ctx(), action);
             });
     }
 
@@ -733,23 +741,23 @@ impl DemoApp {
         cfg.grid_color = self.theme.chart.grid_line;
     }
 
-    fn show_symbol_header(&mut self, ctx: &egui::Context, bg: egui::Color32) {
-        egui::TopBottomPanel::top("symbol_header")
-            .exact_height(38.0)
+    fn show_symbol_header(&mut self, ui: &mut egui::Ui, bg: egui::Color32) {
+        egui::Panel::top("symbol_header")
+            .exact_size(38.0)
             .show_separator_line(true)
             .frame(panel_frame(bg))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 self.symbol_header.show(ui);
             });
     }
 
-    fn show_drawing_toolbar(&mut self, ctx: &egui::Context, bg: egui::Color32) {
-        egui::SidePanel::left("drawing_toolbar")
+    fn show_drawing_toolbar(&mut self, ui: &mut egui::Ui, bg: egui::Color32) {
+        egui::Panel::left("drawing_toolbar")
             .resizable(false)
-            .default_width(52.0)
+            .default_size(52.0)
             .show_separator_line(true)
             .frame(panel_frame(bg))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 let action = self.drawing_toolbar.show_with_action(ui);
                 self.handle_drawing_toolbar(action);
             });
@@ -833,13 +841,13 @@ impl DemoApp {
         }
     }
 
-    fn show_widget_bar(&mut self, ctx: &egui::Context, bg: egui::Color32) {
-        egui::SidePanel::right("widget_bar")
+    fn show_widget_bar(&mut self, ui: &mut egui::Ui, bg: egui::Color32) {
+        egui::Panel::right("widget_bar")
             .resizable(false)
-            .exact_width(52.0)
+            .exact_size(52.0)
             .show_separator_line(true)
             .frame(panel_frame(bg))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 let action = self.widget_bar.show(ui);
                 if let WidgetBarAction::Clicked(icon) = action {
                     self.toggle_panel(icon);
@@ -865,15 +873,15 @@ impl DemoApp {
         }
     }
 
-    fn show_side_panel(&mut self, ctx: &egui::Context) {
+    fn show_side_panel(&mut self, ui: &mut egui::Ui) {
         let Some(which) = self.open_panel else {
             return;
         };
-        egui::SidePanel::right("detail_panel")
+        egui::Panel::right("detail_panel")
             .resizable(true)
-            .default_width(280.0)
-            .min_width(220.0)
-            .show(ctx, |ui| match which {
+            .default_size(280.0)
+            .min_size(220.0)
+            .show(ui, |ui| match which {
                 SidePanel::ObjectTree => self.show_object_tree(ui),
                 SidePanel::Alerts => self.show_alerts_panel(ui),
             });
@@ -1079,12 +1087,12 @@ impl DemoApp {
         }
     }
 
-    fn show_bottom_toolbar(&mut self, ctx: &egui::Context, bg: egui::Color32) {
-        egui::TopBottomPanel::bottom("bottom")
-            .exact_height(38.0)
+    fn show_bottom_toolbar(&mut self, ui: &mut egui::Ui, bg: egui::Color32) {
+        egui::Panel::bottom("bottom")
+            .exact_size(38.0)
             .show_separator_line(true)
             .frame(panel_frame(bg))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 let action = self.timeframe_toolbar.show(ui);
                 self.handle_timeframe_toolbar(action);
             });
@@ -1109,10 +1117,10 @@ impl DemoApp {
         }
     }
 
-    fn show_chart(&mut self, ctx: &egui::Context, bg: egui::Color32) {
+    fn show_chart(&mut self, ui: &mut egui::Ui, bg: egui::Color32) {
         egui::CentralPanel::default()
             .frame(panel_frame(bg))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 self.trading_chart.show(ui);
             });
         // Right-click context actions resolve after the chart is shown.
@@ -1290,32 +1298,28 @@ impl DemoApp {
         }
     }
 
+    fn request_screenshot(&self, ctx: &egui::Context, target: ScreenshotTarget) {
+        let (sender, repaint) = (self.screenshots.0.clone(), ctx.clone());
+        ctx.request_screenshot(move |image| {
+            // The receiver lives as long as the app, so this fails only during shutdown.
+            let _ = sender.send((image, target));
+            // egui does not repaint when the capture arrives.
+            repaint.request_repaint();
+        });
+    }
+
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         if self.screenshot_requested {
             self.screenshot_requested = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            self.request_screenshot(ctx, ScreenshotTarget::File(None));
         }
 
-        // Pull any delivered screenshot out of egui's event queue and deliver it.
-        let shot = ctx.input(|i| {
-            i.events.iter().find_map(|e| match e {
-                egui::Event::Screenshot {
-                    image, user_data, ..
-                } => Some((image.clone(), user_data.clone())),
-                _ => None,
-            })
-        });
-        let Some((image, user_data)) = shot else {
-            return;
-        };
-        match user_data
-            .data
-            .as_ref()
-            .and_then(|d| d.downcast_ref::<ScreenshotTarget>())
-        {
-            Some(ScreenshotTarget::Clipboard) => ctx.copy_image((*image).clone()),
-            Some(ScreenshotTarget::File(path)) => self.save_screenshot(&image, path.clone()),
-            None => self.save_screenshot(&image, None),
+        // Deliver the screenshots captured since the last frame.
+        while let Ok((image, target)) = self.screenshots.1.try_recv() {
+            match target {
+                ScreenshotTarget::Clipboard => ctx.copy_image((*image).clone()),
+                ScreenshotTarget::File(path) => self.save_screenshot(&image, path),
+            }
         }
     }
 
@@ -1338,7 +1342,7 @@ impl DemoApp {
             self.notice = None;
             return;
         };
-        egui::Area::new(egui::Id::new("demo_notice"))
+        egui::Area::new(egui::Id::unique("demo_notice"))
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -56.0))
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())

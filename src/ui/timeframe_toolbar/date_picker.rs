@@ -5,6 +5,7 @@ use crate::ext::UiExt;
 use crate::styles::typography;
 use crate::theme::{Theme, ThemeExt, follow_active_theme, theme_derived};
 use crate::tokens::DESIGN_TOKENS;
+use crate::ui_kit::dialog::{centred_title, titled_window_size};
 use chrono::{Datelike, NaiveDate};
 use egui::{Color32, Sense, Stroke, StrokeKind, Ui, Vec2, Window};
 
@@ -136,14 +137,19 @@ impl DatePicker {
         }
 
         let mut is_open = self.is_open;
+        let frame = egui::Frame::window(&ctx.global_style()).fill(self.config.bg_color);
 
-        Window::new("Go to")
+        Window::new(centred_title(ctx, "Go to"))
             .open(&mut is_open)
             .resizable(false)
             .collapsible(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .fixed_size(Vec2::new(self.config.width, self.config.height))
-            .frame(egui::Frame::window(&ctx.style()).fill(self.config.bg_color))
+            .fixed_size(titled_window_size(
+                ctx,
+                &frame,
+                Vec2::new(self.config.width, self.config.height),
+            ))
+            .frame(frame)
             .show(ctx, |ui| {
                 action = self.draw_content(ui);
             });
@@ -277,7 +283,7 @@ impl DatePicker {
 
         let today = chrono::Local::now().date_naive();
         let cell_size = 32.0;
-        let grid_width = cell_size * 7.0;
+        let grid_width = cell_size * 7.0 + ui.spacing().item_spacing.x * 6.0;
 
         // Weekday headers
         ui.horizontal(|ui| {

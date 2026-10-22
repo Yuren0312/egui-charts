@@ -48,6 +48,7 @@ use crate::model::Symbol;
 use crate::styles::typography;
 use crate::tokens::DESIGN_TOKENS;
 use crate::ui_kit::EmptyState;
+use crate::ui_kit::dialog::{centred_title, titled_window_size};
 use egui::{Color32, Context, Pos2, Response, RichText, Sense, Ui, Vec2, Window};
 
 // =============================================================================
@@ -235,10 +236,17 @@ impl SymbolSearchDialog {
         let mut sel_symbol = None;
         let mut should_close = false;
 
+        let frame = egui::Frame::window(&ctx.global_style());
+        // Centred horizontally like the crate's other dialogs, but movable. The top edge is the
+        // pivot, so the window grows downwards as its content changes instead of around its centre.
+        let r = ctx.content_rect();
         egui::Window::new("Symbol Search")
             .collapsible(false)
             .resizable(false)
-            .default_width(400.0)
+            // The content size it had before egui 0.35: 400 px wide and egui's default height.
+            .default_size(titled_window_size(ctx, &frame, Vec2::new(400.0, 420.0)))
+            .pivot(egui::Align2::CENTER_TOP)
+            .default_pos(egui::pos2(r.center().x, r.top() + r.height() * 0.2))
             .show(ctx, |ui| {
                 // Search input
                 ui.horizontal(|ui| {
@@ -601,15 +609,20 @@ impl CompareSymbolsDialog {
         }
 
         let mut is_open = self.is_open;
-        let config = self.config.resolved(&ctx.style().visuals);
+        let config = self.config.resolved(&ctx.global_style().visuals);
+        let frame = egui::Frame::window(&ctx.global_style()).fill(config.bg_color);
 
-        Window::new("Compare symbol")
+        Window::new(centred_title(ctx, "Compare symbol"))
             .open(&mut is_open)
             .resizable(false)
             .collapsible(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .fixed_size(Vec2::new(config.width, config.height))
-            .frame(egui::Frame::window(&ctx.style()).fill(config.bg_color))
+            .fixed_size(titled_window_size(
+                ctx,
+                &frame,
+                Vec2::new(config.width, config.height),
+            ))
+            .frame(frame)
             .show(ctx, |ui| {
                 action = self.draw_content(ui, symbols, &config);
             });

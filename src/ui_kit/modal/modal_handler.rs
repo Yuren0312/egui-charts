@@ -26,9 +26,9 @@ impl<T> Default for ModalHandler<T> {
 
 impl<T> ModalHandler<T> {
     /// Create a new modal handler with the given ID
-    pub fn new(id: impl std::hash::Hash) -> Self {
+    pub fn new(id: impl std::hash::Hash + std::fmt::Debug) -> Self {
         Self {
-            id: Id::new(id),
+            id: Id::unique(id),
             open: false,
             payload: None,
         }
@@ -101,7 +101,7 @@ impl<T> ModalHandler<T> {
         }
 
         let response = egui::Modal::new(self.id)
-            .frame(dialog_frame(&ctx.style()))
+            .frame(dialog_frame(&ctx.global_style()))
             .backdrop_color(DESIGN_TOKENS.semantic.modal.overlay_bg)
             .show(ctx, |ui| add_contents(ui, self.payload.as_mut()));
         if response.should_close() {

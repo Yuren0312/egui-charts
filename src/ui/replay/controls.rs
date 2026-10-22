@@ -23,9 +23,9 @@ use egui::{RichText, Ui, Vec2};
 /// let controls = ReplayControls::new(&config);
 ///
 /// // In your UI loop:
-/// # egui::__run_test_ctx(|ctx| egui::CentralPanel::default().show(ctx, |ui| {
+/// # egui::__run_test_ui(|ui| {
 /// let action = controls.show(ui, &mut state);
-/// # }).inner);
+/// # });
 /// ```
 pub struct ReplayControls<'a> {
     config: &'a ReplayConfig,
@@ -280,7 +280,7 @@ impl<'a> ReplayControls<'a> {
 
         // Speed dropdown using ComboBox
         let speed_label = state.speed.label();
-        let combo_id = ui.id().with("speed_combo");
+        let combo_id = ui.scope_id().with("speed_combo");
 
         egui::ComboBox::from_id_salt(combo_id)
             .selected_text(RichText::new(&speed_label).color(colors.speed_color))

@@ -356,7 +356,9 @@ pub(crate) fn contrast(fg: Color32, bg: Color32) -> f32 {
 
 /// Apply `theme` to egui's visuals and store it for [`ThemeExt::active_theme`].
 ///
-/// Call it once at startup and again after the theme changes.
+/// Call it once at startup and again after the theme changes. Inside `eframe::App::ui` the root
+/// `Ui` already exists, so follow the call with `ui.set_style(ui.ctx().global_style())` for the
+/// panels shown in that `Ui` to use the theme in the same frame.
 pub fn apply_to_egui(ctx: &egui::Context, theme: &Theme) {
     let mut visuals = if theme.dark {
         egui::Visuals::dark()
@@ -381,6 +383,8 @@ pub fn apply_to_egui(ctx: &egui::Context, theme: &Theme) {
     visuals.widgets.hovered.bg_fill = ui.btn_bg_hover;
     visuals.widgets.active.bg_fill = ui.btn_bg_active;
     visuals.widgets.open.bg_fill = ui.btn_bg_active;
+    // egui fills the top window's title bar, an open combo box and an open submenu button with it.
+    visuals.widgets.open.weak_bg_fill = ui.btn_bg_hover;
 
     // Widget borders
     visuals.widgets.noninteractive.bg_stroke =
@@ -433,14 +437,30 @@ pub fn apply_to_egui(ctx: &egui::Context, theme: &Theme) {
         color: Color32::from_black_alpha(shadow_alpha / 2),
     };
 
-    ctx.set_visuals(visuals);
+    // egui's built-in widgets keep the theme's compact look: small corners here, and tight
+    // padding and control height on the style below.
+    let widgets = &mut visuals.widgets;
+    for state in [
+        &mut widgets.noninteractive,
+        &mut widgets.inactive,
+        &mut widgets.hovered,
+        &mut widgets.active,
+        &mut widgets.open,
+    ] {
+        state.corner_radius = theme.radius.xs.into();
+    }
 
+    // egui keeps a dark and a light style and follows the system appearance by default, so
+    // style both: the theme then stays when the system switches.
     let spacing = &theme.spacing;
-    let mut style = (*ctx.style()).clone();
-    style.spacing.window_margin = egui::Margin::same(spacing.xl as i8);
-    style.spacing.menu_margin = egui::Margin::symmetric(spacing.lg as i8, spacing.sm as i8);
-    style.spacing.item_spacing = egui::vec2(spacing.lg, spacing.sm);
-    ctx.set_style(style);
+    ctx.all_styles_mut(|style| {
+        style.visuals = visuals.clone();
+        style.spacing.window_margin = egui::Margin::same(spacing.xl as i8);
+        style.spacing.menu_margin = egui::Margin::symmetric(spacing.lg as i8, spacing.sm as i8);
+        style.spacing.item_spacing = egui::vec2(spacing.lg, spacing.sm);
+        style.spacing.button_padding = egui::vec2(spacing.sm, DESIGN_TOKENS.spacing.hairline);
+        style.spacing.interact_size.y = DESIGN_TOKENS.sizing.control_height;
+    });
 
     // Store the theme so components resolve their colours from it while painting.
     context::set_active_theme(ctx, theme.clone());
@@ -473,18 +493,19 @@ mod tests {
         ]);
         let focus_ring_of = |ctx: &egui::Context| {
             let mut focus_ring = Color32::TRANSPARENT;
-            let _ = ctx.run(Default::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            ctx.run_ui(Default::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     focus_ring = crate::styles::focus::focus_ring_color(ui);
                 });
-            });
+            })
+            .drop_without_applying_deltas();
             focus_ring
         };
         let mut failures = Vec::new();
         for (name, theme) in themes {
             let ctx = egui::Context::default();
             apply_to_egui(&ctx, &theme);
-            let visuals = ctx.style().visuals.clone();
+            let visuals = ctx.global_style().visuals.clone();
             let ui = &theme.ui;
             let focus_ring = focus_ring_of(&ctx);
             // High contrast holds every text level to 7:1 and outlines to 4.5:1 (WCAG AAA).
@@ -570,7 +591,7 @@ mod tests {
         // An app that styles egui itself and never applies a theme keeps a visible ring.
         let ctx = egui::Context::default();
         ctx.set_theme(egui::Theme::Light);
-        let (focus_ring, panel) = (focus_ring_of(&ctx), ctx.style().visuals.panel_fill);
+        let (focus_ring, panel) = (focus_ring_of(&ctx), ctx.global_style().visuals.panel_fill);
         let ratio = contrast(focus_ring, panel);
         if ratio < 3.0 {
             failures.push(format!(
@@ -578,5 +599,32 @@ mod tests {
             ));
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// egui follows the system appearance by default and keeps a style for each, so an app that
+    /// applies its theme once must keep it when the system switches between light and dark.
+    #[test]
+    fn the_theme_outlasts_a_switch_of_the_system_appearance() {
+        let ctx = egui::Context::default();
+        let frame = |system: egui::Theme, apply: bool| {
+            let input = egui::RawInput {
+                system_theme: Some(system),
+                ..Default::default()
+            };
+            ctx.run_ui(input, |ui| {
+                if apply {
+                    apply_to_egui(ui.ctx(), &Theme::high_contrast());
+                }
+            })
+            .drop_without_applying_deltas();
+        };
+        frame(egui::Theme::Dark, true);
+        let applied = ctx.global_style();
+        frame(egui::Theme::Light, false);
+        let style = ctx.global_style();
+        assert!(
+            style.visuals == applied.visuals && style.spacing == applied.spacing,
+            "switching the system to light dropped the applied theme"
+        );
     }
 }

@@ -8,7 +8,7 @@
 [![crates.io](https://img.shields.io/crates/v/egui-charts.svg)](https://crates.io/crates/egui-charts)
 [![docs.rs](https://docs.rs/egui-charts/badge.svg)](https://docs.rs/egui-charts)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
-[![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](#minimum-supported-rust-version)
+[![MSRV](https://img.shields.io/badge/MSRV-1.95-blue.svg)](#minimum-supported-rust-version)
 
 [Live Demo](https://userfrm.github.io/egui-charts/demo/) · [API Docs](https://docs.rs/egui-charts) · [Examples](https://github.com/userFRM/egui-charts/tree/main/examples)
 
@@ -116,8 +116,8 @@ struct App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.chart.update(); // poll the data source, load older bars
             self.chart.show(ui); // render the chart
         });
@@ -176,7 +176,7 @@ egui-charts = { version = "0.2", features = ["ui"] }
 egui-charts = { version = "0.2", default-features = false }
 ```
 
-egui-charts does not enable egui's default features, so fonts are the application's choice (eframe enables egui's `default_fonts` by default). The chart installs no image loader other than SVG; an application that shows PNG, JPEG, file or HTTP images calls `egui_extras::install_image_loaders` with the loader features it needs.
+egui-charts does not enable egui's default features, so fonts are the application's choice (eframe enables egui's `default_fonts` by default). Since egui 0.37 those fonts have no emoji, which need egui's `monochrome_emoji_fonts` feature or fonts the application installs. The chart installs no image loader other than SVG; an application that shows PNG, JPEG, file or HTTP images calls `egui_extras::install_image_loaders` with the loader features it needs.
 
 ---
 
@@ -339,11 +339,13 @@ egui-charts = { version = "0.2", features = ["ui"] }
 use egui_charts::theme::{Theme, apply_to_egui};
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let theme = Theme::dark();
-        apply_to_egui(ctx, &theme);
+        apply_to_egui(ui.ctx(), &theme);
+        // The root Ui was created before the theme was applied this frame.
+        ui.set_style(ui.ctx().global_style());
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.chart.update();
             self.chart.show(ui);
         });
@@ -353,7 +355,7 @@ impl eframe::App for App {
 
 1. **Add the dependency** with the `ui` feature for toolbar and panel support.
 2. **Implement `DataSource`** to bridge your Tauri backend (IPC or WebSocket) to the chart's data layer.
-3. **Build the chart once** with `ChartBuilder`, then call `update()` and `show(ui)` in `eframe::App::update`.
+3. **Build the chart once** with `ChartBuilder`, then call `update()` and `show(ui)` in `eframe::App::ui`.
 4. **Apply a theme** at startup with `apply_to_egui()` to propagate design tokens.
 
 ---
@@ -385,7 +387,7 @@ Kinetic scrolling with momentum-based panning. Real-time streaming via `chart.up
 
 ## Minimum Supported Rust Version
 
-The MSRV is **1.88** (Rust edition 2024), enforced in `Cargo.toml` via `rust-version`.
+The MSRV is **1.95** (Rust edition 2024), enforced in `Cargo.toml` via `rust-version`.
 
 ---
 

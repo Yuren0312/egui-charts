@@ -5,7 +5,7 @@
 use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use egui::{
-    Color32, Id, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType,
+    Color32, Id, Pos2, Rect, Response, Role, Sense, Stroke, Ui, Vec2, WidgetInfo,
     epaint::StrokeKind,
 };
 
@@ -211,11 +211,14 @@ pub struct ColorPicker<'a> {
 }
 
 impl<'a> ColorPicker<'a> {
-    pub fn new(state: &'a mut ColorPickerState, id_src: impl std::hash::Hash) -> Self {
+    pub fn new(
+        state: &'a mut ColorPickerState,
+        id_src: impl std::hash::Hash + std::fmt::Debug,
+    ) -> Self {
         Self {
             config: ColorPickerConfig::default(),
             state,
-            id: Id::new(id_src),
+            id: Id::unique(id_src),
         }
     }
 
@@ -236,11 +239,7 @@ impl<'a> ColorPicker<'a> {
         let btn_size = Vec2::splat(DESIGN_TOKENS.sizing.button_md);
         let (btn_rect, btn_res) = ui.allocate_exact_size(btn_size, Sense::click());
         btn_res.widget_info(|| {
-            WidgetInfo::labeled(
-                WidgetType::ColorButton,
-                ui.is_enabled(),
-                hex(self.state.sel_color),
-            )
+            WidgetInfo::labeled(Role::ColorWell, ui.is_enabled(), hex(self.state.sel_color))
         });
 
         // Draw dark background then blend color on top
@@ -482,9 +481,8 @@ impl<'a> ColorPicker<'a> {
             Vec2::new(ui.available_width(), DESIGN_TOKENS.sizing.button_md),
             Sense::click(),
         );
-        response.widget_info(|| {
-            WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), "Custom colour")
-        });
+        response
+            .widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), "Custom colour"));
 
         let border_color = if response.hovered() || self.state.custom_mode {
             visuals.widgets.hovered.fg_stroke.color
@@ -558,10 +556,10 @@ fn hex(color: Color32) -> String {
 pub fn color_picker_btn(
     ui: &mut Ui,
     color: &mut Color32,
-    id_src: impl std::hash::Hash,
+    id_src: impl std::hash::Hash + std::fmt::Debug,
 ) -> Response {
     // Create temporary state
-    let id = Id::new(id_src);
+    let id = Id::unique(id_src);
     let mut state = ui.ctx().data_mut(|d| {
         d.get_temp::<ColorPickerState>(id)
             .unwrap_or_else(|| ColorPickerState::new(*color))

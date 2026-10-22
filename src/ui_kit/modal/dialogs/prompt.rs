@@ -53,9 +53,9 @@ pub struct PromptDialog {
 
 impl PromptDialog {
     /// Create a new prompt dialog
-    pub fn new(id: impl std::hash::Hash, title: impl Into<String>) -> Self {
+    pub fn new(id: impl std::hash::Hash + std::fmt::Debug, title: impl Into<String>) -> Self {
         Self {
-            id: Id::new(id),
+            id: Id::unique(id),
             title: title.into(),
             message: None,
             placeholder: String::new(),
@@ -175,7 +175,7 @@ impl PromptDialog {
 /// Show a simple prompt dialog
 pub fn prompt(
     ctx: &Context,
-    id: impl std::hash::Hash,
+    id: impl std::hash::Hash + std::fmt::Debug,
     title: impl Into<String>,
     open: &mut bool,
 ) -> PromptResult {
@@ -185,7 +185,7 @@ pub fn prompt(
 /// Show a prompt dialog with a message
 pub fn prompt_with_message(
     ctx: &Context,
-    id: impl std::hash::Hash,
+    id: impl std::hash::Hash + std::fmt::Debug,
     title: impl Into<String>,
     message: impl Into<String>,
     open: &mut bool,
@@ -210,9 +210,10 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| {
-                result = PromptDialog::new("p", "Name").show(ctx, &mut open)
-            });
+            ctx.run_ui(input, |ui| {
+                result = PromptDialog::new("p", "Name").show(ui.ctx(), &mut open)
+            })
+            .drop_without_applying_deltas();
             result
         };
         frame(vec![]); // the input takes focus

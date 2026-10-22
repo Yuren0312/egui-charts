@@ -19,9 +19,9 @@ pub struct Modal {
 
 impl Modal {
     /// Create a new modal with the given title
-    pub fn new(id: impl std::hash::Hash, title: impl Into<String>) -> Self {
+    pub fn new(id: impl std::hash::Hash + std::fmt::Debug, title: impl Into<String>) -> Self {
         Self {
-            id: Id::new(id),
+            id: Id::unique(id),
             title: title.into(),
             width: None,
             min_height: None,
@@ -69,7 +69,7 @@ impl Modal {
             return None;
         }
 
-        let frame = dialog_frame(&ctx.style());
+        let frame = dialog_frame(&ctx.global_style());
         let size = egui::vec2(
             self.width
                 .unwrap_or(DESIGN_TOKENS.sizing.dialog.default_width),
@@ -122,7 +122,7 @@ pub struct SimpleModal {
 
 impl SimpleModal {
     /// Create a new simple modal
-    pub fn new(id: impl std::hash::Hash, title: impl Into<String>) -> Self {
+    pub fn new(id: impl std::hash::Hash + std::fmt::Debug, title: impl Into<String>) -> Self {
         Self {
             modal: Modal::new(id, title),
             open: false,
@@ -179,7 +179,7 @@ impl SimpleModal {
 /// Helper function to show a centered modal with standard styling
 pub fn show_modal<R>(
     ctx: &Context,
-    id: impl std::hash::Hash,
+    id: impl std::hash::Hash + std::fmt::Debug,
     title: impl Into<String>,
     open: &mut bool,
     add_contents: impl FnOnce(&mut Ui) -> R,
