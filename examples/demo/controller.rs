@@ -44,7 +44,6 @@ use std::sync::{Arc, mpsc};
 
 use crate::sampledata::{
     DemoSymbol, bar_count_for_timeframe, chart_type_from_name, generate_sample_bars,
-    visible_bars_for_range,
 };
 
 /// Object-tree ids for indicators are offset into a high range so a single
@@ -1361,4 +1360,25 @@ fn apply_settings_state(state: &ChartSettingsState, config: &mut egui_charts::co
 
     config.show_ohlc_info = state.status_line.show_ohlc;
     config.show_volume = state.status_line.show_volume;
+}
+
+/// Map a bottom-toolbar `DateRange` preset to a visible-bar count, so the
+/// preset actually re-zooms the chart's visible window.
+fn visible_bars_for_range(
+    range: egui_charts::ui::timeframe_toolbar::DateRange,
+    total: usize,
+) -> usize {
+    use egui_charts::ui::timeframe_toolbar::DateRange;
+    let want = match range {
+        DateRange::Day1 => 24,
+        DateRange::Day5 => 60,
+        DateRange::Month1 => 120,
+        DateRange::Month3 => 240,
+        DateRange::Month6 => 320,
+        DateRange::YTD => 400,
+        DateRange::Year1 => 440,
+        DateRange::Year5 => 480,
+        DateRange::All => total,
+    };
+    want.clamp(10, total.max(10))
 }

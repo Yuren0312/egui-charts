@@ -2,7 +2,7 @@ name: Pages
 
 # Builds the project site on every pull request and publishes it to GitHub
 # Pages on every push to `main`: the WebAssembly demo at /egui-charts/demo/,
-# and for now the same page at /egui-charts/.  Pages must be enabled for the
+# and the landing page at /egui-charts/.  Pages must be enabled for the
 # repository with the source set to "GitHub Actions" for the deploy job to
 # publish.
 
@@ -15,6 +15,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   TRUNK_VERSION: "0.21.14"
+  # Largest landing page wasm, in bytes after gzip -9, that the build accepts.
+  HERO_WASM_GZIP_MAX: "1500000"
 
 # Allow only one concurrent deployment, cancelling in-progress runs of the same
 # ref so a newer commit always wins the Pages publish.
@@ -39,6 +41,7 @@ jobs:
           workspaces: |
             . -> target
             examples/demo -> target
+            docs/site -> target
       - name: Install Trunk
         uses: jetli/trunk-action@v0.5.0
         with:
@@ -48,13 +51,20 @@ jobs:
       - name: Build wasm demo
         working-directory: examples/demo
         run: trunk build --release --public-url /egui-charts/demo/
-      # The demo's asset URLs are absolute, so its index.html also works at the
-      # site root.
+      - name: Build landing page
+        working-directory: docs/site
+        run: trunk build --release --public-url /egui-charts/
+      - name: Check landing page wasm size
+        shell: bash
+        run: |
+          size=$(gzip -9 -c docs/site/dist/*_bg.wasm | wc -c)
+          echo "Landing page wasm: $size bytes gzip, budget $HERO_WASM_GZIP_MAX" >> "$GITHUB_STEP_SUMMARY"
+          test "$size" -le "$HERO_WASM_GZIP_MAX"
       - name: Assemble site
         run: |
           mkdir _site
           cp -r examples/demo/dist _site/demo
-          cp examples/demo/dist/index.html _site/index.html
+          cp -r docs/site/dist/. _site/
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

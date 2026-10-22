@@ -6,7 +6,7 @@ rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 description = "Financial charting engine for egui: candlesticks and other chart types, drawing tools, technical indicators and a design-token theme system"
 repository = "https://github.com/userFRM/egui-charts"
-homepage = "https://github.com/userFRM/egui-charts"
+homepage = "https://userfrm.github.io/egui-charts/"
 documentation = "https://docs.rs/egui-charts"
 authors = ["userFRM"]
 keywords = ["trading", "charts", "finance", "egui", "candlestick"]
@@ -25,6 +25,7 @@ exclude = [
     "*.png",
     "*.gif",
     "*.mp4",
+    "docs/",
 ]
 
 [lib]

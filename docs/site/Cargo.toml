@@ -1,0 +1,32 @@
+[package]
+name = "egui-charts-site"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "egui-charts-site"
+path = "main.rs"
+
+# The site's live chart runs only in the browser, so every dependency is web only and the native
+# build is an empty binary.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+egui-charts = { path = "../..", default-features = false, features = ["widget"] }
+eframe = { version = "0.37.0", default-features = false, features = ["glow"] }
+epaint_default_fonts = "0.37.0"
+chrono = "0.4.43"
+log = "0.4.29"
+wasm-bindgen = "0.2.108"
+wasm-bindgen-futures = "0.4.58"
+web-sys = { version = "0.3.85", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlElement"] }
+console_error_panic_hook = "0.1.7"
+
+# The page downloads this module before it can draw, so the release build is optimised for size.
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

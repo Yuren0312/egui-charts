@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Financial charts for egui, from a single chart widget to a full trading terminal. Pure Rust, native and WebAssembly.">
+  <title>egui-charts</title>
+  <style>
+    /* Colours from the chart's light and dark theme presets, with the muted text darkened for contrast, so the page and the chart match. */
+    :root {
+      --bg: #ffffff;
+      --surface: #f0f3fa;
+      --text: #131722;
+      --muted: #4e5360;
+      --border: #e0e3eb;
+      --accent: #2962ff;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #131722;
+        --surface: #1e222d;
+        --text: #d1d4dc;
+        --muted: #a3a7b2;
+        --border: #373b46;
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 1rem/1.6 var(--sans);
+    }
+    .wrap { max-width: 72rem; margin: 0 auto; padding: 0 1rem; }
+    a { color: var(--text); text-decoration: underline; text-underline-offset: 0.15em; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    canvas:focus-visible { outline: 2px solid var(--accent) !important; outline-offset: 2px; }
+    code { font-family: var(--mono); font-size: 0.9em; }
+    code { background: var(--surface); border-radius: 4px; padding: 0.1em 0.35em; }
+
+    header .wrap {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem 1.5rem;
+      padding-top: 1rem;
+      padding-bottom: 1rem;
+    }
+    .name { font-weight: 600; }
+    nav ul { display: flex; gap: 1.25rem; margin: 0; padding: 0; list-style: none; }
+
+    .intro { padding: 2rem 0 1.5rem; }
+    h1 { font-size: clamp(2rem, 6vw, 3rem); line-height: 1.15; margin: 0 0 0.75rem; }
+    .pitch { font-size: 1.25rem; margin: 0 0 0.5rem; }
+    .sub { color: var(--muted); max-width: 44rem; margin: 0 0 1.5rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
+    .button {
+      display: inline-block;
+      padding: 0.6rem 1.1rem;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .button.primary { background: var(--accent); color: #ffffff; }
+    .button:not(.primary) { border-color: var(--border); }
+    .more { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1.25rem; margin: 0; }
+
+    #hero { margin: 1rem 0 3rem; }
+    .stage {
+      position: relative;
+      aspect-ratio: 15 / 7;
+      max-height: 50vh;
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    @media (max-width: 639px) { .stage { aspect-ratio: 1 / 1; } }
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+      padding: 1rem;
+      text-align: center;
+      color: var(--muted);
+    }
+    /* Hidden, not removed, so eframe starts at the stage's size. */
+    #hero_canvas { position: absolute; inset: 0; width: 100%; height: 100%; visibility: hidden; }
+    #hero[data-state="ready"] #hero_canvas { visibility: visible; }
+    #hero[data-state="ready"] .placeholder { display: none; }
+    #hero:not([data-state="failed"]) .failed,
+    #hero[data-state="failed"] .loading { display: none; }
+    figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 0.5rem; }
+
+    footer { border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9rem; }
+    footer .wrap { padding-top: 1.5rem; padding-bottom: 2rem; }
+    footer ul { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+  </style>
+  <noscript><style>#hero .loading { display: none; }</style></noscript>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <span class="name">egui-charts</span>
+      <nav aria-label="Project">
+        <ul>
+          <li><a href="demo/">Demo</a></li>
+          <li><a href="https://docs.rs/egui-charts">Docs</a></li>
+          <li><a href="https://github.com/userFRM/egui-charts">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="intro">
+      <h1>egui-charts</h1>
+      <p class="pitch">Financial charts for egui, from a single chart widget to a full trading terminal.</p>
+      <p class="sub">Pure Rust, native and WebAssembly from the same code. Take it as far as you need: one chart in your own egui app, or the chart with studies, drawing tools, toolbars and dialogs around it.</p>
+      <p class="actions">
+        <a class="button primary" href="demo/">Open the full demo</a>
+        <a class="button" href="https://github.com/userFRM/egui-charts">Source on GitHub</a>
+      </p>
+      <p class="more">
+        <a href="https://docs.rs/egui-charts">API documentation</a>
+        <code>cargo add egui-charts</code>
+      </p>
+    </section>
+
+    <figure id="hero" data-state="loading">
+      <div class="stage">
+        <p class="placeholder">
+          <span class="loading">Loading the live chart</span>
+          <span class="failed">The live chart could not start in this browser. It needs WebAssembly and WebGL.</span>
+          <noscript>The live chart needs JavaScript and WebAssembly.</noscript>
+        </p>
+        <canvas id="hero_canvas" role="img" aria-label="Candlestick chart of synthetic sample data" aria-describedby="hero-caption"></canvas>
+      </div>
+      <figcaption id="hero-caption">The chart widget on its own, running in your browser on synthetic sample data. Drag to pan, scroll to zoom.</figcaption>
+    </figure>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p>Dual licensed under MIT or Apache-2.0. Charts on this page show synthetic sample data.</p>
+      <ul>
+        <li><a href="https://github.com/userFRM/egui-charts">GitHub</a></li>
+        <li><a href="https://docs.rs/egui-charts">docs.rs</a></li>
+        <li><a href="https://crates.io/crates/egui-charts">crates.io</a></li>
+        <li><a href="demo/">Demo</a></li>
+        <li><a href="https://github.com/userFRM/egui-charts/blob/main/CHANGELOG.md">Changelog</a></li>
+        <li><a href="LICENSE-fonts.txt">Font licences</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <link data-trunk rel="rust" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
+  <!-- The module embeds egui's Ubuntu Light font; its licence is published next to this page. -->
+  <link data-trunk rel="copy-file" href="../../examples/demo/LICENSE-fonts.txt" />
+  <script>
+    const hero = document.getElementById("hero");
+    if (typeof WebAssembly !== "object") hero.dataset.state = "failed";
+    // A module the browser cannot compile fails in the loader, before the chart can report it.
+    window.addEventListener("error", () => {
+      if (hero.dataset.state === "loading") hero.dataset.state = "failed";
+    });
+    // eframe always keeps Tab inside a focused canvas; let it move focus on.
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Tab" && e.target.id === "hero_canvas") e.stopPropagation();
+    }, true);
+  </script>
+</body>
+</html>

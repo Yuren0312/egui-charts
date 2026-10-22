@@ -1,4 +1,4 @@
-Fonts embedded in the egui-charts web demo
+Fonts embedded in the egui-charts web demo and landing page
 
 The demo draws its text with the default fonts of egui (the epaint_default_fonts
 crate), which are compiled into its WebAssembly module:
