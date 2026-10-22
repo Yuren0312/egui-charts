@@ -3,6 +3,7 @@
 //! Includes: cyclic lines, time cycles, and sine line.
 
 use crate::drawings::domain::Drawing;
+use crate::drawings::rendering::utils::draw_dashed_line;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Color32, Pos2, Rect, Stroke};
@@ -23,8 +24,8 @@ impl Drawing {
             self.color[3],
         );
 
-        let period = (p2.x - p1.x).abs();
-        if period < 1.0 {
+        let period = (f64::from(p2.x) - f64::from(p1.x)).abs();
+        if !period.is_finite() || period < 1.0 {
             return;
         }
 
@@ -32,21 +33,15 @@ impl Drawing {
         let fill_color =
             Color32::from_rgba_unmultiplied(self.color[0], self.color[1], self.color[2], 20);
 
-        // Extend left from anchor point
-        let mut x = p1.x;
-        while x >= chart_rect.min.x {
-            x -= period;
-        }
-        x += period; // Back to first visible cycle
-
         let font = egui::FontId::proportional(typography::XS);
-        let mut fill_toggle = false;
 
-        // Calculate starting cycle number (negative for lines left of anchor)
-        let first_cycle = ((p1.x - x) / period).round() as i32;
-        let mut cycle_num = -first_cycle;
-
-        while x <= chart_rect.max.x {
+        // Cycle numbers of the visible lines (negative left of the anchor), computed
+        // directly so an anchor far off screen costs nothing.
+        let anchor = f64::from(p1.x);
+        let first = ((f64::from(chart_rect.min.x) - anchor) / period).ceil() as i64;
+        let last = ((f64::from(chart_rect.max.x) - anchor) / period).floor() as i64;
+        for cycle_num in first..=last {
+            let x = (anchor + cycle_num as f64 * period) as f32;
             // Draw vertical line
             painter.vline(
                 x,
@@ -55,14 +50,13 @@ impl Drawing {
             );
 
             // Alternating fill between lines
-            if fill_toggle && x + period <= chart_rect.max.x {
+            if cycle_num % 2 != 0 && x + period as f32 <= chart_rect.max.x {
                 let fill_rect = Rect::from_min_max(
                     Pos2::new(x, chart_rect.min.y),
-                    Pos2::new(x + period, chart_rect.max.y),
+                    Pos2::new(x + period as f32, chart_rect.max.y),
                 );
                 painter.rect_filled(fill_rect, 0.0, fill_color);
             }
-            fill_toggle = !fill_toggle;
 
             // Cycle number label at top
             let label = format!("{cycle_num}");
@@ -89,9 +83,6 @@ impl Drawing {
                 font.clone(),
                 color,
             );
-
-            x += period;
-            cycle_num += 1;
         }
 
         // Draw anchor points with white stroke
@@ -422,31 +413,28 @@ impl Drawing {
             Color32::from_rgba_unmultiplied(self.color[0], self.color[1], self.color[2], 80);
         let dash_len = DESIGN_TOKENS.spacing.lg;
         let gap_len = DESIGN_TOKENS.spacing.md + DESIGN_TOKENS.spacing.xs;
-        let mut x = chart_rect.min.x;
-        while x < chart_rect.max.x {
-            let end = (x + dash_len).min(chart_rect.max.x);
-            painter.line_segment(
-                [Pos2::new(x, center_y), Pos2::new(end, center_y)],
-                Stroke::new(stroke::HAIRLINE, zero_color),
-            );
-            x += dash_len + gap_len;
-        }
+        let (left, right) = (chart_rect.min.x, chart_rect.max.x);
+        draw_dashed_line(
+            painter,
+            Pos2::new(left, center_y),
+            Pos2::new(right, center_y),
+            Stroke::new(stroke::HAIRLINE, zero_color),
+            dash_len,
+            gap_len,
+        );
 
         // Draw amplitude guides (dashed horizontal lines at peaks)
         let peak_y = center_y - amplitude;
         let trough_y = center_y + amplitude;
-        x = chart_rect.min.x;
-        while x < chart_rect.max.x {
-            let end = (x + dash_len).min(chart_rect.max.x);
-            painter.line_segment(
-                [Pos2::new(x, peak_y), Pos2::new(end, peak_y)],
+        for y in [peak_y, trough_y] {
+            draw_dashed_line(
+                painter,
+                Pos2::new(left, y),
+                Pos2::new(right, y),
                 Stroke::new(DESIGN_TOKENS.stroke.extra_thin, zero_color),
+                dash_len,
+                gap_len,
             );
-            painter.line_segment(
-                [Pos2::new(x, trough_y), Pos2::new(end, trough_y)],
-                Stroke::new(DESIGN_TOKENS.stroke.extra_thin, zero_color),
-            );
-            x += dash_len + gap_len;
         }
 
         // Draw anchor points
