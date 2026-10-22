@@ -1,4 +1,4 @@
-//! Panel header component — heading + right-aligned actions + separator.
+//! Panel header component: a heading, right-aligned actions and a separator.
 //!
 //! Extracts the universal panel header boilerplate:
 //! ```

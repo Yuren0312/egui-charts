@@ -1,4 +1,4 @@
-//! Empty state component — centered message for lists/panels with no content.
+//! Empty state component: a centred message for lists and panels with no content.
 //!
 //! ```
 //! # use egui_charts::ui_kit::EmptyState;
