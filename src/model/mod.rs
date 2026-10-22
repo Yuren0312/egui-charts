@@ -17,7 +17,6 @@ mod chartstate;
 mod color;
 mod date_range;
 pub mod enums;
-pub mod footprint;
 pub mod kagi;
 pub mod line_break;
 mod markers;
@@ -34,6 +33,7 @@ mod timescale;
 pub mod tpo;
 
 pub use annotations::{Annotation, MarkerType};
+pub(crate) use bar::SeriesFingerprint;
 pub use bar::{Bar, BarData};
 pub use chart_type::{ChartType, ChartTypeCategory, ChartTypeParams};
 pub use chartstate::{ChartState, ZoomState};

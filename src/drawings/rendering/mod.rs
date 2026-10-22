@@ -28,15 +28,18 @@
 //!
 //! - `DrawingRenderer` trait (in `traits`) -- defines the interface for modular renderers
 //! - `Drawing::render()` -- the main entry point, dispatches to `render_original()`
+//! - `ChartView` -- the bars and coordinate mapping drawings are rendered against
 //!
 //! # Usage
 //!
 //! ```ignore
 //! use egui_charts::drawings::{Drawing, DrawingToolType};
+//! use egui_charts::drawings::rendering::ChartView;
 //!
 //! let drawing = Drawing::new(1, DrawingToolType::TrendLine);
 //! // After setting up points and calling update_screen_coords:
-//! drawing.render(&painter, price_rect);
+//! let view = ChartView { bars: &bars, bar_to_x: &bar_to_x, price_to_y: &price_to_y };
+//! drawing.render(&painter, price_rect, &view);
 //! ```
 
 mod annotations;
@@ -58,14 +61,88 @@ pub(crate) mod utils;
 pub use traits::DrawingRenderer;
 
 use crate::drawings::domain::{Drawing, DrawingToolType};
+use crate::model::{Bar, SeriesFingerprint};
 use egui::Rect;
+use std::rc::Rc;
+
+/// The bars and coordinate mapping that drawings are rendered against.
+///
+/// Drawing anchors index into `bars`. The anchored VWAP, both volume profiles,
+/// the regression trend, the position and forecast results and the bars
+/// pattern are computed from these bars.
+pub struct ChartView<'a> {
+    /// The series that drawing anchors index into.
+    pub bars: &'a [Bar],
+    /// Screen x of a (fractional) bar index.
+    pub bar_to_x: &'a dyn Fn(f32) -> f32,
+    /// Screen y of a price.
+    pub price_to_y: &'a dyn Fn(f64) -> f32,
+}
+
+/// Index of the first bar and the bars from anchor `a` to anchor `b`
+/// (inclusive, either order), clamped to the series; `None` when no bar lies
+/// between them.
+pub(crate) fn bars_between(bars: &[Bar], a: f32, b: f32) -> Option<(usize, &[Bar])> {
+    let last = bars.len().checked_sub(1)?;
+    let (first, end) = (a.min(b).round(), a.max(b).round());
+    if end < 0.0 {
+        return None;
+    }
+    // Clamp as indices: past 2^24 bars an f32 no longer holds every index.
+    let (first, end) = (first.max(0.0) as usize, (end as usize).min(last));
+    (first <= end).then(|| (first, &bars[first..=end]))
+}
+
+/// Results computed from a span of bars, kept per render thread so that a
+/// steady frame does no work proportional to the span. An entry is keyed by
+/// the index of the span's first bar and the [`SeriesFingerprint`] of its
+/// bars, so it is recomputed when an anchor moves or the span's length,
+/// endpoints or last bar change; the least recently used entry is evicted
+/// first.
+pub(crate) struct SpanCache<T> {
+    entries: Vec<((usize, SeriesFingerprint), Rc<T>)>,
+}
+
+/// Entries kept per kind of result, more than the drawings of one kind on screen.
+const MAX_CACHED_SPANS: usize = 32;
+
+impl<T> SpanCache<T> {
+    pub(crate) const fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    /// The result for `bars`, the span that starts at bar `first`, computed
+    /// with `compute` unless it is cached.
+    pub(crate) fn get(
+        &mut self,
+        first: usize,
+        bars: &[Bar],
+        compute: impl FnOnce(&[Bar]) -> T,
+    ) -> Rc<T> {
+        let key = (first, SeriesFingerprint::of(bars));
+        let entry = match self.entries.iter().position(|(cached, _)| *cached == key) {
+            Some(pos) => self.entries.remove(pos),
+            None => {
+                if self.entries.len() >= MAX_CACHED_SPANS {
+                    self.entries.remove(0);
+                }
+                (key, Rc::new(compute(bars)))
+            }
+        };
+        let value = Rc::clone(&entry.1);
+        self.entries.push(entry);
+        value
+    }
+}
 
 impl Drawing {
     /// Main rendering dispatcher - routes to category-specific render methods
     ///
     /// This method handles rendering for all 97 drawing tool types,
     /// delegating to the appropriate category-specific implementation.
-    pub fn render_original(&self, painter: &egui::Painter, rect: Rect) {
+    pub fn render_original(&self, painter: &egui::Painter, rect: Rect, view: &ChartView) {
         if self.points.is_empty() {
             return;
         }
@@ -127,7 +204,7 @@ impl Drawing {
 
             // Channels (4 tools)
             DrawingToolType::ParallelChannel => self.render_parallel_channel(painter),
-            DrawingToolType::RegressionTrend => self.render_regression_trend(painter, rect),
+            DrawingToolType::RegressionTrend => self.render_regression_trend(painter, view),
             DrawingToolType::FlatTopBottom => self.render_flat_top_bottom(painter),
             DrawingToolType::DisjointChannel => self.render_disjoint_channel(painter),
 
@@ -152,20 +229,20 @@ impl Drawing {
             DrawingToolType::SineLine => self.render_sine_line(painter, rect),
 
             // Projection (6 tools)
-            DrawingToolType::LongPos => self.render_pos_tool(painter, true),
-            DrawingToolType::ShortPos => self.render_pos_tool(painter, false),
-            DrawingToolType::Forecast => self.render_forecast(painter, rect),
-            DrawingToolType::BarsPattern => self.render_bars_pattern(painter, rect),
+            DrawingToolType::LongPos => self.render_pos_tool(painter, view, true),
+            DrawingToolType::ShortPos => self.render_pos_tool(painter, view, false),
+            DrawingToolType::Forecast => self.render_forecast(painter, view),
+            DrawingToolType::BarsPattern => self.render_bars_pattern(painter, view),
             DrawingToolType::GhostFeed => self.render_ghost_feed(painter),
             DrawingToolType::ProjectionTool => self.render_projection_tool(painter, rect),
 
             // Volume (3 tools)
-            DrawingToolType::AnchoredVWAP => self.render_anchored_vwap(painter, rect),
+            DrawingToolType::AnchoredVWAP => self.render_anchored_vwap(painter, view),
             DrawingToolType::FixedRangeVolumeProfile => {
-                self.render_fixed_range_volume_profile(painter, rect)
+                self.render_fixed_range_volume_profile(painter, view)
             }
             DrawingToolType::AnchoredVolumeProfile => {
-                self.render_anchored_volume_profile(painter, rect)
+                self.render_anchored_volume_profile(painter, view)
             }
 
             // Measurers (4 tools)
@@ -216,7 +293,47 @@ impl Drawing {
     }
 
     /// Render this drawing using the modular render system
-    pub fn render(&self, painter: &egui::Painter, rect: Rect) {
-        self.render_original(painter, rect);
+    pub fn render(&self, painter: &egui::Painter, rect: Rect, view: &ChartView) {
+        self.render_original(painter, rect, view);
+    }
+}
+
+/// Bars the data-driven drawing tests share; their reference values were
+/// computed independently from these OHLCV rows. The last bar has no range.
+#[cfg(test)]
+pub(crate) fn sample_bars() -> Vec<Bar> {
+    [
+        (10.0, 12.0, 9.0, 11.0, 100.0),
+        (11.0, 13.0, 10.0, 12.0, 200.0),
+        (12.0, 12.5, 11.0, 11.0, 150.0),
+        (11.5, 14.0, 11.0, 13.5, 300.0),
+        (13.5, 15.0, 13.0, 14.0, 250.0),
+        (14.0, 14.5, 12.0, 12.5, 400.0),
+        (13.0, 13.0, 13.0, 13.0, 50.0),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (o, h, l, c, v))| {
+        let time = chrono::DateTime::from_timestamp(i as i64 * 60, 0).unwrap();
+        Bar::new(time, o, h, l, c, v)
+    })
+    .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A cached result follows the bars it was computed from: more volume on
+    /// the forming bar at an unchanged price, or another anchor, recomputes it.
+    #[test]
+    fn span_cache_recomputes_when_bars_change() {
+        let mut cache = SpanCache::new();
+        let total_volume = |bars: &[Bar]| bars.iter().map(|bar| bar.volume).sum::<f64>();
+        let mut bars = sample_bars();
+        assert_eq!(*cache.get(1, &bars[1..], total_volume), 1350.0);
+        bars[6].volume += 10.0;
+        assert_eq!(*cache.get(1, &bars[1..], total_volume), 1360.0);
+        assert_eq!(*cache.get(2, &bars[2..], total_volume), 1160.0);
     }
 }

@@ -553,13 +553,14 @@ impl Chart {
             return;
         }
 
-        let text = self.config.watermark_text.as_deref().unwrap_or_else(|| {
-            if self.symbol.is_empty() {
-                "SYMBOL"
-            } else {
-                &self.symbol
-            }
-        });
+        let text = self
+            .config
+            .watermark_text
+            .as_deref()
+            .unwrap_or(&self.symbol);
+        if text.is_empty() {
+            return;
+        }
 
         let font_id = egui::FontId::proportional(self.config.watermark_font_size);
 
@@ -1513,7 +1514,6 @@ impl Chart {
         if let Some(dm) = drawing_manager {
             // Clone/extract values before mutable borrow of self
             let timescale = self.state.time_scale().clone();
-            let last_close = visible_data.last().map(|b| b.close);
 
             // Temporarily take cursor_modes to avoid borrow conflict
             let mut cursor_modes = std::mem::take(&mut self.cursor_modes);
@@ -1527,7 +1527,6 @@ impl Chart {
                 adjusted_min,
                 adjusted_max,
                 &painter,
-                last_close,
                 &timescale,
             );
 
