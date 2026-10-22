@@ -14,6 +14,12 @@ use egui::Color32;
 /// - High volume at specific price levels
 /// - Repeated touches of the same price
 /// - Large cumulative volume relative to visible size
+///
+/// Prices are keyed on the estimated tick size, widened to a whole number of
+/// ticks when the series spans more than 1,000 ticks so it covers at most about
+/// 1,000 levels; detection prices are multiples of that grid. Because the grid
+/// comes from the whole series, a bar that extends its range can change earlier
+/// values. Bars with a non-finite price or an inverted range are not tracked.
 #[derive(Clone)]
 pub struct IcebergDetector {
     /// Period for lookback analysis
@@ -55,7 +61,7 @@ impl IcebergDetector {
     /// Create a new iceberg detector
     pub fn new(period: usize) -> Self {
         Self {
-            period,
+            period: period.max(1),
             volume_threshold: 2.0,
             min_touches: 3,
             values: Vec::new(),
@@ -122,33 +128,55 @@ impl Indicator for IcebergDetector {
         let avg_volume: f64 = data.iter().map(|b| b.volume).sum::<f64>() / data.len() as f64;
         let volume_threshold = avg_volume * self.volume_threshold;
 
-        // Estimate tick size from price data
-        let tick_size = estimate_tick_size(data);
+        // Estimate tick size from price data, widened to bound the level count
+        let tick_size = super::level_grid(data, estimate_tick_size(data));
+        // Quantize a tracked bar (see the type docs) to its low, high and close keys.
+        let keys = |bar: &Bar| {
+            let (low, high) = super::bar_level_keys(bar, tick_size)?;
+            let close = bar.close.is_finite();
+            close.then(|| (low, high, super::level_key(bar.close, tick_size)))
+        };
 
-        // Track price levels and their touches
-        use std::collections::HashMap;
-        let mut price_levels: HashMap<i64, (usize, f64, usize, bool)> = HashMap::new();
+        // Track price levels and their touches. Tracked keys lie on the grid between
+        // the series' lowest and highest key, so the levels fit a dense vector; a
+        // level with no touches is absent.
+        let (first, last) = data
+            .iter()
+            .filter_map(keys)
+            .fold((i64::MAX, i64::MIN), |(lo, hi), (low, high, close)| {
+                (lo.min(low).min(close), hi.max(high).max(close))
+            });
+        let slot = |key: i64| (key >= first).then(|| usize::try_from(key.abs_diff(first)).ok())?;
+        let mut price_levels: Vec<(usize, f64, usize, bool)> =
+            vec![(0, 0.0, 0, false); slot(last).map_or(0, |i| i + 1)];
 
         for (idx, bar) in data.iter().enumerate() {
-            // Quantize prices to tick size
-            let low_key = (bar.low / tick_size).round() as i64;
-            let high_key = (bar.high / tick_size).round() as i64;
+            let mut value = IndicatorValue::None;
+            if let Some((low_key, high_key, close_key)) = keys(bar) {
+                let is_bullish = bar.close >= bar.open;
 
-            let is_bullish = bar.close >= bar.open;
+                // Track all price levels in this bar
+                let levels = (high_key.abs_diff(low_key) + 1) as f64;
+                for key in low_key..=high_key {
+                    let Some(entry) = slot(key).and_then(|i| price_levels.get_mut(i)) else {
+                        continue;
+                    };
+                    if entry.0 == 0 {
+                        *entry = (0, 0.0, idx, is_bullish);
+                    }
+                    entry.0 += 1; // touches
+                    entry.1 += bar.volume / levels; // volume per level
+                }
 
-            // Track all price levels in this bar
-            for key in low_key..=high_key {
-                let entry = price_levels.entry(key).or_insert((0, 0.0, idx, is_bullish));
-                entry.0 += 1; // touches
-                entry.1 += bar.volume / (high_key - low_key + 1) as f64; // volume per level
-            }
-
-            // Check for iceberg detection
-            let close_key = (bar.close / tick_size).round() as i64;
-            if let Some((touches, vol, _, is_buy)) = price_levels.get(&close_key) {
-                if *touches >= self.min_touches && *vol >= volume_threshold {
+                // Check for iceberg detection
+                if let Some((touches, vol, _, is_buy)) =
+                    slot(close_key).and_then(|i| price_levels.get(i))
+                    && *touches > 0
+                    && *touches >= self.min_touches
+                    && *vol >= volume_threshold
+                {
                     let price = close_key as f64 * tick_size;
-                    let confidence = (*touches as f64 / (self.min_touches * 2) as f64).min(1.0)
+                    let confidence = (*touches as f64 / (self.min_touches as f64 * 2.0)).min(1.0)
                         * (*vol / (volume_threshold * 2.0)).min(1.0);
 
                     self.detections.push(IcebergDetection {
@@ -161,26 +189,18 @@ impl Indicator for IcebergDetector {
                     });
 
                     // Mark with confidence score
-                    self.values.push(IndicatorValue::Single(confidence));
-                } else {
-                    self.values.push(IndicatorValue::None);
+                    value = IndicatorValue::Single(confidence);
                 }
-            } else {
-                self.values.push(IndicatorValue::None);
             }
+            self.values.push(value);
 
             // Decay old price level data (sliding window)
-            if idx >= self.period {
-                let old_bar = &data[idx - self.period];
-                let old_low_key = (old_bar.low / tick_size).round() as i64;
-                let old_high_key = (old_bar.high / tick_size).round() as i64;
-
+            if idx >= self.period
+                && let Some((old_low_key, old_high_key, _)) = keys(&data[idx - self.period])
+            {
                 for key in old_low_key..=old_high_key {
-                    if let Some(entry) = price_levels.get_mut(&key) {
+                    if let Some(entry) = slot(key).and_then(|i| price_levels.get_mut(i)) {
                         entry.0 = entry.0.saturating_sub(1);
-                        if entry.0 == 0 {
-                            price_levels.remove(&key);
-                        }
                     }
                 }
             }

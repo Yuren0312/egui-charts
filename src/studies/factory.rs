@@ -321,6 +321,284 @@ mod tests {
         }
     }
 
+    /// Every built-in, with its `k`-th length parameter set to `l(k)`.
+    fn builtins_with_lengths(l: impl Fn(usize) -> usize) -> Vec<Box<dyn Indicator>> {
+        vec![
+            Box::new(SMA::new(l(0))),
+            Box::new(EMA::new(l(0))),
+            Box::new(WMA::new(l(0))),
+            Box::new(DEMA::new(l(0))),
+            Box::new(TEMA::new(l(0))),
+            Box::new(HMA::new(l(0))),
+            Box::new(ALMA::new(l(0), 0.85, 6.0)),
+            Box::new(VWMA::new(l(0))),
+            Box::new(LSMA::new(l(0))),
+            Box::new(SWMA::new()),
+            Box::new(KAMA::new(l(0)).with_periods(l(1), l(2))),
+            Box::new(SmoothedMA::new(l(0))),
+            Box::new(GuppyMA::new()),
+            Box::new(McGinleyDynamic::new(l(0))),
+            Box::new(VIDYA::new(l(0))),
+            Box::new(ZLEMA::new(l(0))),
+            Box::new(HammingMA::new(l(0))),
+            Box::new(MultipleMA::new()),
+            Box::new(MAChannel::new(l(0), 1.0)),
+            Box::new(EMACross::new(l(0), l(1))),
+            Box::new(MACross::new(l(0), l(1))),
+            Box::new(RSI::new(l(0))),
+            Box::new(MACD::new(l(0), l(1), l(2))),
+            Box::new(VolumeWeightedMACD::new(l(0), l(1), l(2))),
+            Box::new(Stochastic::new(l(0), l(1), l(2))),
+            Box::new(StochasticRSI::new(l(0), l(1), l(2), l(3))),
+            Box::new(WilliamsR::new(l(0))),
+            Box::new(CCI::new(l(0))),
+            Box::new(RateOfChange::new(l(0))),
+            Box::new(Momentum::new(l(0))),
+            Box::new(Aroon::new(l(0))),
+            Box::new(AwesomeOscillator::new(l(0), l(1))),
+            Box::new(UltimateOscillator::new(l(0), l(1), l(2))),
+            Box::new(ConnorsRSI::new().with_periods(l(0), l(1), l(2))),
+            Box::new(CoppockCurve::new().with_periods(l(0), l(1), l(2))),
+            Box::new(TRIX::new(l(0)).with_signal(l(1))),
+            Box::new(ElderRay::new(l(0))),
+            Box::new(FisherTransform::new(l(0))),
+            Box::new(EhlersFisher::new(l(0))),
+            Box::new(ForceIndex::new(l(0))),
+            Box::new(MassIndex::new().with_periods(l(0), l(1))),
+            Box::new(DetrendedPriceOscillator::new(l(0))),
+            Box::new(KDJ::new(l(0), l(1), l(2))),
+            Box::new(PrettyGoodOscillator::new(l(0))),
+            Box::new(ChandeMomentumOscillator::new(l(0))),
+            Box::new(TrueStrengthIndex::new(l(0), l(1), l(2))),
+            Box::new(StochasticMomentumIndex::new(l(0), l(1), l(2), l(3))),
+            Box::new(SchaffTrendCycle::new().with_periods(l(0), l(1), l(2))),
+            Box::new(RelativeVigorIndex::new(l(0))),
+            Box::new(DoubleStochastic::new(l(0), l(1))),
+            Box::new(CenterOfGravity::new(l(0))),
+            Box::new(KnowSureThing::new().with_params(
+                [l(0), l(1), l(2), l(3)],
+                [l(4), l(5), l(6), l(7)],
+                l(8),
+            )),
+            Box::new(RainbowOscillator::new(l(0), l(1))),
+            Box::new(UltimateMomentum::new(l(0), l(1), l(2))),
+            Box::new(PriceOscillator::new(l(0), l(1), l(2))),
+            Box::new(VolumeOscillator::new(l(0), l(1))),
+            Box::new(BalanceOfPower::new(l(0))),
+            Box::new(EaseOfMovement::new(l(0))),
+            Box::new(ADX::new(l(0))),
+            Box::new(SuperTrend::new(l(0), 3.0)),
+            Box::new(IchimokuCloud::new(l(0), l(1), l(2))),
+            Box::new(ParabolicSAR::new(0.02, 0.02, 0.2)),
+            Box::new(DirectionalMovement::new(l(0))),
+            Box::new(VortexIndicator::new(l(0))),
+            Box::new(
+                SqueezeMomentum::new()
+                    .with_bb_params(l(0), 2.0)
+                    .with_kc_params(l(1), 1.5),
+            ),
+            Box::new(TrendIntensityIndex::new(l(0))),
+            Box::new(TrendDetectionIndex::new(l(0))),
+            Box::new(Qstick::new(l(0))),
+            Box::new(ChoppinessIndex::new(l(0))),
+            Box::new(ElderImpulseSystem::new(l(0), l(1), l(2), l(3))),
+            Box::new(BollingerBands::new(l(0), 2.0)),
+            Box::new(BollingerBandsWidth::new(l(0), 2.0)),
+            Box::new(ATR::new(l(0))),
+            Box::new(TrueRange::new()),
+            Box::new(KeltnerChannels::new(l(0), l(1), 2.0)),
+            Box::new(DonchianChannels::new(l(0))),
+            Box::new(StandardDeviation::new(l(0))),
+            Box::new(HistoricalVolatility::new(l(0))),
+            Box::new(ChaikinVolatility::new(l(0), l(1))),
+            Box::new(ChandelierExit::new(l(0), 3.0)),
+            Box::new(AccelerationBands::new(l(0), 4.0)),
+            Box::new(Envelopes::new(l(0), 2.5, "SMA")),
+            Box::new(PercentB::new(l(0), 2.0)),
+            Box::new(CloseToCloseVol::new(l(0))),
+            Box::new(OhlcVolatility::new(l(0))),
+            Box::new(VolatilityIndex::new(l(0))),
+            Box::new(ZeroTrendVol::new(l(0))),
+            Box::new(CommoditySelectionIndex::new(l(0), 1.0)),
+            Box::new(OnBalanceVolume::new()),
+            Box::new(VolumeWeightedAvgPrice::new()),
+            Box::new(AnchoredVWAP::new(0)),
+            Box::new(MoneyFlowIndex::new(l(0))),
+            Box::new(AccumulationDistribution::new()),
+            Box::new(ChaikinMoneyFlow::new(l(0))),
+            Box::new(VolumeRateOfChange::new(l(0))),
+            Box::new(KlingerOscillator::new().with_periods(l(0), l(1), l(2))),
+            Box::new(CVD::new()),
+            Box::new(VolProfileVisible::new(l(0))),
+            Box::new(VolProfileFixed::new(l(0))),
+            Box::new(NetVolume::new()),
+            Box::new(VolumePriceTrend::new()),
+            Box::new(PriceVolumeTrendStudy::new(l(0))),
+            Box::new(NegativeVolumeIndex::new()),
+            Box::new(PositiveVolumeIndex::new()),
+            Box::new(WilliamsAD::new()),
+            Box::new(MarketFacilitationIndex::new()),
+            Box::new(IcebergDetector::new(l(0))),
+            Box::new(StopRunIndicator::new(l(0)).with_reversal_window(l(1))),
+            Box::new(LiquidityTracker::new(l(0))),
+            Box::new(PivotPoints::new(l(0))),
+            Box::new(ZigZag::new(5.0, l(0))),
+            Box::new(PriceChannel::new(l(0))),
+            Box::new(CorrelationCoefficient::new(l(0))),
+            Box::new(CorrelationLogReturns::new(l(0))),
+            Box::new(LinearRegression::new(l(0))),
+            Box::new(LinearRegressionSlope::new(l(0))),
+            Box::new(StandardError::new(l(0))),
+            Box::new(StandardErrorBands::new(l(0), 2.0)),
+            Box::new(RankCorrelationIndex::new(l(0))),
+            Box::new(MajorityRule::new(l(0))),
+            Box::new(AccumulationSwingIndex::new(0.5)),
+            Box::new(TypicalPrice::new()),
+            Box::new(MedianPrice::new()),
+            Box::new(WeightedClose::new()),
+            Box::new(HL2::new()),
+            Box::new(HLC3::new()),
+            Box::new(OHLC4::new()),
+            Box::new(AdvanceDeclineLine::new()),
+            Box::new(Week52HighLow::new(l(0))),
+            Box::new(SpreadStudy::new()),
+            Box::new(RatioStudy::new()),
+        ]
+    }
+
+    /// No built-in may panic, hang or allocate without bound, whatever its
+    /// lengths and bars. Lengths below the minimum clamp at construction, so
+    /// a zero length must give exactly the output of the smallest valid one.
+    #[test]
+    fn degenerate_lengths_and_hostile_bars_are_survivable() {
+        use crate::model::Bar;
+        use chrono::{TimeZone, Utc};
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        let normal: Vec<Bar> = (0..200)
+            .map(|i| {
+                let c = 100.0 + 10.0 * (i as f64 / 7.0).sin();
+                Bar {
+                    time: Utc.timestamp_opt(i * 60, 0).unwrap(),
+                    open: c - 0.5,
+                    high: c + 1.0,
+                    low: c - 1.0,
+                    close: c,
+                    volume: 1000.0 + i as f64,
+                }
+            })
+            .collect();
+        let edit = |f: fn(usize, &mut Bar)| -> Vec<Bar> {
+            let mut bars = normal.clone();
+            bars.iter_mut().enumerate().for_each(|(i, b)| f(i, b));
+            bars
+        };
+        let datasets = [
+            ("empty", Vec::new()),
+            ("one bar", normal[..1].to_vec()),
+            ("normal", normal.clone()),
+            (
+                "NaN",
+                edit(|i, b| {
+                    if i % 10 == 3 {
+                        b.close = f64::NAN;
+                        b.high = f64::NAN;
+                    }
+                }),
+            ),
+            (
+                "infinite",
+                edit(|i, b| {
+                    if i % 10 == 3 {
+                        b.high = f64::INFINITY;
+                        b.low = f64::NEG_INFINITY;
+                    }
+                }),
+            ),
+            (
+                "±1e300",
+                edit(|i, b| {
+                    if i % 10 == 3 {
+                        b.high = 1e300;
+                        b.low = -1e300;
+                    }
+                }),
+            ),
+            (
+                "1e12 scale",
+                edit(|i, b| {
+                    let s = if i % 2 == 0 { 1e12 } else { 1e-9 };
+                    (b.open, b.high, b.low, b.close) =
+                        (b.open * s, b.high * s, b.low * s, b.close * s);
+                }),
+            ),
+            ("zero volume", edit(|_, b| b.volume = 0.0)),
+            (
+                "flat",
+                edit(|_, b| (b.open, b.high, b.low, b.close) = (100.0, 100.0, 100.0, 100.0)),
+            ),
+        ];
+
+        let factory = IndicatorFactory::new();
+        let mut covered: Vec<String> = builtins_with_lengths(|_| 1)
+            .iter()
+            .map(|s| s.name().to_string())
+            .collect();
+        let mut registered = factory.list();
+        covered.sort();
+        registered.sort();
+        assert_eq!(covered, registered, "the table must cover every built-in");
+
+        // Every length equal, then each length alone huge, then each alone longer than the rest
+        // (a swapped fast/slow pair, for example).
+        let mut lengths: Vec<[usize; 9]> = vec![[0; 9], [1; 9], [usize::MAX; 9]];
+        for k in 0..9 {
+            let mut huge = [1; 9];
+            huge[k] = usize::MAX;
+            let mut longer = [20; 9];
+            longer[k] = 50;
+            lengths.extend([huge, longer]);
+        }
+
+        let mut failures = Vec::new();
+        for n in lengths {
+            for mut study in builtins_with_lengths(|k| n[k]) {
+                for (label, bars) in &datasets {
+                    let len = catch_unwind(AssertUnwindSafe(|| {
+                        study.calculate(bars);
+                        study.values().len()
+                    }));
+                    match len {
+                        Err(_) => {
+                            failures.push(format!("{}{n:?} on {label}: panicked", study.name()))
+                        }
+                        Ok(len) if len != bars.len() => failures.push(format!(
+                            "{}{n:?} on {label}: {len} values for {} bars",
+                            study.name(),
+                            bars.len()
+                        )),
+                        Ok(_) => {}
+                    }
+                }
+            }
+        }
+        for (mut zero, mut one) in builtins_with_lengths(|_| 0)
+            .into_iter()
+            .zip(builtins_with_lengths(|_| 1))
+        {
+            if catch_unwind(AssertUnwindSafe(|| {
+                zero.calculate(&normal);
+                one.calculate(&normal);
+            }))
+            .is_ok()
+                && format!("{:?}", zero.values()) != format!("{:?}", one.values())
+            {
+                failures.push(format!("{}(0) differs from {}(1)", zero.name(), one.name()));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
     /// The factory exposes the full built-in catalogue. This pins the count so
     /// a dropped registration (or a name collision silently overwriting an
     /// entry) is caught immediately.

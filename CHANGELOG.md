@@ -28,6 +28,12 @@ All notable changes to this project are documented in this file. The format is b
 - The chart watermark falls back to the chart symbol and is hidden when there is none, instead of showing a placeholder.
 - Zooming the price axis in by hand stops at a span of one millionth of the price level instead of narrowing to a few nanounits, and repeated zooming out can no longer overflow the price range to infinite or NaN bounds.
 - `Timeframe::duration_ms` saturates at `i64::MAX` for custom timeframes too large to represent instead of overflowing into a panic or a negative duration, and parsing a custom timeframe whose second count overflows is rejected.
+- Built-in studies raise a length of 0 to 1 and accept any longer length, alone or mixed with short ones, so a zero, huge or swapped period no longer panics, exhausts memory or yields only NaN (for example `KAMA::new(0)`, `SmoothedMA::new(0)` and `MACross::new(50, 20)`).
+- SMA, VWMA, LSMA, Bollinger Bands, RSI, MACD and VW-MACD return one `None` per bar instead of no values when there are fewer bars than their period.
+- Stochastic no longer panics when all its periods are 1, Volume Profile Fixed Range no longer panics on a bar with a NaN price, and Rank Correlation no longer panics sorting NaN closes.
+- Rainbow Oscillator keeps a running sum instead of every SMA level, so a huge level count no longer exhausts memory.
+- Volume profiles refuse a row count above 10,000 and yield `None` for every bar instead of allocating that many rows for each bar.
+- Iceberg and Liquidity key prices on one grid per series, the tick size widened to a whole number of ticks when the series spans more than 1,000 ticks, and skip bars with a non-finite price or an inverted range, so an infinite or 1e12 print no longer hangs the chart or exhausts memory. Because the grid comes from the whole series, a bar that extends its range can change earlier values. Liquidity scans its levels once per bar instead of three times, and Iceberg keeps its levels in a dense vector.
 
 ### Changed
 
