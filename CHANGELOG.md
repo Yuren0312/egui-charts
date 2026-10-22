@@ -123,6 +123,7 @@ All notable changes to this project are documented in this file. The format is b
 - Fibonacci retracement levels are measured back from the second anchor, the end of the move: level 0 is drawn on the second anchor and 100% on the first, with each level's price label, background band and hit area at the same height, and the Reverse option, which had no effect, now swaps the two anchors. Migration: saved retracements draw with their levels flipped; set `FibonacciConfig::reverse` to keep the previous placement.
 - The Gann fan draws each angle at its labelled ratio: an NxM line has N/M times the slope of the 1x1 line, so 8x1 is the steepest and 1x8 the flattest. They were drawn the other way round, so the drawn lines did not match the lines a click selects, and 1x3 used 0.333 instead of one third.
 - The sine line passes through both anchors, a peak and a trough half a period apart, with the centre guide midway between them and the amplitude label at half their price distance. It crossed the centre line at the first anchor and returned to it at the second, so it missed the second anchor unless both had the same price. Migration: a saved sine line keeps its anchors, and its first anchor is now a peak or trough instead of a crossing of the centre line.
+- `BarData::to_csv`, `to_csv_string` and `to_csv_with_indicators` write a bar's fraction of a second, and `BarData::from_csv` reads it, so bars less than a second apart keep their times through a CSV file. Whole-second times are written as before.
 
 ### Changed
 
