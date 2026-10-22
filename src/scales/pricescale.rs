@@ -180,7 +180,7 @@ impl PriceTransform {
             PriceScaleMode::Logarithmic if price > 0.0 => price.ln(),
             PriceScaleMode::Logarithmic => f64::NEG_INFINITY,
             PriceScaleMode::Percentage => (price - self.base) / self.base.abs() * 100.0,
-            PriceScaleMode::IndexedTo100 => price / self.base * 100.0,
+            PriceScaleMode::IndexedTo100 => 100.0 + (price - self.base) / self.base.abs() * 100.0,
         }
     }
 
@@ -190,7 +190,7 @@ impl PriceTransform {
             PriceScaleMode::Normal => value,
             PriceScaleMode::Logarithmic => value.exp(),
             PriceScaleMode::Percentage => self.base + value / 100.0 * self.base.abs(),
-            PriceScaleMode::IndexedTo100 => value / 100.0 * self.base,
+            PriceScaleMode::IndexedTo100 => self.base + (value - 100.0) / 100.0 * self.base.abs(),
         }
     }
 
@@ -211,6 +211,8 @@ pub struct PriceScale {
     options: PriceScaleOptions,
     /// Visible range in scale units
     range: PriceRange,
+    /// The transform `range` is in, from the last `rebase`
+    transform: PriceTransform,
     /// The user zoomed or set the range, so autoscale leaves it alone until reset.
     manual: bool,
 }
@@ -221,6 +223,7 @@ impl PriceScale {
         Self {
             options,
             range: PriceRange::new(0.0, 100.0),
+            transform: PriceTransform::default(),
             manual: false,
         }
     }
@@ -243,6 +246,23 @@ impl PriceScale {
         self.range
     }
 
+    /// Returns the transform the range is in.
+    pub(crate) fn transform(&self) -> PriceTransform {
+        self.transform
+    }
+
+    /// Puts the range in the units of `transform`, this frame's transform.
+    ///
+    /// A range scaled by hand keeps showing the same prices: the relative modes
+    /// measure from a base that moves as the chart scrolls.
+    pub(crate) fn rebase(&mut self, transform: PriceTransform) {
+        let old = std::mem::replace(&mut self.transform, transform);
+        if self.manual && old != transform {
+            let rebased = |value| transform.to_scale(old.to_price(value));
+            self.range = PriceRange::new(rebased(self.range.min), rebased(self.range.max));
+        }
+    }
+
     /// Returns `true` when the user has scaled by hand.
     pub fn is_manual(&self) -> bool {
         self.manual
@@ -260,7 +280,10 @@ impl PriceScale {
         self.range = PriceRange::new(min - span * margins.bottom, max + span * margins.top);
     }
 
-    /// Shows `min..max` (scale units) and switches to manual.
+    /// Shows `min..max` and switches to manual.
+    ///
+    /// The bounds are in the units of the transform the last fit returned
+    /// ([`ChartState::fit_price_scale`](crate::model::ChartState::fit_price_scale)).
     pub fn set_range(&mut self, min: f64, max: f64) {
         self.range = PriceRange::new(min, max);
         self.manual = true;
@@ -268,6 +291,7 @@ impl PriceScale {
 
     /// Scales the range by `factor` (above 1 zooms out) around the scale value
     /// `anchor`, which keeps its position on screen, and switches to manual.
+    /// `anchor` is in the units of the transform the last fit returned.
     ///
     /// One call changes the span by at most 20 times either way. Zooming in stops at a
     /// span of 1e-6 of the larger bound's magnitude (1e-6 when both bounds are 0), and
@@ -424,6 +448,9 @@ mod tests {
             (Percentage, 50.0, (-10.0, 10.0), false, 50.0, 50.0),
             // 45 is 90 when 50 is 100.
             (IndexedTo100, 50.0, (90.0, 110.0), false, 45.0, 100.0),
+            // A negative base keeps the price order: -40 is 20% above -50 and reads 120.
+            (IndexedTo100, -50.0, (80.0, 120.0), false, -40.0, 0.0),
+            (IndexedTo100, -50.0, (80.0, 120.0), false, -60.0, 100.0),
             (Normal, 0.0, (100.0, 200.0), true, 120.0, 20.0),
             // Outside the range: above the pane, not on its edge.
             (Normal, 0.0, (100.0, 200.0), false, 250.0, -50.0),
@@ -439,7 +466,7 @@ mod tests {
             );
             let back = map.y_to_price(got);
             assert!(
-                (back - price).abs() < 1e-3 * price,
+                (back - price).abs() < 1e-3 * price.abs(),
                 "{mode:?} {price}: back {back}"
             );
         }
