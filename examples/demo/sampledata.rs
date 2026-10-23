@@ -163,23 +163,22 @@ pub fn generate_sample_bars(symbol: &str, count: usize, timeframe: Timeframe) ->
 
         let open = price;
         let close = if session_fixture {
-            spec.start_price
-                + (i as f64 / 19.0).sin() * 18.0
-                + (i as f64 / 6.0).sin() * 9.0
-                + (r1 - 0.5) * 3.0
+            open + (r1 - 0.5) * 2.0 + trend * 10.0 - (open - spec.start_price) * 0.02
         } else {
             open * (1.0 + return_pct)
         };
 
         let body_high = open.max(close);
         let body_low = open.min(close);
-        let body_range = (body_high - body_low).max(open * 0.0005);
+        let body_range =
+            (body_high - body_low).max(open * if session_fixture { 0.00005 } else { 0.0005 });
+        let wick_scale = if session_fixture { 0.5 } else { 2.0 };
 
-        let high = body_high + r2 * body_range * 2.0;
-        let low = body_low - r3 * body_range * 2.0;
+        let high = body_high + r2 * body_range * wick_scale;
+        let low = body_low - r3 * body_range * wick_scale;
 
         let base_vol = if session_fixture {
-            100_000.0 + r4 * 1_000_000.0
+            10_000.0 + r4 * 40_000.0 + r4.powi(96) * 1_000_000.0
         } else {
             600.0 + r4 * 1400.0
         };
@@ -339,6 +338,20 @@ mod tests {
             let repeated = generate_sample_bars("SAMPLE", 600, timeframe);
             assert_eq!(bars.len(), 600);
             assert_eq!(bars, repeated);
+            let bodies: f64 = bars.iter().map(|bar| (bar.close - bar.open).abs()).sum();
+            let wicks: f64 = bars
+                .iter()
+                .map(|bar| bar.high - bar.low - (bar.close - bar.open).abs())
+                .sum();
+            assert!(
+                wicks < bodies,
+                "ordinary fixture wicks should not dominate bodies"
+            );
+            let peaks = bars.iter().filter(|bar| bar.volume > 250_000.0).count();
+            assert!(
+                peaks > 0 && peaks * 100 < bars.len() * 5,
+                "volume peaks should be occasional: {peaks}"
+            );
             assert!(bars.iter().all(|b| (680.0..790.0).contains(&b.close)));
             assert!(
                 bars.iter()
@@ -371,6 +384,12 @@ mod tests {
         let regular = session_bars("SAMPLE", &source, SessionType::RTH, false);
         assert!(regular.len() < source.len());
         assert!(regular.iter().all(|b| b.time.hour() >= 14));
+        assert!(
+            regular.windows(2).all(|bars| {
+                (bars[1].open - bars[0].close).abs() < DemoSymbol::find("SAMPLE").start_price * 0.01
+            }),
+            "synthetic sessions should not form disconnected price clusters"
+        );
         for (session, count) in [
             (SessionType::RTH, regular.len()),
             (SessionType::ETH, source.len()),

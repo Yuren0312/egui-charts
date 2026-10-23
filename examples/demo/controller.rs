@@ -65,6 +65,7 @@ fn indicator_from_tree_id(id: usize) -> Option<SeriesId> {
 enum SidePanel {
     ObjectTree,
     Alerts,
+    DataWindow,
 }
 
 /// Export formats the demo can perform, with browser downloads on the web.
@@ -142,6 +143,7 @@ pub struct DemoApp {
     // Right-hand side panel.
     object_tree: ObjectTreePanel,
     open_panel: Option<SidePanel>,
+    data_window_expanded: bool,
 
     // In-memory alert store. `AlertManager` exposes no mutators, so the demo
     // owns its alerts for the session (no fake persistence).
@@ -169,10 +171,14 @@ impl DemoApp {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
         let theme = Theme::light();
-        let timeframe = Timeframe::Hour1;
+        let timeframe = Timeframe::Min1;
         let symbol = "SAMPLE";
         let mut options = egui_charts::config::ChartOptions::default();
         options.time_scale.bar_spacing = 6.1;
+        options.crosshair.style = egui_charts::config::CrosshairStyle::Arrow;
+        options.tooltip.on_long_press = true;
+        options.tooltip.show_time = false;
+        options.tooltip.font_size = 14.0;
         // A full-history range must also fit in a narrow window.
         options.time_scale.min_bar_spacing = 0.01;
         // The scale reserves half a slot and one pixel after the last centre.
@@ -184,6 +190,11 @@ impl DemoApp {
             theme.apply_to_config(egui_charts::config::ChartConfig::default()),
         )
         .with_chart_options(options);
+        chart.config_mut().volume_height_fraction = 0.25;
+        chart.config_mut().volume_baseline_inset = 0.0;
+        chart.config_mut().candle_width = 0.75;
+        chart.config_mut().right_axis_width = 59.0;
+        chart.config_mut().skip_background = true;
         chart.set_symbol("SAMPLE (synthetic)");
         chart.set_timeframe(timeframe);
 
@@ -195,10 +206,18 @@ impl DemoApp {
         top_toolbar.timeframe_selector.current =
             egui_charts::ui::top_toolbar::components::timeframe_selector::Timeframe::new(
                 1,
-                egui_charts::ui::top_toolbar::components::timeframe_selector::TimeframeUnit::Hour,
+                egui_charts::ui::top_toolbar::components::timeframe_selector::TimeframeUnit::Minute,
             );
         let mut widget_bar = WidgetBar::default();
         widget_bar.config.width = 45.0;
+        widget_bar
+            .widgets
+            .push(egui_charts::ui::widget_bar::WidgetBarWidget {
+                id: 1,
+                icon: egui_charts::icons::icons::WATCHLIST,
+                tooltip: "Data Window".into(),
+                section: egui_charts::ui::widget_bar::WidgetBarSection::Top,
+            });
         let mut timeframe_toolbar = TimeframeToolbar::default();
         timeframe_toolbar.config.active_bg = egui::Color32::TRANSPARENT;
         timeframe_toolbar.state.timeframe = timeframe;
@@ -232,6 +251,7 @@ impl DemoApp {
             date_picker: DatePicker::new(),
             object_tree: ObjectTreePanel::new(),
             open_panel: None,
+            data_window_expanded: true,
             alerts: Vec::new(),
             next_alert_id: 1,
             replay: None,
@@ -328,6 +348,63 @@ impl DemoApp {
             self.timeframe_toolbar.state.adjust_for_dividends,
         );
         self.chart.set_data(SeriesId::MAIN, self.bars.clone());
+        let spec = DemoSymbol::find(&self.state.symbol);
+        self.chart.set_instrument(Some(
+            egui_charts::model::Instrument::new(spec.symbol)
+                .with_description(format!("{} (synthetic)", spec.company_name))
+                .with_exchange(spec.exchange)
+                .with_price_decimals(2),
+        ));
+        self.chart
+            .set_legend_statuses(&[egui_charts::widget::LegendStatus {
+                text: "SIM",
+                color: egui::Color32::from_rgb(38, 166, 154),
+                background: egui::Color32::TRANSPARENT,
+            }]);
+        // An extended-session quote comes from the fixture's latest session, never the hover bar.
+        let session = self
+            .source_bars
+            .last()
+            .filter(|bar| {
+                self.state.symbol == "SAMPLE"
+                    && self
+                        .bars
+                        .last()
+                        .is_some_and(|regular| bar.time > regular.time)
+            })
+            .and_then(|bar| {
+                session_bars(
+                    "SAMPLE",
+                    std::slice::from_ref(bar),
+                    SessionType::ETH,
+                    self.timeframe_toolbar.state.adjust_for_dividends,
+                )
+                .first()
+                .map(|bar| egui_charts::model::quote::SessionQuote::new(bar.close, "PRE"))
+            });
+        self.chart.set_session_quote(session);
+        self.chart
+            .set_quote(self.bars.last().map(|bar| egui_charts::model::Level1Quote {
+                // The frozen quote is fifteen seconds before this synthetic bar closes.
+                ts: bar.time
+                    + chrono::Duration::milliseconds(self.state.timeframe.duration_ms() - 15_000),
+                symbol: self.state.symbol.clone(),
+                bid: (bar.close * 100.0).round() / 100.0 - 0.02,
+                ask: (bar.close * 100.0).round() / 100.0 + 0.02,
+                bid_size: 100.0,
+                ask_size: 100.0,
+            }));
+        self.chart.set_events(
+            self.bars
+                .last()
+                .map(|bar| {
+                    egui_charts::model::Marker::event(bar.time, "S")
+                        .with_id("sample-session")
+                        .with_tooltip("Synthetic session: generated example data")
+                })
+                .into_iter()
+                .collect(),
+        );
     }
 
     // --- replay ------------------------------------------------------------
@@ -696,8 +773,73 @@ impl DemoApp {
                 ..egui::Margin::ZERO
             }))
             .show(ui, |ui| {
-                let action = self.top_toolbar.show_with_state(ui, &self.state);
+                use egui_charts::icons::icons;
+                use egui_charts::ui_kit::buttons::IconButton;
+                let mut menu_action = TopToolbarAction::None;
+                let mut search = false;
+                let mut trade = false;
+                let mut publish = false;
+                let action = self.top_toolbar.show_with_slots(
+                    ui,
+                    &self.state,
+                    |ui| {
+                        let response = IconButton::new(&icons::MENU).tooltip("Menu").show(ui);
+                        egui::Popup::menu(&response).show(|ui| {
+                            for (label, action) in [
+                                ("Quick search", TopToolbarAction::OpenSymbolSearch),
+                                ("Switch theme", TopToolbarAction::ThemeToggle),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    menu_action = action;
+                                    ui.close();
+                                }
+                            }
+                        });
+                    },
+                    |ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.add_space(8.0);
+                        publish = ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("Publish")
+                                        .size(14.0)
+                                        .color(self.theme.ui.panel_bg),
+                                )
+                                .fill(self.theme.ui.text)
+                                .min_size(egui::vec2(72.0, 28.0))
+                                .corner_radius(16),
+                            )
+                            .clicked();
+                        trade = ui
+                            .add(
+                                egui::Button::new(egui::RichText::new("Trade").size(14.0))
+                                    .fill(bg)
+                                    .stroke(egui::Stroke::new(1.0, self.theme.ui.border))
+                                    .min_size(egui::vec2(60.0, 28.0))
+                                    .corner_radius(16),
+                            )
+                            .clicked();
+                        search = IconButton::new(&icons::QUICK_SEARCH)
+                            .icon_scale(24.0 / 28.0)
+                            .tooltip("Quick search")
+                            .show(ui)
+                            .clicked();
+                    },
+                );
                 self.handle_top_toolbar(ui.ctx(), action);
+                self.handle_top_toolbar(ui.ctx(), menu_action);
+                if search {
+                    self.symbol_search.open();
+                }
+                if trade {
+                    self.notify(
+                        "Connect a trading account to place orders; the demo uses synthetic data",
+                    );
+                }
+                if publish {
+                    self.export_dialog.open();
+                }
             });
     }
 
@@ -820,13 +962,33 @@ impl DemoApp {
             _ => {}
         }
 
+        match action {
+            DrawingToolbarAction::SetCursorType(cursor) => {
+                use egui_charts::config::CrosshairStyle;
+                use egui_charts::ui::drawing_toolbar::categories::cursors::CursorType;
+                self.chart.set_crosshair_style(match cursor {
+                    CursorType::Cross => CrosshairStyle::Full,
+                    CursorType::Dot => CrosshairStyle::Dot,
+                    CursorType::Arrow | CursorType::Eraser => CrosshairStyle::Arrow,
+                    CursorType::Demonstration => CrosshairStyle::Demonstration,
+                });
+                self.chart.drawings_mut().set_active_tool(None);
+                self.chart
+                    .drawings_mut()
+                    .set_eraser_mode(cursor == CursorType::Eraser);
+                return;
+            }
+            DrawingToolbarAction::ToggleValuesTooltip => {
+                self.chart
+                    .set_tooltip_enabled(self.drawing_toolbar.state.values_tooltip_on_long_press);
+                return;
+            }
+            _ => {}
+        }
+
         let dm = self.chart.drawings_mut();
         match action {
             DrawingToolbarAction::SelectTool(tool) => dm.set_active_tool(Some(tool)),
-            DrawingToolbarAction::SetCursorType(cursor) => {
-                use egui_charts::ui::drawing_toolbar::categories::cursors::CursorType;
-                dm.set_eraser_mode(matches!(cursor, CursorType::Eraser));
-            }
             DrawingToolbarAction::ToggleMagnet => {
                 dm.options.magnet_mode = !dm.options.magnet_mode;
                 dm.update_snap_options();
@@ -876,8 +1038,16 @@ impl DemoApp {
             }))
             .show(ui, |ui| {
                 let action = self.widget_bar.show(ui);
-                if let WidgetBarAction::Clicked(icon) = action {
-                    self.toggle_panel(icon);
+                match action {
+                    WidgetBarAction::Clicked(icon) => self.toggle_panel(icon),
+                    WidgetBarAction::WidgetClicked(1) => {
+                        self.open_panel = if self.open_panel == Some(SidePanel::DataWindow) {
+                            None
+                        } else {
+                            Some(SidePanel::DataWindow)
+                        };
+                    }
+                    _ => {}
                 }
             });
     }
@@ -911,6 +1081,14 @@ impl DemoApp {
             .show(ui, |ui| match which {
                 SidePanel::ObjectTree => self.show_object_tree(ui),
                 SidePanel::Alerts => self.show_alerts_panel(ui),
+                SidePanel::DataWindow => {
+                    self.data_window_expanded =
+                        egui_charts::ui::widget_bar::panels::object_tree::show_data_window(
+                            ui,
+                            &self.build_data_window(),
+                            self.data_window_expanded,
+                        );
+                }
             });
     }
 
@@ -951,12 +1129,23 @@ impl DemoApp {
     }
 
     fn build_data_window(&self) -> DataWindowInfo {
-        let last = self.chart.bars(SeriesId::MAIN).last();
+        let bars = self.chart.state().shown();
+        let index = self
+            .chart
+            .get_hover_bar_idx()
+            .filter(|index| index.is_finite() && index.round() >= 0.0)
+            .map(|index| index.round() as usize)
+            .filter(|index| *index < bars.len())
+            .unwrap_or_else(|| bars.len().saturating_sub(1));
+        let last = bars.get(index);
         let mut info = DataWindowInfo::new(self.state.symbol.clone())
             .with_timeframe(self.state.timeframe.as_str().to_string());
         if let Some(b) = last {
             info = info.with_ohlcv(b.open, b.high, b.low, b.close, b.volume);
             info = info.with_timestamp(b.time.to_rfc3339());
+            if let Some(previous) = index.checked_sub(1).and_then(|index| bars.get(index)) {
+                info = info.with_prev_close(previous.close);
+            }
         }
         info
     }
@@ -1176,6 +1365,7 @@ impl DemoApp {
                                 std::mem::replace(&mut self.chart, Chart::new(BarData::new()));
                             self.chart = chart.with_chart_options(options);
                             self.chart.apply_synced_time_scale(spacing, offset);
+                            self.timeframe_toolbar.set_timezone(label.to_owned());
                             self.timeframe_toolbar.state.timezone_menu_open = false;
                         }
                     }
@@ -1189,6 +1379,16 @@ impl DemoApp {
             .frame(panel_frame(bg).corner_radius(4))
             .show(ui, |ui| {
                 self.chart.show(ui);
+                if self.chart.take_scale_settings_request() {
+                    self.open_series_settings_dialog();
+                    self.series_settings.active_tab = egui_charts::ui::dialogs::series_settings::SeriesSettingsTab::ScalesAndLines;
+                }
+                if self.chart.take_event_click().is_some() {
+                    self.notify("Synthetic session: generated example data");
+                }
+                if let Some(side) = self.chart.take_quote_action() {
+                    self.notify(format!("{side:?} quote selected; synthetic data, no order submitted"));
+                }
             });
         self.replay_control.set_dock_rect(chart.response.rect);
         // Right-click context actions resolve after the chart is shown.
@@ -1450,6 +1650,7 @@ fn browser_download(bytes: &[u8], path: &std::path::Path) -> Result<(), String> 
 
 fn panel_frame(bg: egui::Color32) -> egui::Frame {
     egui::Frame::new()
+        .corner_radius(4)
         .fill(bg)
         .stroke(egui::Stroke::NONE)
         .inner_margin(egui::Margin::ZERO)
@@ -1515,6 +1716,47 @@ fn apply_settings_state(state: &ChartSettingsState, config: &mut egui_charts::co
 mod tests {
     use super::*;
     use egui_charts::ui::timeframe_toolbar::DateRange;
+
+    #[test]
+    fn data_window_reads_the_hovered_rendered_element() {
+        for kind in [ChartType::Candles, ChartType::Renko] {
+            let ctx = egui::Context::default();
+            let mut app = DemoApp::new(&eframe::CreationContext::_new_kittest(ctx.clone()));
+            app.chart.set_chart_type(kind);
+            let frame = |app: &mut DemoApp, events| {
+                ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(800.0, 600.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        app.chart.show(ui);
+                    },
+                )
+                .drop_without_applying_deltas();
+            };
+            frame(&mut app, vec![]);
+            let (start, end) = app.chart.state().visible_range();
+            let index = (start + end) / 2;
+            let map = app.chart.get_chart_mapping();
+            frame(
+                &mut app,
+                vec![egui::Event::PointerMoved(egui::pos2(
+                    map.idx_to_x(index),
+                    map.rect.center().y,
+                ))],
+            );
+            let info = app.build_data_window();
+            let bars = app.chart.state().shown();
+            assert_eq!(info.close, bars[index].close, "{kind:?}");
+            assert_eq!(info.timestamp, bars[index].time.to_rfc3339(), "{kind:?}");
+            assert_eq!(info.prev_close, bars[index - 1].close, "{kind:?}");
+        }
+    }
 
     #[test]
     fn ranges_fit_displayed_history_in_both_themes_and_window_sizes() {
