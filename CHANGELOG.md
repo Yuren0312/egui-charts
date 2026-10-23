@@ -138,6 +138,12 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- `DrawingToolbarDomainState` snapshots and restores magnet strength, cursor type and eraser state alongside the active drawing tool. The demo synchronises from the chart before every toolbar frame, clearing finished tools and reflecting externally changed modes without retaining a conflicting zoom highlight. Cursor, eraser and drawing picks leave the previous mode immediately. Migration: snapshot literals supply `magnet_type`, `current_cursor_type` and `eraser_mode_enabled`; hosts call `sync_from_domain_state` before showing the toolbar. ([#519](https://github.com/userFRM/egui-charts/issues/519))
+
+- The magnet flyout gives Off, Weak, Strong and OHLC modes action icons alongside their existing current-mode checks. ([#290](https://github.com/userFRM/egui-charts/issues/290))
+
+- The floating selection toolbar uses shared icon buttons with accessible action names and the kit’s hover, pressed and focus states. Its frame follows popup fill, border and shadow, and group separators use the full theme stroke. ([#468](https://github.com/userFRM/egui-charts/issues/468), [#587](https://github.com/userFRM/egui-charts/issues/587))
+
 - Synchronized ranges interpolate repeated element timestamps without jumping forward; nearest crosshairs select the first element at a repeated time. ([#116](https://github.com/userFRM/egui-charts/issues/116))
 - Layout synchronization retains hidden slots, clears stale tab hovers, retries drawings after receiver history loads and repaints mirrored edits. Drawing Delete shortcuts affect only the focused chart. Layout and group inputs stay open while editing, including toolbar overflow, and overlapping popups do not activate the chart underneath. New and copied layouts keep one linked copy of each shared drawing and retain main-series visibility. Layout theme changes use `Chart::set_theme` for active and saved charts. The demo preserves custom chart colours when changing slots and applies both endpoints of custom date ranges. ([#115](https://github.com/userFRM/egui-charts/issues/115))
 
