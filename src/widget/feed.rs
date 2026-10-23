@@ -7,6 +7,7 @@
 
 use super::{Chart, SeriesId};
 use crate::chart::overlays::{VolumeBubbles, VolumeBubblesConfig};
+use crate::chart::renderers::time_label;
 use crate::data::inbox::{Answer, Inbox};
 use crate::data::merge::Origin;
 use crate::data::trades::Trades;
@@ -15,7 +16,8 @@ use crate::data::{
     SubscriptionId, TradePage, TradeRequest,
 };
 use crate::model::{BarClock, Instrument, OrderBook, Tick, Timeframe};
-use crate::scales::{PriceFormat, decimals_in};
+use crate::scales::{PriceFormat, TimeFormatter, TimeFormatterBuilder, TimezoneMode, decimals_in};
+use chrono::{DateTime, Utc};
 use egui::ViewportId;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -197,6 +199,49 @@ impl Chart {
                 decimals_in(bars).or_else(|| bars.last().map(|bar| format.decimals_of(bar.close)));
         }
         format
+    }
+
+    /// Writes `time` as the crosshair and the tooltip do: its date, with the year unless it is
+    /// the current one, then for intraday bars the time of day, in the chart's time zone
+    /// (`TimeScaleOptions::timezone`). Dates of bars of a day or longer are UTC ones.
+    pub fn format_time(&self, time: DateTime<Utc>) -> String {
+        time_label(time, self.bar_seconds(), self.time_formatter().as_ref())
+    }
+
+    /// The formatter of the chart's times: in the chart's time zone for intraday bars, in UTC
+    /// for bars of a day or longer. An exchange time zone is the instrument's when it reports
+    /// one.
+    pub(super) fn time_formatter(&self) -> Box<dyn TimeFormatter> {
+        let mut zone = self.chart_options.time_scale.timezone.clone();
+        // A bar of a day or longer is stamped in its UTC period, so its date is the UTC one.
+        if self.bar_seconds() >= 86_400 {
+            zone = TimezoneMode::Utc;
+        }
+        let exchange = self.instrument.as_ref().and_then(|i| i.time_zone.as_ref());
+        if let (TimezoneMode::Exchange(_), Some(exchange)) = (&zone, exchange) {
+            zone = TimezoneMode::Exchange(exchange.tz());
+        }
+        TimeFormatterBuilder::new()
+            .with_24_hour(true)
+            .with_seconds(true)
+            .with_timezone(zone)
+            .build()
+    }
+
+    /// Seconds a bar spans: the timeframe's, else the shortest gap among the first bars, so
+    /// that a weekend between two of them does not count.
+    pub(super) fn bar_seconds(&self) -> i64 {
+        let bars = &self.state.data().bars;
+        let gap = || {
+            bars.windows(2)
+                .take(16)
+                .map(|pair| (pair[1].time - pair[0].time).num_seconds().abs())
+                .filter(|gap| *gap > 0)
+                .min()
+                .unwrap_or(1)
+        };
+        self.timeframe
+            .map_or_else(gap, |timeframe| timeframe.duration_ms() / 1000)
     }
 
     /// Describes the symbol of a chart without a feed: its price and volume decimals, tick

@@ -41,7 +41,7 @@ use crate::data::{Datafeed, FeedState};
 use crate::drawings::DrawingManager;
 use crate::model::{BarClock, BarData, ChartState, SessionProvider, Timeframe};
 use crate::model::{ChartType, ChartTypeParams};
-use crate::scales::{PriceMap, PriceRange, PriceTransform};
+use crate::scales::{PriceMap, PriceRange, PriceTransform, TimezoneMode};
 use crate::studies::IndicatorRegistry;
 use crate::theme::Theme;
 
@@ -349,6 +349,12 @@ impl Chart {
     /// longer bars keep their week and month breaks.
     pub fn set_session_provider(&mut self, provider: impl SessionProvider + 'static) {
         self.session_provider = Some(Box::new(provider));
+    }
+
+    /// Writes times on the time axis, the crosshair and the tooltip in `zone`
+    /// (`TimeScaleOptions::timezone`).
+    pub fn set_timezone(&mut self, zone: TimezoneMode) {
+        self.chart_options.time_scale.timezone = zone;
     }
 
     /// Calculates how many bars fit in the given pixel width at the current bar spacing.

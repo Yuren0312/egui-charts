@@ -13,7 +13,8 @@ use egui::{Align2, Color32, Pos2, Rect, Stroke};
 ///
 /// The vertical line runs down to `chart_bottom`, the bottom of the volume pane. The price label
 /// sits in the price axis, which ends at `axis_right`, over the `last_price_tag` it overlaps, and
-/// the time label on the time axis below `chart_bottom`, written by `formatter`. Prices are
+/// the time label on the time axis below `chart_bottom`, the [`time_label`] of a bar
+/// `bar_seconds` long written by `formatter`. Prices are
 /// rounded to the tick size of `format` and written with its decimals. Returns the rects of the
 /// price and time labels drawn.
 pub fn render_crosshair_full(
@@ -180,7 +181,11 @@ pub fn render_crosshair_full(
 
 /// The crosshair's time label for a bar `bar_seconds` long: its date as the time axis writes
 /// it, with the year unless it is the current one, then the time of day for intraday bars.
-fn time_label(time: DateTime<Utc>, bar_seconds: i64, formatter: &dyn TimeFormatter) -> String {
+pub(crate) fn time_label(
+    time: DateTime<Utc>,
+    bar_seconds: i64,
+    formatter: &dyn TimeFormatter,
+) -> String {
     let mut label = formatter.format(time, TickMarkType::DayOfMonth);
     let year = formatter.format(time, TickMarkType::Year);
     if year != formatter.format(Utc::now(), TickMarkType::Year) {

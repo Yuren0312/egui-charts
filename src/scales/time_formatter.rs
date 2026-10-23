@@ -222,11 +222,21 @@ pub enum TimezoneMode {
     Local,
     /// Display in specific timezone
     Timezone(Tz),
-    /// Display in exchange/venue timezone (user must specify via Timezone)
+    /// Display in the exchange time zone: on a chart, the instrument's when it reports one,
+    /// else this zone
     Exchange(Tz),
 }
 
 impl TimezoneMode {
+    /// The zone the time zone controls name `name`: `UTC`, or an IANA name such as
+    /// `America/New_York`. `None` for any other name.
+    pub fn named(name: &str) -> Option<Self> {
+        if name == "UTC" {
+            return Some(Self::Utc);
+        }
+        name.parse().ok().map(Self::Timezone)
+    }
+
     /// Common exchange timezones
     pub fn nyse() -> Self {
         TimezoneMode::Exchange(Tz::America__New_York)

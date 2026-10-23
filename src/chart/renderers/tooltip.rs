@@ -13,7 +13,8 @@ use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use egui::{FontId, Painter, Pos2, Rect, Stroke, Vec2, epaint::StrokeKind};
 
-/// Renders tooltip based on configured mode, with prices and volumes written by `format`
+/// Renders tooltip based on configured mode, with the bar's `time` as the chart writes it and
+/// prices and volumes written by `format`
 pub fn render_tooltip_with_options(
     context: &RenderContext,
     hover_pos: Pos2,
@@ -22,15 +23,24 @@ pub fn render_tooltip_with_options(
     price_scale: &PriceMap,
     coords: &ChartMapping,
     visible_data: &[Bar],
+    time: &str,
     format: PriceFormat,
 ) {
+    let painter = context.painter;
     match options.mode {
         TooltipMode::Floating => {
-            let painter = context.painter;
-            render_floating_tooltip(painter, hover_pos, context.rect, candle, options, format);
+            render_floating_tooltip(
+                painter,
+                hover_pos,
+                context.rect,
+                candle,
+                options,
+                time,
+                format,
+            );
         }
         TooltipMode::Tracking => {
-            render_tracking_tooltip(context.painter, context.rect, candle, options, format);
+            render_tracking_tooltip(painter, context.rect, candle, options, time, format);
         }
         TooltipMode::Magnifier => {
             render_magnifier_tooltip(
@@ -54,6 +64,7 @@ pub fn render_floating_tooltip(
     price_rect: Rect,
     candle: &Bar,
     options: &TooltipOptions,
+    time: &str,
     format: PriceFormat,
 ) {
     let options = &options.resolved(painter.ctx());
@@ -64,7 +75,7 @@ pub fn render_floating_tooltip(
     let mut rows = Vec::new();
 
     if options.show_time {
-        rows.push(("Time", candle.time.format("%Y-%m-%d %H:%M:%S").to_string()));
+        rows.push(("Time", time.to_owned()));
     }
 
     if options.show_ohlc {
@@ -157,6 +168,7 @@ pub fn render_tracking_tooltip(
     chart_rect: Rect,
     candle: &Bar,
     options: &TooltipOptions,
+    time: &str,
     format: PriceFormat,
 ) {
     let options = &options.resolved(painter.ctx());
@@ -173,7 +185,7 @@ pub fn render_tracking_tooltip(
     let mut parts = Vec::new();
 
     if options.show_time {
-        parts.push(candle.time.format("%H:%M:%S").to_string());
+        parts.push(time.to_owned());
     }
 
     if options.show_ohlc {

@@ -11,6 +11,7 @@ use egui_charts::Chart;
 use egui_charts::chart::selection::SeriesId;
 use egui_charts::chart::series::SeriesSettings;
 use egui_charts::model::{Bar, ChartType, RenkoConfig, Timeframe};
+use egui_charts::scales::TimezoneMode;
 use egui_charts::theme::Theme;
 use egui_charts::ui::app_state::ChartAppState;
 use egui_charts::ui::context_menu::{ChartContextAction, ChartMenus, ContextMenuAction};
@@ -34,6 +35,7 @@ use egui_charts::ui::top_toolbar::components::indicator_dialog::{
     IndicatorDialog, IndicatorDialogAction, IndicatorTab,
 };
 use egui_charts::ui::top_toolbar::components::settings_menu::data::ChartSettingsState;
+use egui_charts::ui::top_toolbar::components::settings_menu::types::SettingsTab;
 use egui_charts::ui::top_toolbar::components::settings_menu::{SettingsAction, SettingsDialog};
 use egui_charts::ui::top_toolbar::{TopToolbar, TopToolbarAction};
 use egui_charts::ui::widget_bar::panels::object_tree::{
@@ -433,6 +435,9 @@ impl DemoApp {
             SettingsAction::Apply(state) => {
                 self.settings_state = state.clone();
                 apply_settings_state(&state, self.chart.config_mut());
+                if let Some(zone) = TimezoneMode::named(&state.timezone) {
+                    self.chart.set_timezone(zone);
+                }
             }
             SettingsAction::Cancel => {}
             _ => {}
@@ -916,7 +921,7 @@ impl DemoApp {
             .with_price_format(self.chart.price_format());
         if let Some(b) = last {
             info = info.with_ohlcv(b.open, b.high, b.low, b.close, b.volume);
-            info = info.with_timestamp(b.time.to_rfc3339());
+            info = info.with_timestamp(self.chart.format_time(b.time));
         }
         info
     }
@@ -1054,8 +1059,12 @@ impl DemoApp {
                 self.chart.set_visible_bars(visible);
             }
             TimeframeToolbarAction::OpenDatePicker => self.date_picker.open(),
-            // Time zone, session and dividend adjustment have no backing in the
-            // demo's synthetic single-session UTC series.
+            // The chart's time zone is set on the Symbol tab of the settings dialog.
+            TimeframeToolbarAction::OpenTimezoneMenu => self
+                .settings_dialog
+                .open_tab(self.settings_state.clone(), SettingsTab::Symbol),
+            // Session and dividend adjustment have no backing in the demo's synthetic
+            // single-session series.
             _ => {}
         }
     }

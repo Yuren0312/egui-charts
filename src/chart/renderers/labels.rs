@@ -448,7 +448,7 @@ pub fn render_legend(
 
 #[cfg(test)]
 mod tests {
-    use crate::model::{Bar, BarData, Instrument};
+    use crate::model::{Bar, BarData, Instrument, TimezoneId};
     use crate::widget::Chart;
     use crate::widget::test_frames::{chart, frame, shapes};
     use chrono::{DateTime, TimeZone, Utc};
@@ -646,6 +646,73 @@ mod tests {
                 });
                 assert!(shown, "{case}: legend {price} in {texts:?}");
             }
+        }
+    }
+
+    /// The crosshair and the tooltip write the hovered bar's time in the chart's time zone, and
+    /// an exchange zone is the instrument's when it reports one.
+    #[test]
+    fn times_follow_the_chart_time_zone() {
+        use crate::scales::TimezoneMode;
+        use chrono_tz::Tz;
+
+        let ctx = Context::default();
+        let new_york = || TimezoneId::named("America/New_York").unwrap();
+        let (hour, day) = (chrono::Duration::hours(1), chrono::Duration::days(1));
+        // Hourly from 15 January 2024, bar 50 opens at 02:00 UTC on the 17th, 21:00 on the 16th
+        // in New York. Daily from 1 January, bar 50 is the UTC day of 20 February, whose 00:00
+        // stamp is the 19th in New York.
+        let (in_new_york, in_utc) = ("Jan 16, 2024 21:00", "Jan 17, 2024 02:00");
+        let new_york_zone = TimezoneMode::Timezone(Tz::America__New_York);
+        // In the last row the first bar comes 65 hours before the second, as in an hourly series
+        // that starts in a Friday's last hour: one long gap does not make the bars daily.
+        let none = chrono::Duration::zero();
+        for (zone, instrument, (start_day, step, back), want) in [
+            (new_york_zone.clone(), None, (15, hour, none), in_new_york),
+            (
+                TimezoneMode::Exchange(Tz::UTC),
+                Some(new_york()),
+                (15, hour, none),
+                in_new_york,
+            ),
+            (
+                TimezoneMode::Utc,
+                Some(new_york()),
+                (15, hour, none),
+                in_utc,
+            ),
+            (new_york_zone.clone(), None, (1, day, none), "Feb 20, 2024"),
+            (new_york_zone, None, (15, hour, hour * 64), in_new_york),
+        ] {
+            let start = Utc.with_ymd_and_hms(2024, 1, start_day, 0, 0, 0).unwrap();
+            let bars = (0..100)
+                .map(|i| {
+                    let time = if i == 0 {
+                        start - back
+                    } else {
+                        start + step * i
+                    };
+                    Bar::new(time, 1.0, 2.0, 1.0, 2.0, 1.0)
+                })
+                .collect();
+            let mut chart = Chart::new(BarData::from_bars(bars));
+            chart.chart_options.time_scale.timezone = zone.clone();
+            if let Some(zone) = instrument {
+                chart.set_instrument(Instrument::new("X").with_time_zone(zone));
+            }
+            price_axis(&ctx, &mut chart, None);
+            let mapping = chart.get_chart_mapping();
+            let hover = Pos2::new(mapping.idx_to_x(50), mapping.rect.center().y);
+            price_axis(&ctx, &mut chart, Some(hover));
+            let time = ctx.input(|i| i.time) + 0.1;
+            let shown = shapes(&ctx, &mut chart, time, vec![Event::PointerMoved(hover)])
+                .into_iter()
+                .filter(|shape| matches!(shape, Shape::Text(text) if text.galley.text() == want))
+                .count();
+            assert_eq!(
+                shown, 2,
+                "{zone:?}: the crosshair and the tooltip write {want}"
+            );
         }
     }
 

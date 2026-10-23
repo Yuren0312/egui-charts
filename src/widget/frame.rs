@@ -6,7 +6,6 @@ use crate::chart::renderers::{self, ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering;
 use crate::config::{BackgroundStyle, WatermarkPos};
 use crate::model::{PriceLine, Timeframe};
-use crate::scales::TimeFormatterBuilder;
 use crate::styles::{sizing, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Pos2, Rect, Response, Sense, Ui, Vec2};
@@ -524,11 +523,7 @@ impl Chart {
         };
 
         let price_format = self.price_format();
-        let formatter = TimeFormatterBuilder::new()
-            .with_24_hour(true)
-            .with_seconds(true)
-            .with_timezone(self.chart_options.time_scale.timezone.clone())
-            .build();
+        let formatter = self.time_formatter();
 
         if self.config.show_vertical_grid {
             // Simple bar-index-based vertical grid - moves 1:1 with chart
@@ -895,7 +890,8 @@ impl Chart {
             );
         }
 
-        // Source-bar cadence sets precision even when many elements share one time.
+        // Source-bar cadence sets precision even when many elements share one time. The shortest
+        // gap among the first visible bars, so that a weekend between two of them does not count.
         let bars = &self.state.data().bars;
         let first = &visible_data[0];
         let last = &visible_data[visible_data.len() - 1];
@@ -903,11 +899,13 @@ impl Chart {
         let at = bars
             .partition_point(|bar| bar.time < first.time)
             .min(end.saturating_sub(2));
-        let bar_seconds = if end >= 2 {
-            (bars[at + 1].time - bars[at].time).num_seconds().abs()
-        } else {
-            1
-        };
+        let bar_seconds = bars[at..end]
+            .windows(2)
+            .take(16)
+            .map(|pair| (pair[1].time - pair[0].time).num_seconds().abs())
+            .filter(|gap| *gap > 0)
+            .min()
+            .unwrap_or(1);
 
         // Draw crosshair with options from chart_options. The pointer still hovers the chart
         // while a context menu is open, so the crosshair, its labels and the tooltip wait until
@@ -954,6 +952,7 @@ impl Chart {
                         &price_map,
                         &coords,
                         visible_data,
+                        &renderers::time_label(candle.time, bar_seconds, formatter.as_ref()),
                         price_format,
                     );
                 }
@@ -1132,7 +1131,11 @@ mod tests {
             let labels: Vec<_> = painted
                 .iter()
                 .filter_map(|shape| match shape {
-                    Shape::Text(text) if text.galley.text().ends_with(", 2024") => {
+                    // The tooltip writes the same time inside the chart.
+                    Shape::Text(text)
+                        if text.galley.text().ends_with(", 2024")
+                            && text.pos.y > map.rect.max.y =>
+                    {
                         Some(text.galley.text().to_owned())
                     }
                     _ => None,

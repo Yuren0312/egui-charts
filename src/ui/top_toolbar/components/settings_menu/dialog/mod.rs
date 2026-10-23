@@ -157,6 +157,13 @@ impl SettingsDialog {
         self.update_color_pickers_from_settings();
     }
 
+    /// Opens the dialog on `tab`, for a control that edits a setting on that tab, such as
+    /// the time zone button of the timeframe toolbar ([`SettingsTab::Symbol`]).
+    pub fn open_tab(&mut self, settings: ChartSettingsState, tab: SettingsTab) {
+        self.open(settings);
+        self.active_tab = tab;
+    }
+
     /// Open the dialog with layout style
     pub fn open_with_layout(&mut self, settings: ChartSettingsState, layout_style: LayoutStyle) {
         self.layout_style = layout_style;
