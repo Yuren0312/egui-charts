@@ -13,7 +13,10 @@
 //! hand-calculated over an inclusive 364-day window.
 //!
 //! Mulloy 1994 defines DEMA and TEMA, whose averages are each seeded with the mean of the first
-//! values of their own input.
+//! values of their own input, and Chande and Kroll the Stochastic RSI, which like the Stochastic
+//! reports on a scale of 0 to 100 and has a value only once %D has one. The `@31`, `@32` and `@33`
+//! rows run the Stochastic RSI over the first bars of the fixture: a bar has the value it has on
+//! the whole series, and 31 bars have none.
 //!
 //! Where a definition leaves a convention open, the expected series follows the one the study
 //! documents (EMA and MACD seed with the first close, PPO and the Percentage Volume Oscillator
@@ -32,8 +35,8 @@ use crate::studies::{
     CommoditySelectionIndex, DEMA, DirectionalMovement, DonchianChannels, EMA, HMA, IchimokuCloud,
     Indicator, IndicatorValue, KeltnerChannels, LinearRegression, LinearRegressionSlope, MACD,
     MoneyFlowIndex, NetVolume, ParabolicSAR, ParkinsonVol, PercentageVolumeOscillator,
-    PriceOscillator, RSI, RateOfChange, SMA, StandardDeviation, Stochastic, SuperTrend, TEMA, VWMA,
-    WMA, Week52HighLow, Week52HighLowLevels, WilliamsR, ZeroTrendVol,
+    PriceOscillator, RSI, RateOfChange, SMA, StandardDeviation, Stochastic, StochasticRSI,
+    SuperTrend, TEMA, VWMA, WMA, Week52HighLow, Week52HighLowLevels, WilliamsR, ZeroTrendVol,
 };
 use chrono::{TimeZone, Utc};
 
@@ -139,6 +142,7 @@ fn staple_studies_match_published_definitions() {
         ("Donchian(20)", Box::new(DonchianChannels::default())),
         ("Stoch(14,3,3)", Box::new(Stochastic::default())),
         ("Stoch(14,1,3)", Box::new(Stochastic::new(14, 1, 3))),
+        ("StochRSI(14,14,3,3)", Box::new(StochasticRSI::default())),
         ("WilliamsR(14)", Box::new(WilliamsR::default())),
         ("BoP(14)", Box::new(BalanceOfPower::default())),
         ("PPO(12,26,9)", Box::new(PriceOscillator::default())),
@@ -211,6 +215,21 @@ fn staple_studies_match_published_definitions() {
         .map(|b| Bar::new(b.time, 10.0, 10.0, 10.0, 10.0, 1.0))
         .collect();
     studies.extend([
+        (
+            "StochRSI(14,14,3,3)@31",
+            Box::new(StochasticRSI::default()) as Box<dyn Indicator>,
+            bars[..31].to_vec(),
+        ),
+        (
+            "StochRSI(14,14,3,3)@32",
+            Box::new(StochasticRSI::default()),
+            bars[..32].to_vec(),
+        ),
+        (
+            "StochRSI(14,14,3,3)@33",
+            Box::new(StochasticRSI::default()),
+            bars[..33].to_vec(),
+        ),
         (
             "52W-levels-calendar",
             Box::new(Week52HighLowLevels::default()) as Box<dyn Indicator>,
