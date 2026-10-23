@@ -6,12 +6,21 @@ use super::bar::Bar;
 use super::bar_data::BarData;
 use chrono::{DateTime, Utc};
 
+/// The time column of a bar CSV file, UTC. `%.f` writes the fraction of a second only when the
+/// time has one and reads a time with or without it.
+const TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.f";
+
+/// The header row of a bar CSV file, written by every writer and required by `from_csv`.
+const HEADER: [&str; 6] = ["ts", "open", "high", "low", "close", "volume"];
+
 impl BarData {
     /// Loads bars from a CSV file
     ///
     /// # Format
-    /// CSV format: ts,open,high,low,close,volume
-    /// Timestamps should be in "YYYY-MM-DD HH:MM:SS" format (UTC)
+    /// CSV format: ts,open,high,low,close,volume. The header row is required (any case, spaces
+    /// around names ignored) and the columns must be in this order.
+    /// Timestamps are in "YYYY-MM-DD HH:MM:SS" format (UTC), optionally with a fraction of a
+    /// second, such as "2024-03-15 10:00:00.250"
     ///
     /// # Example
     /// ```no_run
@@ -21,6 +30,14 @@ impl BarData {
     /// ```
     pub fn from_csv(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut rdr = csv::Reader::from_path(path)?;
+        let header = rdr.headers()?;
+        if !header
+            .iter()
+            .map(|name| name.trim().to_ascii_lowercase())
+            .eq(HEADER)
+        {
+            return Err(format!("Invalid CSV header: expected {}", HEADER.join(",")).into());
+        }
         let mut bars = Vec::new();
 
         for (line_num, result) in rdr.records().enumerate() {
@@ -39,7 +56,7 @@ impl BarData {
             let ts = record
                 .get(0)
                 .ok_or_else(|| format!("Missing ts at line {}", line_num + 2))?;
-            let naive_dt = chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%d %H:%M:%S")
+            let naive_dt = chrono::NaiveDateTime::parse_from_str(ts, TIME_FORMAT)
                 .map_err(|e| format!("Invalid ts '{}' at line {}: {}", ts, line_num + 2, e))?;
             let ts = DateTime::<Utc>::from_naive_utc_and_offset(naive_dt, Utc);
 
@@ -69,7 +86,8 @@ impl BarData {
     ///
     /// # Format
     /// CSV format: ts,open,high,low,close,volume
-    /// Timestamps are in "YYYY-MM-DD HH:MM:SS" format (UTC)
+    /// Timestamps are in "YYYY-MM-DD HH:MM:SS" format (UTC), with the fraction of a second
+    /// when the bar's time has one, such as "2024-03-15 10:00:00.250"
     ///
     /// # Example
     /// ```no_run
@@ -85,12 +103,12 @@ impl BarData {
         let mut wtr = csv::Writer::from_writer(file);
 
         // Write header
-        wtr.write_record(["ts", "open", "high", "low", "close", "volume"])?;
+        wtr.write_record(HEADER)?;
 
         // Write data
         for bar in &self.bars {
             wtr.write_record([
-                bar.time.format("%Y-%m-%d %H:%M:%S").to_string(),
+                bar.time.format(TIME_FORMAT).to_string(),
                 bar.open.to_string(),
                 bar.high.to_string(),
                 bar.low.to_string(),
@@ -107,7 +125,8 @@ impl BarData {
     ///
     /// # Format
     /// CSV format: ts,open,high,low,close,volume
-    /// Timestamps are in "YYYY-MM-DD HH:MM:SS" format (UTC)
+    /// Timestamps are in "YYYY-MM-DD HH:MM:SS" format (UTC), with the fraction of a second
+    /// when the bar's time has one, such as "2024-03-15 10:00:00.250"
     ///
     /// # Example
     /// ```
@@ -121,12 +140,12 @@ impl BarData {
         let mut wtr = csv::Writer::from_writer(Vec::new());
 
         // Write header
-        wtr.write_record(["ts", "open", "high", "low", "close", "volume"])?;
+        wtr.write_record(HEADER)?;
 
         // Write data
         for bar in &self.bars {
             wtr.write_record([
-                bar.time.format("%Y-%m-%d %H:%M:%S").to_string(),
+                bar.time.format(TIME_FORMAT).to_string(),
                 bar.open.to_string(),
                 bar.high.to_string(),
                 bar.low.to_string(),
@@ -143,7 +162,8 @@ impl BarData {
     ///
     /// # Format
     /// CSV format: ts,open,high,low,close,volume,indicator_1,indicator_2,...
-    /// Timestamps are in "YYYY-MM-DD HH:MM:SS" format (UTC)
+    /// Timestamps are in "YYYY-MM-DD HH:MM:SS" format (UTC), with the fraction of a second
+    /// when the bar's time has one, such as "2024-03-15 10:00:00.250"
     ///
     /// Each indicator is a `(name, values)` pair where `values` is aligned to the
     /// bar data by index. Missing values (e.g. SMA warmup period) are empty strings.
@@ -167,14 +187,7 @@ impl BarData {
         let mut wtr = csv::Writer::from_writer(Vec::new());
 
         // Build header: ts,open,high,low,close,volume,indicator_1,...
-        let mut header: Vec<String> = vec![
-            "ts".to_string(),
-            "open".to_string(),
-            "high".to_string(),
-            "low".to_string(),
-            "close".to_string(),
-            "volume".to_string(),
-        ];
+        let mut header: Vec<String> = HEADER.map(String::from).to_vec();
         for (name, _) in indicators {
             header.push(name.clone());
         }
@@ -183,7 +196,7 @@ impl BarData {
         // Write data rows
         for (i, bar) in self.bars.iter().enumerate() {
             let mut record: Vec<String> = vec![
-                bar.time.format("%Y-%m-%d %H:%M:%S").to_string(),
+                bar.time.format(TIME_FORMAT).to_string(),
                 bar.open.to_string(),
                 bar.high.to_string(),
                 bar.low.to_string(),
@@ -361,5 +374,81 @@ mod tests {
 
         // With empty indicators, should be identical to plain CSV
         assert_eq!(csv, csv_plain);
+    }
+
+    /// A path in the temporary directory, unique to this process and `name`.
+    fn temp_csv(name: &str) -> String {
+        let file = format!("egui-charts-{}-{name}.csv", std::process::id());
+        std::env::temp_dir().join(file).to_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn bar_csv_round_trips_sub_second_times() {
+        let start = DateTime::parse_from_rfc3339("2024-03-15T10:00:00Z")
+            .unwrap()
+            .to_utc();
+        let times: Vec<DateTime<Utc>> = (0..3)
+            .map(|i| start + chrono::Duration::milliseconds(100 * i))
+            .collect();
+        let bars = times
+            .iter()
+            .map(|&t| Bar::new(t, 1.0, 2.0, 0.5, 1.5, 10.0))
+            .collect();
+        let path = temp_csv("sub-second");
+
+        BarData::from_bars(bars).to_csv(&path).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        let loaded = BarData::from_csv(&path);
+        std::fs::remove_file(&path).unwrap();
+
+        let written_times: Vec<&str> = written
+            .lines()
+            .skip(1)
+            .map(|row| row.split(',').next().unwrap())
+            .collect();
+        assert_eq!(
+            written_times,
+            [
+                "2024-03-15 10:00:00",
+                "2024-03-15 10:00:00.100",
+                "2024-03-15 10:00:00.200"
+            ]
+        );
+        let loaded_times: Vec<DateTime<Utc>> =
+            loaded.unwrap().bars.iter().map(|b| b.time).collect();
+        assert_eq!(loaded_times, times);
+    }
+
+    #[test]
+    fn from_csv_refuses_a_missing_or_reordered_header() {
+        let refused = Err("Invalid CSV header: expected ts,open,high,low,close,volume".to_string());
+        let cases = [
+            (
+                "2024-03-15 10:00:00,1,2,0.5,1.5,10\n2024-03-15 10:01:00,1,2,0.5,1.5,10\n",
+                refused.clone(),
+            ),
+            (
+                "ts,close,high,low,open,volume\n2024-03-15 10:00:00,1.5,2,0.5,1,10\n",
+                refused,
+            ),
+            (
+                " TS , Open,HIGH,low,close,Volume\n2024-03-15 10:00:00,1,2,0.5,1.5,10\n",
+                Ok(vec![(1.0, 1.5)]),
+            ),
+        ];
+        let path = temp_csv("header");
+        for (contents, expected) in cases {
+            std::fs::write(&path, contents).unwrap();
+            let got = BarData::from_csv(&path)
+                .map(|data| {
+                    data.bars
+                        .iter()
+                        .map(|b| (b.open, b.close))
+                        .collect::<Vec<_>>()
+                })
+                .map_err(|e| e.to_string());
+            assert_eq!(got, expected, "{contents:?}");
+        }
+        std::fs::remove_file(&path).unwrap();
     }
 }
