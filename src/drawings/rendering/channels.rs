@@ -73,7 +73,7 @@ impl Drawing {
         };
         let color = self.color32();
 
-        if let Some((first, bars)) = bars_between(view.bars, a.bar_idx, b.bar_idx)
+        if let Some((first, bars)) = bars_between(view.bars, view.bar_of(&a), view.bar_of(&b))
             && let Some(fit) = span_moments(view, first, bars).fit()
         {
             self.draw_regression_channel(painter, view, first, bars.len(), &fit, color);
@@ -308,7 +308,7 @@ impl Drawing {
         painter.text(
             height_label_pos,
             egui::Align2::LEFT_CENTER,
-            self.size_labels(view.price_to_y).concat(),
+            self.size_labels(view).concat(),
             egui::FontId::proportional(typography::XS),
             measure_color,
         );
@@ -439,7 +439,7 @@ impl Drawing {
                 painter,
                 egui::Align2::CENTER_CENTER,
                 mid_connector,
-                self.size_labels(view.price_to_y).concat(),
+                self.size_labels(view).concat(),
                 connector_color,
                 label_bg,
             );

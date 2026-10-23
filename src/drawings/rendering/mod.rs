@@ -41,12 +41,13 @@
 //! #     price_rect: egui::Rect,
 //! #     bars: &[egui_charts::model::Bar],
 //! #     revision: u64,
+//! #     time_to_bar: impl Fn(chrono::DateTime<chrono::Utc>) -> f32 + Copy,
 //! #     bar_to_x: impl Fn(f32) -> f32,
 //! #     price_to_y: impl Fn(f64) -> f32,
 //! # ) {
 //! let drawing = Drawing::new(1, DrawingToolType::TrendLine);
 //! // After setting up points and calling update_screen_coords:
-//! let view = ChartView { bars, revision, bar_to_x: &bar_to_x, price_to_y: &price_to_y };
+//! let view = ChartView { bars, revision, time_to_bar: &time_to_bar, bar_to_x: &bar_to_x, price_to_y: &price_to_y };
 //! drawing.render(painter, price_rect, &view);
 //! # }
 //! ```
@@ -73,22 +74,25 @@ pub(crate) mod utils {
 pub use traits::DrawingRenderer;
 
 use crate::drawings::domain::{Drawing, DrawingToolType};
-use crate::model::{Bar, SpanCache};
+use crate::model::{Bar, ChartPoint, SpanCache};
+use chrono::{DateTime, Utc};
 use egui::{Pos2, Rect};
 use std::rc::Rc;
 
 /// The bars and coordinate mapping that drawings are rendered against.
 ///
-/// Drawing anchors index into `bars`. The anchored VWAP, both volume profiles,
+/// `time_to_bar` places drawing anchors on `bars`. The anchored VWAP, both volume profiles,
 /// the regression trend, the position and forecast results and the bars
 /// pattern are computed from these bars.
 pub struct ChartView<'a> {
-    /// The series that drawing anchors index into.
+    /// The series that drawing anchors are placed on.
     pub bars: &'a [Bar],
     /// [`ChartState::revision`](crate::model::ChartState::revision) of `bars`.
     /// Results computed from the bars are cached under it, so it must change
     /// whenever a bar before the last one changes.
     pub revision: u64,
+    /// Fractional bar position of an anchor's time.
+    pub time_to_bar: &'a dyn Fn(DateTime<Utc>) -> f32,
     /// Screen x of a (fractional) bar index.
     pub bar_to_x: &'a dyn Fn(f32) -> f32,
     /// Screen y of a price.
@@ -110,6 +114,11 @@ pub(crate) fn bars_between(bars: &[Bar], a: f32, b: f32) -> Option<(usize, &[Bar
 }
 
 impl ChartView<'_> {
+    /// Places an anchor on this view's bars.
+    pub(crate) fn bar_of(&self, point: &ChartPoint) -> f32 {
+        (self.time_to_bar)(point.time)
+    }
+
     /// `build` of `bars`, the span that starts at bar `first`, cached in
     /// `cache`. A span that ends on the last bar, which may be forming, is
     /// extended one bar at a time with `extend` as the series streams.
@@ -353,13 +362,11 @@ impl Drawing {
             }
             DrawingToolType::VerticalLine => self.render_vertical_line(painter, rect, stroke),
             DrawingToolType::CrossLine => self.render_cross_line(painter, rect, color, stroke),
-            DrawingToolType::TrendAngle => {
-                self.render_trend_angle(painter, color, stroke, view.bars)
-            }
+            DrawingToolType::TrendAngle => self.render_trend_angle(painter, color, stroke, view),
             DrawingToolType::InfoLine => self.render_info_line(painter, view),
 
             // Shapes (8 tools)
-            DrawingToolType::Rect => self.render_rect(painter, color, stroke),
+            DrawingToolType::Rect => self.render_rect(painter, color, stroke, view),
             DrawingToolType::RotatedRect => self.render_rotated_rect(painter),
             DrawingToolType::Circle => self.render_circle(painter, color, stroke),
             DrawingToolType::Ellipse => self.render_ellipse(painter, color, stroke),
@@ -416,9 +423,9 @@ impl Drawing {
             DrawingToolType::ElliottTripleCombo => self.render_elliott_triple_combo(painter),
 
             // Cycles (3 tools)
-            DrawingToolType::CyclicLines => self.render_cyclic_lines(painter, rect),
-            DrawingToolType::TimeCycles => self.render_time_cycles(painter, rect),
-            DrawingToolType::SineLine => self.render_sine_line(painter, rect),
+            DrawingToolType::CyclicLines => self.render_cyclic_lines(painter, rect, view),
+            DrawingToolType::TimeCycles => self.render_time_cycles(painter, rect, view),
+            DrawingToolType::SineLine => self.render_sine_line(painter, rect, view),
 
             // Projection (6 tools)
             DrawingToolType::LongPos => self.render_pos_tool(painter, view, true),
@@ -439,7 +446,7 @@ impl Drawing {
 
             // Measurers (4 tools)
             DrawingToolType::Measure => self.render_measure(painter, view),
-            DrawingToolType::PriceRange => self.render_price_range(painter, rect),
+            DrawingToolType::PriceRange => self.render_price_range(painter, rect, view),
             DrawingToolType::DateRange => self.render_date_range(painter, rect, view),
             DrawingToolType::DateAndPriceRange => self.render_date_and_price_range(painter, view),
 
@@ -469,7 +476,7 @@ impl Drawing {
             DrawingToolType::PriceNote => self.render_price_note(painter, rect),
             DrawingToolType::Table => self.render_table(painter),
             DrawingToolType::Comment => self.render_comment(painter),
-            DrawingToolType::Signpost => self.render_signpost(painter, rect),
+            DrawingToolType::Signpost => self.render_signpost(painter, rect, view),
             DrawingToolType::Image => self.render_image_placeholder(painter),
             DrawingToolType::Tweet => self.render_tweet_placeholder(painter),
             DrawingToolType::Idea => self.render_idea_placeholder(painter),
@@ -509,4 +516,16 @@ pub(crate) fn sample_bars() -> Vec<Bar> {
         Bar::new(time, o, h, l, c, v)
     })
     .collect()
+}
+
+/// Time at `bar` minutes after the epoch, as in `sample_bars`.
+#[cfg(test)]
+pub(crate) fn bar_time(bar: f32) -> DateTime<Utc> {
+    DateTime::from_timestamp_millis((f64::from(bar) * 60_000.0).round() as i64).unwrap()
+}
+
+/// Position in the one-minute test series.
+#[cfg(test)]
+pub(crate) fn bar_at(time: DateTime<Utc>) -> f32 {
+    time.timestamp_millis() as f32 / 60_000.0
 }

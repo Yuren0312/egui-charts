@@ -44,6 +44,9 @@ impl Chart {
         painter: &Painter,
         timescale: &crate::model::TimeScale,
     ) {
+        let Some(index) = self.time_index() else {
+            return;
+        };
         let rect_min_x = price_rect.min.x;
 
         let rect_width = price_rect.width();
@@ -54,20 +57,23 @@ impl Chart {
         let bar_to_x = |bar_idx: f32| -> f32 {
             timescale.idx_to_coord_precise(bar_idx, rect_min_x, rect_width)
         };
-        // x_to_bar_snapped: ROUNDED to nearest candle center (for line tools)
-        let x_to_bar_snapped =
-            |x: f32| -> f32 { timescale.coord_to_idx(x, rect_min_x, rect_width).round() };
-        // x_to_bar_precise: Full precision for freeform tools (Brush, Highlighter)
-        // Prevents pixelation when zooming - preserves sub-pixel positioning
-        let x_to_bar_precise =
-            |x: f32| -> f32 { timescale.coord_to_idx(x, rect_min_x, rect_width) };
+        let time_to_bar = |time| index.position(time) as f32;
+        let time_to_x = |time| bar_to_x(time_to_bar(time));
+        // Line tools snap to the nearest bar; freehand tools keep the precise time.
+        let x_to_time_snapped = |x| {
+            index.time_at(f64::from(
+                timescale.coord_to_idx(x, rect_min_x, rect_width).round(),
+            ))
+        };
+        let x_to_time_precise =
+            |x| index.time_at(f64::from(timescale.coord_to_idx(x, rect_min_x, rect_width)));
         let price_to_y = |price: f64| -> f32 { price_map.price_to_y(price) };
         // Points placed with the pointer stay on the pane.
         let y_to_price =
             |y: f32| -> f64 { price_map.y_to_price(y.clamp(price_rect.min.y, price_rect.max.y)) };
 
         // Update all drawings' screen coords before rendering (handles pan/zoom)
-        drawing_manager.update_all_screen_coords(bar_to_x, price_to_y);
+        drawing_manager.update_all_screen_coords(time_to_x, price_to_y);
 
         // Handle drawing interaction
         // Select converter based on tool type: freeform tools (ContinuousDraw) use precise,
@@ -81,7 +87,7 @@ impl Chart {
                     drawing_manager,
                     response,
                     price_rect,
-                    &x_to_bar_precise,
+                    &x_to_time_precise,
                     &y_to_price,
                     active_tool,
                 );
@@ -91,7 +97,7 @@ impl Chart {
                     drawing_manager,
                     response,
                     price_rect,
-                    &x_to_bar_snapped,
+                    &x_to_time_snapped,
                     &y_to_price,
                     active_tool,
                 );
@@ -103,7 +109,7 @@ impl Chart {
                 cursor_modes,
                 response,
                 price_rect,
-                &x_to_bar_snapped,
+                &x_to_time_snapped,
                 &y_to_price,
             );
         }
@@ -115,6 +121,7 @@ impl Chart {
         let view = ChartView {
             bars: &self.state.data().bars,
             revision: self.state.revision(),
+            time_to_bar: &time_to_bar,
             bar_to_x: &bar_to_x,
             price_to_y: &price_to_y,
         };
@@ -153,7 +160,10 @@ mod tests {
             let ctx = Context::default();
             let mut chart = chart(&[10.0], &[20.0]);
             let mut line = Drawing::new(1, DrawingToolType::HorizontalLine);
-            line.chart_points = vec![ChartPoint::new(50.0, 15.0)];
+            line.chart_points = vec![ChartPoint::new(
+                chart.bars(crate::widget::SeriesId::MAIN)[50].time,
+                15.0,
+            )];
             line.locked = locked;
             chart.drawings_mut().drawings.push(line);
             if selected {
@@ -206,7 +216,10 @@ mod tests {
             chart.set_timeframe(interval);
             let mut line =
                 Drawing::with_color(1, DrawingToolType::HorizontalLine, color.to_array());
-            line.chart_points = vec![ChartPoint::new(50.0, 15.0)];
+            line.chart_points = vec![ChartPoint::new(
+                chart.bars(crate::widget::SeriesId::MAIN)[50].time,
+                15.0,
+            )];
             line.timeframe_visibility = TimeframeVisibility::specific(&["1D"]);
             chart.drawings_mut().drawings.push(line);
 

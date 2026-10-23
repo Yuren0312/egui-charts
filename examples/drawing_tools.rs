@@ -44,6 +44,7 @@ struct DrawingApp {
 impl DrawingApp {
     fn new() -> Self {
         let bars = generate_synthetic_bars(200, 2_000.0);
+        let [at30, at50, at80, at120] = [30, 50, 80, 120].map(|i| bars[i].time);
         let data = BarData::from_bars(bars);
 
         let mut chart = Chart::new(data);
@@ -55,20 +56,20 @@ impl DrawingApp {
         let drawing_manager = chart.drawings_mut();
 
         // --- Programmatic drawing: Trend Line ---
-        // A trend line from bar index 30 at price 1950 to bar index 80 at price 2100
+        // A trend line from the open of bar 30 at price 1950 to the open of bar 80 at price 2100
         let mut trend_line = Drawing::new(1, DrawingToolType::TrendLine);
-        trend_line.chart_points.push(ChartPoint::new(30.0, 1950.0));
-        trend_line.chart_points.push(ChartPoint::new(80.0, 2100.0));
+        trend_line.chart_points.push(ChartPoint::new(at30, 1950.0));
+        trend_line.chart_points.push(ChartPoint::new(at80, 2100.0));
         trend_line.color = [33, 150, 243, 255]; // Material Blue
         trend_line.stroke_width = 2.0;
         trend_line.completed = true;
         drawing_manager.add_synced_drawing(trend_line);
 
         // --- Programmatic drawing: Fibonacci Retracement ---
-        // From a swing low at bar 50 to a swing high at bar 120
+        // From a swing low at the open of bar 50 to a swing high at the open of bar 120
         let mut fib = Drawing::new(2, DrawingToolType::FibonacciRetracement);
-        fib.chart_points.push(ChartPoint::new(50.0, 1900.0)); // swing low
-        fib.chart_points.push(ChartPoint::new(120.0, 2150.0)); // swing high
+        fib.chart_points.push(ChartPoint::new(at50, 1900.0)); // swing low
+        fib.chart_points.push(ChartPoint::new(at120, 2150.0)); // swing high
         fib.color = [255, 193, 7, 255]; // Amber
         fib.stroke_width = 1.5;
         fib.completed = true;

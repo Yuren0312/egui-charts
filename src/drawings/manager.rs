@@ -17,6 +17,7 @@ use crate::drawings::services::{
     SnapService, ZOrderService, in_z_order,
 };
 use crate::tokens::DESIGN_TOKENS;
+use chrono::{DateTime, Utc};
 use egui::{Pos2, Rect};
 use std::sync::{Arc, Mutex};
 
@@ -125,6 +126,7 @@ impl Default for DrawingManagerOptions {
 /// #     price_rect: egui::Rect,
 /// #     bars: &[egui_charts::model::Bar],
 /// #     revision: u64,
+/// #     time_to_bar: impl Fn(chrono::DateTime<chrono::Utc>) -> f32 + Copy,
 /// #     bar_to_x: impl Fn(f32) -> f32 + Copy,
 /// #     price_to_y: impl Fn(f64) -> f32 + Copy,
 /// # ) {
@@ -132,13 +134,13 @@ impl Default for DrawingManagerOptions {
 /// manager.sync_from_app_state(drawing_state);
 ///
 /// // 2. Update screen coordinates from chart coordinates
-/// manager.update_all_screen_coords(bar_to_x, price_to_y);
+/// manager.update_all_screen_coords(|time| bar_to_x(time_to_bar(time)), price_to_y);
 ///
 /// // 3. Handle user input (clicks, drags, keyboard)
 /// // ... (start_drawing_with_coords, add_point_with_coords, etc.)
 ///
 /// // 4. Render against the chart's bars and coordinate mapping
-/// let view = ChartView { bars, revision, bar_to_x: &bar_to_x, price_to_y: &price_to_y };
+/// let view = ChartView { bars, revision, time_to_bar: &time_to_bar, bar_to_x: &bar_to_x, price_to_y: &price_to_y };
 /// manager.render_all(painter, price_rect, &view);
 /// # }
 /// ```
@@ -375,16 +377,16 @@ impl DrawingManager {
 
     /// Updates the position of the currently dragged handle to `new_pos`,
     /// applying snap behavior and coordinate conversion.
-    pub fn update_drag_handle<F, G>(&mut self, new_pos: Pos2, x_to_bar: F, y_to_price: G)
+    pub fn update_drag_handle<F, G>(&mut self, new_pos: Pos2, x_to_time: F, y_to_price: G)
     where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         if let Some((id, handle)) = self.dragging_handle {
             // Compute snapped position before mutable borrow
             let snapped = self.snap_point(new_pos, &[]);
             if let Some(drawing) = self.drawings.iter_mut().find(|d| d.id == id) {
-                HandleService::update_handle(drawing, handle, snapped, x_to_bar, y_to_price);
+                HandleService::update_handle(drawing, handle, snapped, x_to_time, y_to_price);
             }
         }
     }
@@ -469,7 +471,7 @@ impl DrawingManager {
     /// Starts a new drawing of the given tool type at the given screen position, or places the
     /// drawing [`Self::start_icon_insertion`] prepared for it.
     ///
-    /// The coordinate conversion closures (`x_to_bar`, `y_to_price`) convert
+    /// The coordinate conversion closures (`x_to_time`, `y_to_price`) convert
     /// screen coordinates to chart coordinates for persistent storage. If the
     /// tool requires only one point, the drawing is immediately completed and
     /// added to the drawing list.
@@ -477,10 +479,10 @@ impl DrawingManager {
         &mut self,
         tool_type: DrawingToolType,
         point: Pos2,
-        x_to_bar: F,
+        x_to_time: F,
         y_to_price: G,
     ) where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         // A drawing prepared before its first anchor, such as a picked icon, starts here.
@@ -492,7 +494,7 @@ impl DrawingManager {
         };
         drawing.z_order = self.top_z_order();
         self.preview_point = false;
-        drawing.add_point_with_chart_coords(point, x_to_bar, y_to_price);
+        drawing.add_point_with_chart_coords(point, x_to_time, y_to_price);
 
         let completed = drawing.completed;
         self.curr_drawing = Some(drawing);
@@ -506,9 +508,9 @@ impl DrawingManager {
     /// If the added point completes the drawing (based on
     /// [`DrawingToolType::required_points`]), the drawing is finalized, pushed
     /// to the drawing list, and a cloud sync action is queued.
-    pub fn add_point_with_coords<F, G>(&mut self, point: Pos2, x_to_bar: F, y_to_price: G)
+    pub fn add_point_with_coords<F, G>(&mut self, point: Pos2, x_to_time: F, y_to_price: G)
     where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         if let Some(ref mut drawing) = self.curr_drawing {
@@ -517,7 +519,7 @@ impl DrawingManager {
                 drawing.points.pop();
                 drawing.chart_points.pop();
             }
-            drawing.add_point_with_chart_coords(point, &x_to_bar, &y_to_price);
+            drawing.add_point_with_chart_coords(point, &x_to_time, &y_to_price);
             if drawing.completed {
                 self.finish_curr_drawing();
             }
@@ -527,9 +529,9 @@ impl DrawingManager {
     /// Moves the pointer preview of the in-progress drawing to `point`, adding it after the
     /// placed anchors if there is none yet. The next click or the end of a drag replaces it
     /// with an anchor; finishing a multi-point drawing drops it.
-    pub fn update_last_point_with_coords<F, G>(&mut self, point: Pos2, x_to_bar: F, y_to_price: G)
+    pub fn update_last_point_with_coords<F, G>(&mut self, point: Pos2, x_to_time: F, y_to_price: G)
     where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         if let Some(ref mut drawing) = self.curr_drawing
@@ -537,9 +539,9 @@ impl DrawingManager {
             && !drawing.completed
         {
             if self.preview_point {
-                drawing.update_last_point_with_chart_coords(point, x_to_bar, y_to_price);
+                drawing.update_last_point_with_chart_coords(point, x_to_time, y_to_price);
             } else {
-                drawing.add_point_with_chart_coords(point, &x_to_bar, &y_to_price);
+                drawing.add_point_with_chart_coords(point, &x_to_time, &y_to_price);
                 drawing.completed = false;
                 self.preview_point = true;
             }
@@ -714,40 +716,17 @@ impl DrawingManager {
     /// from their persistent chart coordinates using the current pan/zoom transforms.
     ///
     /// Must be called each frame before rendering.
-    pub fn update_all_screen_coords<F, G>(&mut self, bar_to_x: F, price_to_y: G)
+    pub fn update_all_screen_coords<F, G>(&mut self, time_to_x: F, price_to_y: G)
     where
-        F: Fn(f32) -> f32 + Copy,
+        F: Fn(DateTime<Utc>) -> f32 + Copy,
         G: Fn(f64) -> f32 + Copy,
     {
         for drawing in &mut self.drawings {
-            drawing.update_screen_coords(bar_to_x, price_to_y);
+            drawing.update_screen_coords(time_to_x, price_to_y);
         }
         if let Some(ref mut drawing) = self.curr_drawing {
-            drawing.update_screen_coords(bar_to_x, price_to_y);
+            drawing.update_screen_coords(time_to_x, price_to_y);
         }
-    }
-
-    /// Shifts every bar index at or after `from` by `shift`, across all
-    /// drawings, the in-progress drawing, the state a handle drag restores on
-    /// undo, and the undo history.
-    ///
-    /// This is called when bars are inserted in front of existing ones, causing
-    /// the bar indices from there on to shift right. Pass `f32::NEG_INFINITY`
-    /// for bars inserted in front of the first bar.
-    pub fn shift_bar_indices(&mut self, from: f32, shift: f32) {
-        if shift.abs() < 0.001 {
-            return;
-        }
-        for drawing in &mut self.drawings {
-            drawing.shift_bar_indices(from, shift);
-        }
-        if let Some(ref mut curr) = self.curr_drawing {
-            curr.shift_bar_indices(from, shift);
-        }
-        if let Some(old) = &mut self.drag_old_state {
-            old.shift_bar_indices(from, shift);
-        }
-        self.history.shift_bar_indices(from, shift);
     }
 
     // === Hit testing ===
@@ -813,7 +792,7 @@ impl DrawingManager {
             let stop = 2.0 * entry.price - target.price;
             drawing
                 .chart_points
-                .push(ChartPoint::new(target.bar_idx, stop));
+                .push(ChartPoint::new(target.time, stop));
             drawing
                 .points
                 .push(Pos2::new(target_at.x, 2.0 * entry_at.y - target_at.y));
@@ -826,13 +805,13 @@ impl DrawingManager {
     pub fn update_drag_handle_with_coords<F, G>(
         &mut self,
         new_pos: Pos2,
-        x_to_bar: F,
+        x_to_time: F,
         y_to_price: G,
     ) where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
-        self.update_drag_handle(new_pos, x_to_bar, y_to_price);
+        self.update_drag_handle(new_pos, x_to_time, y_to_price);
     }
 
     /// Hit test a handle by drawing ID
@@ -904,6 +883,7 @@ fn sync_id(drawing: &Drawing) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drawings::rendering::{bar_at, bar_time};
 
     #[test]
     fn test_new_manager() {
@@ -925,14 +905,14 @@ mod tests {
             (DrawingToolType::ParallelChannel, false),
         ] {
             let mut manager = DrawingManager::new();
-            let (x_to_bar, y_to_price) = (|x: f32| x, |y: f32| f64::from(y));
-            manager.start_drawing_with_coords(tool, Pos2::new(10.0, 10.0), x_to_bar, y_to_price);
-            manager.add_point_with_coords(Pos2::new(50.0, 40.0), x_to_bar, y_to_price);
+            let (x_to_time, y_to_price) = (bar_time, |y: f32| f64::from(y));
+            manager.start_drawing_with_coords(tool, Pos2::new(10.0, 10.0), x_to_time, y_to_price);
+            manager.add_point_with_coords(Pos2::new(50.0, 40.0), x_to_time, y_to_price);
             manager.complete_curr_drawing();
             assert_eq!(manager.drawings.len(), usize::from(finishes), "{tool:?}");
             let mut storage = DrawingStorage::new("AAPL");
             for drawing in &manager.drawings {
-                storage.add_drawing(drawing_to_stored(drawing, |bar| 60_000 * bar as i64));
+                storage.add_drawing(drawing_to_stored(drawing));
             }
             assert!(
                 storage.to_json().is_ok(),
@@ -954,21 +934,21 @@ mod tests {
             (DrawingToolType::Polyline, 3),
         ] {
             let mut manager = DrawingManager::new();
-            let (x_to_bar, y_to_price) = (|x: f32| x, |y: f32| f64::from(y));
+            let (x_to_time, y_to_price) = (bar_time, |y: f32| f64::from(y));
             let click = |i: usize| Pos2::new(10.0 * (i + 1) as f32, 5.0 * (i % 2) as f32);
-            manager.start_drawing_with_coords(tool, click(0), x_to_bar, y_to_price);
+            manager.start_drawing_with_coords(tool, click(0), x_to_time, y_to_price);
             for i in 1..clicks {
-                manager.update_last_point_with_coords(Pos2::new(99.0, 99.0), x_to_bar, y_to_price);
+                manager.update_last_point_with_coords(Pos2::new(99.0, 99.0), x_to_time, y_to_price);
                 assert!(
                     manager.drawings.is_empty(),
                     "{tool:?} finished after {i} clicks"
                 );
-                manager.add_point_with_coords(click(i), x_to_bar, y_to_price);
+                manager.add_point_with_coords(click(i), x_to_time, y_to_price);
             }
-            manager.update_last_point_with_coords(Pos2::new(99.0, 99.0), x_to_bar, y_to_price);
+            manager.update_last_point_with_coords(Pos2::new(99.0, 99.0), x_to_time, y_to_price);
             manager.complete_curr_drawing();
             let want: Vec<_> = (0..clicks)
-                .map(|i| ChartPoint::new(click(i).x, f64::from(click(i).y)))
+                .map(|i| ChartPoint::new(bar_time(click(i).x), f64::from(click(i).y)))
                 .collect();
             assert_eq!(manager.drawings.len(), 1, "{tool:?}");
             assert_eq!(manager.drawings[0].chart_points, want, "{tool:?}");
@@ -981,20 +961,23 @@ mod tests {
     fn a_locked_drawing_is_neither_moved_nor_deleted() {
         let mut manager = DrawingManager::new();
         let mut line = Drawing::new(3, DrawingToolType::TrendLine);
-        line.chart_points = vec![ChartPoint::new(10.0, 10.0), ChartPoint::new(20.0, 20.0)];
-        line.update_screen_coords(|bar| bar, |price| price as f32);
+        line.chart_points = vec![
+            ChartPoint::new(bar_time(10.0), 10.0),
+            ChartPoint::new(bar_time(20.0), 20.0),
+        ];
+        line.update_screen_coords(bar_at, |price| price as f32);
         line.locked = true;
         manager.drawings.push(line);
 
         manager.start_drag_handle(3, HandlePos::Start);
-        manager.update_drag_handle(Pos2::new(50.0, 50.0), |x| x, f64::from);
+        manager.update_drag_handle(Pos2::new(50.0, 50.0), bar_time, f64::from);
         manager.end_drag_handle();
         manager.delete_drawing(3);
 
         assert_eq!(manager.drawings.len(), 1);
         assert_eq!(
             manager.drawings[0].chart_points[0],
-            ChartPoint::new(10.0, 10.0)
+            ChartPoint::new(bar_time(10.0), 10.0)
         );
     }
 
@@ -1007,8 +990,8 @@ mod tests {
         let mut manager = DrawingManager::new();
         for id in [1, 2] {
             let mut line = Drawing::new(id, DrawingToolType::HorizontalLine);
-            line.chart_points = vec![ChartPoint::new(10.0, 50.0)];
-            line.update_screen_coords(|bar| bar, |price| price as f32);
+            line.chart_points = vec![ChartPoint::new(bar_time(10.0), 50.0)];
+            line.update_screen_coords(bar_at, |price| price as f32);
             manager.drawings.push(line);
         }
         let on_both = Pos2::new(30.0, 50.0);
@@ -1034,8 +1017,8 @@ mod tests {
             .unwrap()
             .z_order = 5;
         let mut fresh = Drawing::new(0, DrawingToolType::HorizontalLine);
-        fresh.chart_points = vec![ChartPoint::new(10.0, 50.0)];
-        fresh.update_screen_coords(|bar| bar, |price| price as f32);
+        fresh.chart_points = vec![ChartPoint::new(bar_time(10.0), 50.0)];
+        fresh.update_screen_coords(bar_at, |price| price as f32);
         manager.add_synced_drawing(fresh);
         let fresh_id = manager.drawings.last().unwrap().id;
         assert_eq!(manager.hit_test(on_both), Some(fresh_id));
@@ -1064,8 +1047,8 @@ mod tests {
             (
                 |m| {
                     let rect = DrawingToolType::Rect;
-                    m.start_drawing_with_coords(rect, Pos2::new(1.0, 1.0), |x| x, f64::from);
-                    m.update_last_point_with_coords(Pos2::new(9.0, 9.0), |x| x, f64::from);
+                    m.start_drawing_with_coords(rect, Pos2::new(1.0, 1.0), bar_time, f64::from);
+                    m.update_last_point_with_coords(Pos2::new(9.0, 9.0), bar_time, f64::from);
                     m.complete_drag_drawing();
                 },
                 &["Save(1)"],
@@ -1073,8 +1056,8 @@ mod tests {
             (
                 |m| {
                     let line = DrawingToolType::Polyline;
-                    m.start_drawing_with_coords(line, Pos2::new(1.0, 1.0), |x| x, f64::from);
-                    m.add_point_with_coords(Pos2::new(9.0, 9.0), |x| x, f64::from);
+                    m.start_drawing_with_coords(line, Pos2::new(1.0, 1.0), bar_time, f64::from);
+                    m.add_point_with_coords(Pos2::new(9.0, 9.0), bar_time, f64::from);
                     m.complete_curr_drawing();
                 },
                 &["Save(1)"],
@@ -1133,7 +1116,7 @@ mod tests {
             for i in 0..clicks {
                 let tool = manager.active_tool.unwrap();
                 let at = Pos2::new(5.0 * (i + 1) as f32, 5.0);
-                manager.start_drawing_with_coords(tool, at, |x| x, f64::from);
+                manager.start_drawing_with_coords(tool, at, bar_time, f64::from);
             }
             let placed: Vec<_> = manager.drawings.iter().map(|d| d.text.as_deref()).collect();
             assert_eq!(
@@ -1162,8 +1145,11 @@ mod tests {
         let mut manager = DrawingManager::new();
         let mut fib = Drawing::new(7, DrawingToolType::FibonacciRetracement);
         // Control points: Start (100,100), End (300,200), Middle (200,150).
-        fib.chart_points = vec![ChartPoint::new(100.0, 100.0), ChartPoint::new(300.0, 200.0)];
-        fib.update_screen_coords(|bar| bar, |price| price as f32);
+        fib.chart_points = vec![
+            ChartPoint::new(bar_time(100.0), 100.0),
+            ChartPoint::new(bar_time(300.0), 200.0),
+        ];
+        fib.update_screen_coords(bar_at, |price| price as f32);
         fib.completed = true;
         manager.drawings.push(fib);
 
@@ -1236,30 +1222,30 @@ mod tests {
     #[test]
     fn position_stop_moves_independently_of_target() {
         let mut manager = DrawingManager::new();
-        let x_to_bar = |x: f32| x;
+        let x_to_time = bar_time;
         let y_to_price = |y: f32| f64::from(200.0 - y);
         manager.start_drawing_with_coords(
             DrawingToolType::LongPos,
             Pos2::new(10.0, 100.0),
-            x_to_bar,
+            x_to_time,
             y_to_price,
         );
-        manager.update_last_point_with_coords(Pos2::new(30.0, 90.0), x_to_bar, y_to_price);
+        manager.update_last_point_with_coords(Pos2::new(30.0, 90.0), x_to_time, y_to_price);
         manager.complete_drag_drawing();
         let id = manager.drawings[0].id;
         assert_eq!(manager.drawings[0].chart_points[2].price, 90.0);
 
         manager.start_drag_handle(id, HandlePos::Point(2));
-        manager.update_drag_handle(Pos2::new(50.0, 105.0), x_to_bar, y_to_price);
+        manager.update_drag_handle(Pos2::new(50.0, 105.0), x_to_time, y_to_price);
         manager.end_drag_handle();
         let points = &manager.drawings[0].chart_points;
         assert_eq!((points[1].price, points[2].price), (110.0, 95.0));
-        assert_eq!(points[2].bar_idx, 30.0);
+        assert_eq!(points[2].time, bar_time(30.0));
 
         manager.start_drag_handle(id, HandlePos::Point(1));
-        manager.update_drag_handle(Pos2::new(40.0, 85.0), x_to_bar, y_to_price);
+        manager.update_drag_handle(Pos2::new(40.0, 85.0), x_to_time, y_to_price);
         manager.end_drag_handle();
         let points = &manager.drawings[0].chart_points;
-        assert_eq!((points[2].bar_idx, points[2].price), (40.0, 95.0));
+        assert_eq!((points[2].time, points[2].price), (bar_time(40.0), 95.0));
     }
 }

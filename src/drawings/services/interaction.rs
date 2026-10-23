@@ -411,6 +411,7 @@ pub fn point_to_line_distance(point: Pos2, line_start: Pos2, line_end: Pos2) -> 
 mod tests {
     use super::*;
     use crate::drawings::ChartPoint;
+    use crate::drawings::rendering::{bar_at, bar_time};
 
     #[test]
     fn test_point_to_line_distance() {
@@ -437,9 +438,12 @@ mod tests {
     fn fib_retracement_hit_follows_level_orientation() {
         let interaction = DrawingInteraction::new();
         let mut fib = Drawing::new(7, DrawingToolType::FibonacciRetracement);
-        fib.chart_points = vec![ChartPoint::new(0.0, 100.0), ChartPoint::new(10.0, 400.0)];
+        fib.chart_points = vec![
+            ChartPoint::new(bar_time(0.0), 100.0),
+            ChartPoint::new(bar_time(10.0), 400.0),
+        ];
         let hit = |fib: &mut Drawing, y| {
-            fib.update_screen_coords(|bar| bar * 30.0, |price| 500.0 - price as f32);
+            fib.update_screen_coords(|time| bar_at(time) * 30.0, |price| 500.0 - price as f32);
             interaction.hit_test(Pos2::new(150.0, y), std::slice::from_ref(fib), "1D")
         };
 
@@ -466,8 +470,11 @@ mod tests {
             (DrawingToolType::FibonacciExtension, 97.49),
         ] {
             let mut fib = Drawing::new(7, tool);
-            fib.chart_points = vec![ChartPoint::new(0.0, 10.0), ChartPoint::new(10.0, 1000.0)];
-            fib.update_screen_coords(|bar| bar * 30.0, price_to_y);
+            fib.chart_points = vec![
+                ChartPoint::new(bar_time(0.0), 10.0),
+                ChartPoint::new(bar_time(10.0), 1000.0),
+            ];
+            fib.update_screen_coords(|time| bar_at(time) * 30.0, price_to_y);
             let hit = interaction.hit_test(Pos2::new(150.0, y), std::slice::from_ref(&fib), "1D");
             assert_eq!(hit, Some(7), "{tool:?}");
         }
@@ -540,11 +547,14 @@ mod tests {
         for (tool, config, (x, y), want) in cases {
             let mut fib = Drawing::new(7, tool);
             fib.fib_config = config;
-            fib.chart_points = vec![ChartPoint::new(0.0, 100.0), ChartPoint::new(10.0, 400.0)];
+            fib.chart_points = vec![
+                ChartPoint::new(bar_time(0.0), 100.0),
+                ChartPoint::new(bar_time(10.0), 400.0),
+            ];
             if tool == DrawingToolType::FibonacciChannel {
-                fib.chart_points.push(ChartPoint::new(5.0, 150.0));
+                fib.chart_points.push(ChartPoint::new(bar_time(5.0), 150.0));
             }
-            fib.update_screen_coords(|bar| bar * 30.0, |price| 500.0 - price as f32);
+            fib.update_screen_coords(|time| bar_at(time) * 30.0, |price| 500.0 - price as f32);
             let extend = fib.fib_config.as_ref().is_some_and(|c| c.extend_right);
             let got = interaction.hit_test(Pos2::new(x, y), std::slice::from_ref(&fib), "1D");
             if got != want {
@@ -566,7 +576,7 @@ mod tests {
             .filter(|&&tool| {
                 let mut drawing = Drawing::new(7, tool);
                 drawing.chart_points = (0..5)
-                    .map(|i| ChartPoint::new(i as f32, 100.0 + f64::from(i)))
+                    .map(|i| ChartPoint::new(bar_time(i as f32), 100.0 + f64::from(i)))
                     .collect();
                 interaction
                     .hit_test(Pos2::new(1.0, 1.0), std::slice::from_ref(&drawing), "1D")

@@ -40,8 +40,10 @@ impl Drawing {
         let pct = |price: f64| side * percent_change(entry_price, price);
 
         // The tool spans from the entry bar to the right edge.
-        let entry_bar = entry_at.bar_idx.round();
-        let span = (target_at.bar_idx - entry_at.bar_idx).abs().round();
+        let entry_bar = view.bar_of(&entry_at).round();
+        let span = (view.bar_of(&target_at) - view.bar_of(&entry_at))
+            .abs()
+            .round();
         let after_entry = if span >= 1.0 {
             bars_between(view.bars, entry_bar + 1.0, entry_bar + span).map_or(&[][..], |(_, b)| b)
         } else {

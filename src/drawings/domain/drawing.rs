@@ -12,13 +12,14 @@ use super::{
     ArrowStyle, ChartPoint, DrawingToolType, FibonacciConfig, FontWeight, LineStyle, PositionSize,
     RegressionTrendConfig, TimeframeVisibility, VolumeProfileConfig,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// A drawing on the chart
 ///
 /// Drawings use a dual coordinate system:
 /// - `points: Vec<Pos2>` - Screen coordinates, updated each frame
-/// - `chart_points: Vec<ChartPoint>` - Chart coordinates (bar_idx, price), stable across pan/zoom
+/// - `chart_points: Vec<ChartPoint>` - Chart coordinates (time, price), placed on the current bars each frame
 ///
 /// # Example
 ///
@@ -55,7 +56,7 @@ pub struct Drawing {
     /// Screen coordinates (updated each frame from chart_points)
     #[serde(skip)]
     pub points: Vec<egui::Pos2>,
-    /// Persistent chart coordinates (bar_idx, price) - stable across pan/zoom
+    /// Persistent anchors (time, price), unchanged when the chart's bars change
     #[serde(skip)]
     pub chart_points: Vec<ChartPoint>,
     /// Screen y of each visible level of a Fibonacci retracement or extension, in config order
@@ -167,14 +168,14 @@ impl Drawing {
     /// Update screen coordinates from chart_points using current transforms
     ///
     /// This should be called each frame before rendering.
-    pub fn update_screen_coords<F, G>(&mut self, bar_to_x: F, price_to_y: G)
+    pub fn update_screen_coords<F, G>(&mut self, time_to_x: F, price_to_y: G)
     where
-        F: Fn(f32) -> f32,
+        F: Fn(DateTime<Utc>) -> f32,
         G: Fn(f64) -> f32,
     {
         self.points.clear();
         for cp in &self.chart_points {
-            let x = bar_to_x(cp.bar_idx);
+            let x = time_to_x(cp.time);
             let y = price_to_y(cp.price);
             self.points.push(egui::Pos2::new(x, y));
         }
@@ -212,15 +213,15 @@ impl Drawing {
     pub fn add_point_with_chart_coords<F, G>(
         &mut self,
         screen_point: egui::Pos2,
-        x_to_bar: F,
+        x_to_time: F,
         y_to_price: G,
     ) where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
-        let bar_idx = x_to_bar(screen_point.x);
+        let time = x_to_time(screen_point.x);
         let price = y_to_price(screen_point.y);
-        self.chart_points.push(ChartPoint::new(bar_idx, price));
+        self.chart_points.push(ChartPoint::new(time, price));
         self.points.push(screen_point);
         self.check_completion();
     }
@@ -229,10 +230,10 @@ impl Drawing {
     pub fn update_last_point_with_chart_coords<F, G>(
         &mut self,
         screen_point: egui::Pos2,
-        x_to_bar: F,
+        x_to_time: F,
         y_to_price: G,
     ) where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         if let (Some(last_point), Some(last_chart_point)) =
@@ -240,7 +241,7 @@ impl Drawing {
         {
             *last_point = screen_point;
             *last_chart_point =
-                ChartPoint::new(x_to_bar(screen_point.x), y_to_price(screen_point.y));
+                ChartPoint::new(x_to_time(screen_point.x), y_to_price(screen_point.y));
         }
     }
 
@@ -248,16 +249,6 @@ impl Drawing {
     pub fn add_point(&mut self, point: egui::Pos2) {
         self.points.push(point);
         self.check_completion();
-    }
-
-    /// Shift the bar indices at or after `from` by a delta (used when bars are inserted in front
-    /// of them)
-    pub fn shift_bar_indices(&mut self, from: f32, delta: f32) {
-        for cp in &mut self.chart_points {
-            if cp.bar_idx >= from {
-                cp.shift_bar_idx(delta);
-            }
-        }
     }
 
     /// Check and set completion status based on tool type
@@ -357,38 +348,28 @@ impl Default for Drawing {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_shift_bar_indices() {
-        let mut drawing = Drawing::new(1, DrawingToolType::TrendLine);
-        drawing.chart_points.push(ChartPoint::new(100.0, 150.0));
-        drawing.chart_points.push(ChartPoint::new(110.0, 160.0));
-
-        drawing.shift_bar_indices(105.0, 50.0);
-
-        assert_eq!(
-            drawing.chart_points,
-            [ChartPoint::new(100.0, 150.0), ChartPoint::new(160.0, 160.0)]
-        );
-    }
+    use crate::drawings::rendering::bar_time;
 
     /// A drawing completes once it holds its tool's required number of
     /// anchors, and each anchor added from the screen gets its chart
     /// coordinates.
     #[test]
     fn test_completion() {
-        let x_to_bar = |x: f32| x / 10.0;
+        let x_to_time = |x: f32| bar_time(x / 10.0);
         let y_to_price = |y: f32| 1000.0 - y as f64;
         let mut drawing = Drawing::new(1, DrawingToolType::TrendLine);
 
-        drawing.add_point_with_chart_coords(egui::pos2(100.0, 300.0), x_to_bar, y_to_price);
+        drawing.add_point_with_chart_coords(egui::pos2(100.0, 300.0), x_to_time, y_to_price);
         assert!(!drawing.completed);
 
-        drawing.add_point_with_chart_coords(egui::pos2(200.0, 50.0), x_to_bar, y_to_price);
+        drawing.add_point_with_chart_coords(egui::pos2(200.0, 50.0), x_to_time, y_to_price);
         assert!(drawing.completed); // TrendLine requires 2 points
         assert_eq!(
             drawing.chart_points,
-            [ChartPoint::new(10.0, 700.0), ChartPoint::new(20.0, 950.0)]
+            [
+                ChartPoint::new(bar_time(10.0), 700.0),
+                ChartPoint::new(bar_time(20.0), 950.0)
+            ]
         );
     }
 

@@ -520,11 +520,12 @@ impl DemoApp {
     }
 
     fn clone_drawing(&mut self, id: usize) {
+        let step = chrono::TimeDelta::milliseconds(3 * self.state.timeframe.duration_ms());
         let dm = self.chart.drawings_mut();
         if let Some(src) = dm.drawings.iter().find(|d| d.id == id).cloned() {
             let mut copy = src;
             for cp in &mut copy.chart_points {
-                cp.bar_idx += 3.0; // offset so the clone is visible
+                cp.time += step; // offset so the clone is visible
             }
             dm.add_synced_drawing(copy);
         }

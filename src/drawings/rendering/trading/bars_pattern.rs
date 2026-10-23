@@ -1,6 +1,6 @@
 //! Bars pattern rendering
 
-use crate::drawings::domain::{ChartPoint, Drawing};
+use crate::drawings::domain::Drawing;
 use crate::drawings::rendering::utils::draw_dashed_line;
 use crate::drawings::rendering::{ChartView, bars_between};
 use crate::model::Bar;
@@ -21,7 +21,7 @@ impl Drawing {
         let color = self.color32();
 
         // Source region box around the selected bars
-        let source = bars_between(view.bars, from.bar_idx, to.bar_idx);
+        let source = bars_between(view.bars, view.bar_of(&from), view.bar_of(&to));
         let source_rect = source.map_or_else(
             || Rect::from_two_pos(source_start, source_end),
             |(first, bars)| bars_rect(view, first as f32, bars),
@@ -30,7 +30,10 @@ impl Drawing {
 
         // If we have a third point, draw the projection
         if let (Some(&proj_anchor), Some(&at)) = (self.points.get(2), self.chart_points.get(2))
-            && let Some((start, projected)) = projected_bars(view.bars, [from, to, at])
+            && let Some((start, projected)) = projected_bars(
+                view.bars,
+                [from, to, at].map(|p| (view.bar_of(&p), p.price)),
+            )
         {
             self.draw_pattern_projection(
                 painter,
@@ -244,10 +247,10 @@ fn bars_rect(view: &ChartView, first: f32, bars: &[Bar]) -> Rect {
 /// The bars between the first two anchors, moved to start at the third
 /// anchor's bar and shifted by the third anchor's price minus the first's.
 /// Returns the first projected bar index and the shifted copies.
-fn projected_bars(bars: &[Bar], anchors: [ChartPoint; 3]) -> Option<(f32, Vec<Bar>)> {
+fn projected_bars(bars: &[Bar], anchors: [(f32, f64); 3]) -> Option<(f32, Vec<Bar>)> {
     let [from, to, at] = anchors;
-    let (_, source) = bars_between(bars, from.bar_idx, to.bar_idx)?;
-    let shift = at.price - from.price;
+    let (_, source) = bars_between(bars, from.0, to.0)?;
+    let shift = at.1 - from.1;
     let projected = source
         .iter()
         .map(|bar| Bar {
@@ -258,7 +261,7 @@ fn projected_bars(bars: &[Bar], anchors: [ChartPoint; 3]) -> Option<(f32, Vec<Ba
             ..*bar
         })
         .collect();
-    Some((at.bar_idx.round(), projected))
+    Some((at.0.round(), projected))
 }
 
 #[cfg(test)]
@@ -270,11 +273,7 @@ mod tests {
     /// move to bars 8..=10 and up by 14 - 12 = 2 (values added by hand).
     #[test]
     fn projected_bars_copy_source_bars() {
-        let anchors = [
-            ChartPoint::new(0.6, 12.0),
-            ChartPoint::new(3.4, 13.0),
-            ChartPoint::new(8.4, 14.0),
-        ];
+        let anchors = [(0.6, 12.0), (3.4, 13.0), (8.4, 14.0)];
         let (start, projected) = projected_bars(&sample_bars(), anchors).unwrap();
         assert_eq!(start, 8.0);
         let ohlc: Vec<_> = projected

@@ -1,6 +1,7 @@
 //! Signpost rendering
 
 use crate::drawings::domain::Drawing;
+use crate::drawings::rendering::ChartView;
 use crate::drawings::rendering::utils::draw_dashed_line;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
@@ -9,7 +10,7 @@ use egui::{Color32, Pos2, Rect, Stroke};
 impl Drawing {
     /// Renders a vertical signpost with label at top.
     /// Features: vertical line to chart top, sign plate, date/event text.
-    pub(crate) fn render_signpost(&self, painter: &egui::Painter, rect: Rect) {
+    pub(crate) fn render_signpost(&self, painter: &egui::Painter, rect: Rect, view: &ChartView) {
         if self.points.is_empty() {
             return;
         }
@@ -77,7 +78,7 @@ impl Drawing {
 
         // Date label if we have chart point data
         if !self.chart_points.is_empty() {
-            let bar_idx = self.chart_points[0].bar_idx as i64;
+            let bar_idx = view.bar_of(&self.chart_points[0]).round() as i64;
             let date_text = format!("Bar {bar_idx}");
             let date_font = egui::FontId::proportional(typography::XS);
             painter.text(

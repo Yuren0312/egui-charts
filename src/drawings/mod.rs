@@ -2,8 +2,8 @@
 //!
 //! This module implements the drawing system: trend lines, Fibonacci tools,
 //! harmonic patterns, Elliott Wave counts, Gann tools, and more. Drawings are
-//! anchored in chart coordinates ([`ChartPoint`]) so they stay in place through
-//! pan/zoom, and are rendered each frame by converting chart coordinates back
+//! anchored by time and price ([`ChartPoint`]) so they stay at their times through
+//! pan, zoom and changes to the bars, and are rendered each frame by converting chart coordinates back
 //! to screen space.
 //!
 //! # Architecture
@@ -15,7 +15,6 @@
 //! ├── domain/          # Pure types, zero external dependencies
 //! │   ├── tool_type/   # DrawingToolType enum, interaction modes
 //! │   ├── drawing      # Drawing struct with ChartPoint
-//! │   ├── coordinates  # ChartPoint, coordinate conversions
 //! │   └── options      # LineStyle, ArrowStyle, FibConfig
 //! ├── services/        # Business logic services
 //! │   ├── selection    # SelectionService (single + multi-select)
@@ -40,8 +39,8 @@
 //!    points according to the tool's [`DrawingInteractionMode`] (single-click,
 //!    click-click, drag-to-draw, multi-point, or continuous-draw).
 //!
-//! 2. **Storage** -- Points are stored as [`ChartPoint`] values (bar index +
-//!    price), which remain stable across pan/zoom. Screen coordinates
+//! 2. **Storage** -- Points are stored as [`ChartPoint`] values (time +
+//!    price), which loading or replacing bars leaves unchanged. Screen coordinates
 //!    ([`egui::Pos2`]) are recomputed each frame via
 //!    [`Drawing::update_screen_coords`].
 //!
@@ -86,10 +85,13 @@
 //!     LineStyle, ArrowStyle, FibonacciConfig,
 //! };
 //!
+//! use chrono::{DateTime, TimeDelta};
+//!
 //! // Create a drawing programmatically
+//! let time = DateTime::from_timestamp(1_704_186_000, 0).unwrap();
 //! let mut drawing = Drawing::new(1, DrawingToolType::TrendLine);
-//! drawing.chart_points.push(ChartPoint::new(100.0, 150.50));
-//! drawing.chart_points.push(ChartPoint::new(120.0, 160.25));
+//! drawing.chart_points.push(ChartPoint::new(time, 150.50));
+//! drawing.chart_points.push(ChartPoint::new(time + TimeDelta::hours(20), 160.25));
 //! drawing.color = [33, 150, 243, 255]; // Blue
 //! drawing.stroke_width = 2.0;
 //! drawing.completed = true;

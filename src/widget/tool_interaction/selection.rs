@@ -8,6 +8,7 @@
 
 use crate::chart::cursor_modes::CursorModeState;
 use crate::drawings::DrawingManager;
+use chrono::{DateTime, Utc};
 use egui::{Painter, Rect, Response, Stroke, Ui, epaint::StrokeKind};
 
 /// Handle drawing selection, handle dragging, and eraser-mode deletion.
@@ -21,10 +22,10 @@ pub fn handle_selection<F1, F2>(
     cursor_modes: &mut CursorModeState,
     response: &Response,
     price_rect: Rect,
-    x_to_bar: &F1,
+    x_to_time: &F1,
     y_to_price: &F2,
 ) where
-    F1: Fn(f32) -> f32,
+    F1: Fn(f32) -> DateTime<Utc>,
     F2: Fn(f32) -> f64,
 {
     let pointer_pos = if response.clicked() || response.drag_started() || response.dragged() {
@@ -42,7 +43,7 @@ pub fn handle_selection<F1, F2>(
         {
             drawing_manager.update_drag_handle_with_coords(
                 price_rect.clamp(pos),
-                x_to_bar,
+                x_to_time,
                 y_to_price,
             );
         }

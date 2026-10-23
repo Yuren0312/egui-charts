@@ -6,7 +6,6 @@ use crate::data::FeedState;
 use crate::data::merge::{Merged, Origin, merge, valid};
 use crate::model::{Bar, BarClock, BarData, Marker, PriceLine};
 use crate::studies::Indicator;
-use chrono::{DateTime, Utc};
 use std::collections::BTreeSet;
 use web_time::Instant;
 
@@ -15,8 +14,7 @@ impl Chart {
     /// value, a high or low on the wrong side of the open and close, negative volume) are dropped
     /// and counted in [`feed_state`](Self::feed_state), the rest sorted by time, and of several
     /// bars with one open time, or in one slot of the timeframe for a chart built with a feed, the
-    /// last is kept. If the new bars still hold the former first bar, the drawings move with it,
-    /// so older history can be loaded in front of the bars. The studies are updated from the
+    /// last is kept. Drawings keep their times, so older history can be loaded in front of the bars. The studies are updated from the
     /// first bar that changed on the next [`show`](Self::show), and near the live edge the view
     /// follows a new last bar, as with [`update`](Self::update).
     ///
@@ -29,13 +27,7 @@ impl Chart {
         self.feed.rejected_bars += rejected;
         self.from_ticks.clear();
         let before = self.edge();
-        let prepended = before
-            .first
-            .filter(|first| bars.binary_search_by_key(first, |bar| bar.time).is_ok())
-            .map_or(0, |first| bars.partition_point(|bar| bar.time < first));
         let first_changed = self.state.set_data(BarData::from_bars(bars));
-        self.drawings
-            .shift_bar_indices(f32::NEG_INFINITY, prepended as f32);
         self.bars_changed(before, first_changed);
     }
 
@@ -43,7 +35,7 @@ impl Chart {
     /// does, matched by open time, or by the slot of the timeframe for a chart built with a feed:
     /// a bar that matches a stored bar replaces it, a newer one is appended and an older one is
     /// inserted in order. An invalid bar is dropped and counted in
-    /// [`feed_state`](Self::feed_state). Drawings move with their bars, studies follow them on the
+    /// [`feed_state`](Self::feed_state). Drawings stay at their times, studies follow them on the
     /// next [`show`](Self::show), and near the live edge the view follows a new last bar.
     ///
     /// Only [`SeriesId::MAIN`] holds bars; a call with another id is ignored with a warning.
@@ -107,16 +99,6 @@ impl Chart {
             merged.first_changed
         });
         self.feed.rejected_bars += merged.rejected;
-        // Drawings hold bar indices: a bar inserted in front of a stored bar moves the points from
-        // that bar on, and one in front of the first bar also the points left of it.
-        for run in merged.inserted_before.chunk_by(|a, b| a == b).rev() {
-            let from = if run[0] == 0 {
-                f32::NEG_INFINITY
-            } else {
-                run[0] as f32
-            };
-            self.drawings.shift_bar_indices(from, run.len() as f32);
-        }
         if !self.bars_changed(before, merged.first_changed)
             && !self.state.shows_elements()
             && let Some(tail) = tail
@@ -274,7 +256,6 @@ impl Chart {
     fn edge(&self) -> Edge {
         let bars = &self.state.data().bars;
         Edge {
-            first: bars.first().map(|bar| bar.time),
             // Within ~1.5 bars of the right edge. With fix_right_edge the right offset is clamped
             // to <= 0, so near means no farther than 1.5 bars to the left of the edge.
             near_live: self.state.time_scale().is_near_live_edge(),
@@ -332,7 +313,6 @@ const REFRESH_INTERVAL: f64 = 0.25;
 
 /// The bars and the view before the bars change, for [`Chart::bars_changed`].
 struct Edge {
-    first: Option<DateTime<Utc>>,
     near_live: bool,
     len: usize,
     tail: Option<Bar>,
@@ -367,7 +347,7 @@ mod tests {
     use super::*;
     use crate::drawings::{ChartPoint, Drawing, DrawingToolType};
     use crate::studies::{IndicatorValue, RSI, SMA};
-    use chrono::TimeDelta;
+    use chrono::{DateTime, TimeDelta, Utc};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
@@ -546,42 +526,49 @@ mod tests {
         let cases = [
             ("last-bar update", vec![Update(bar(240, 6.0))],
                 series(&[(0, 1.0), (60, 2.0), (120, 3.0), (180, 4.0), (240, 6.0)]),
-                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(5.0)], false, 0),
+                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(5.0)], false, 0, 3.0_f32),
             ("append", vec![Update(bar(300, 6.0))],
                 series(&[(0, 1.0), (60, 2.0), (120, 3.0), (180, 4.0), (240, 5.0), (300, 6.0)]),
-                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5), Some(5.5)], false, 0),
+                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5), Some(5.5)], false, 0, 3.0_f32),
             ("correction", vec![Update(bar(120, 9.0))],
                 series(&[(0, 1.0), (60, 2.0), (120, 9.0), (180, 4.0), (240, 5.0)]),
-                vec![None, Some(1.5), Some(5.5), Some(6.5), Some(4.5)], true, 0),
+                vec![None, Some(1.5), Some(5.5), Some(6.5), Some(4.5)], true, 0, 3.0_f32),
             ("out of order", vec![Update(bar(90, 7.0))],
                 series(&[(0, 1.0), (60, 2.0), (90, 7.0), (120, 3.0), (180, 4.0), (240, 5.0)]),
-                vec![None, Some(1.5), Some(4.5), Some(5.0), Some(3.5), Some(4.5)], true, 0),
+                vec![None, Some(1.5), Some(4.5), Some(5.0), Some(3.5), Some(4.5)], true, 0, 4.0_f32),
             ("invalid", vec![Update(invalid.clone()), SetData([start.clone(), vec![invalid]].concat())],
                 start.clone(),
-                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5)], false, 2),
+                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5)], false, 2, 3.0_f32),
             ("replace", vec![SetData(series(&[(120, 3.0), (0, 1.0), (240, 5.0), (60, 2.0), (180, 4.0), (120, 8.0)]))],
                 series(&[(0, 1.0), (60, 2.0), (120, 8.0), (180, 4.0), (240, 5.0)]),
-                vec![None, Some(1.5), Some(5.0), Some(6.0), Some(4.5)], true, 0),
+                vec![None, Some(1.5), Some(5.0), Some(6.0), Some(4.5)], true, 0, 3.0_f32),
             ("replay step", vec![SetData([start.clone(), vec![bar(300, 6.0)]].concat())],
                 series(&[(0, 1.0), (60, 2.0), (120, 3.0), (180, 4.0), (240, 5.0), (300, 6.0)]),
-                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5), Some(5.5)], false, 0),
+                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5), Some(5.5)], false, 0, 3.0_f32),
             ("truncate", vec![SetData(start[..4].to_vec())],
                 start[..4].to_vec(),
-                vec![None, Some(1.5), Some(2.5), Some(3.5)], true, 0),
+                vec![None, Some(1.5), Some(2.5), Some(3.5)], true, 0, 3.0_f32),
             ("sorted with a repeated time", vec![SetData(series(&[(0, 1.0), (60, 2.0), (120, 3.0), (120, 8.0), (180, 4.0)]))],
                 series(&[(0, 1.0), (60, 2.0), (120, 8.0), (180, 4.0)]),
-                vec![None, Some(1.5), Some(5.0), Some(6.0)], true, 0),
+                vec![None, Some(1.5), Some(5.0), Some(6.0)], true, 0, 3.0_f32),
             ("correction, then append", vec![Update(bar(120, 9.0)), Update(bar(300, 6.0))],
                 series(&[(0, 1.0), (60, 2.0), (120, 9.0), (180, 4.0), (240, 5.0), (300, 6.0)]),
-                vec![None, Some(1.5), Some(5.5), Some(6.5), Some(4.5), Some(5.5)], true, 0),
+                vec![None, Some(1.5), Some(5.5), Some(6.5), Some(4.5), Some(5.5)], true, 0, 3.0_f32),
+            ("in front", vec![Update(bar(-60, 1.0))],
+                series(&[(-60, 1.0), (0, 1.0), (60, 2.0), (120, 3.0), (180, 4.0), (240, 5.0)]),
+                vec![None, Some(1.0), Some(1.5), Some(2.5), Some(3.5), Some(4.5)], true, 0, 4.0),
+            ("another interval", vec![SetData(series(&[(0, 2.0), (300, 6.0)]))],
+                series(&[(0, 2.0), (300, 6.0)]), vec![None, Some(4.0)], true, 0, 0.6),
         ];
         let ctx = egui::Context::default();
-        for (name, actions, bars, sma, revised, rejected) in cases {
+        for (name, actions, bars, sma, revised, rejected, at) in cases {
             let mut chart = Chart::new(BarData::from_bars(start.clone()));
             let id = chart.add_indicator(Box::new(SMA::new(2)));
             // A drawing anchored on the bar at 10:03, the fourth.
             let mut drawing = Drawing::new(0, DrawingToolType::HorizontalLine);
-            drawing.chart_points.push(ChartPoint::new(3.0, 4.0));
+            drawing
+                .chart_points
+                .push(ChartPoint::new(start[3].time, 4.0));
             chart.drawings_mut().add_synced_drawing(drawing);
             let revision = chart.state.revision();
             for action in actions {
@@ -592,11 +579,12 @@ mod tests {
             }
             frame(&ctx, &mut chart, 0.0, Vec::new());
             assert_eq!(chart.bars(SeriesId::MAIN), bars, "{name}");
-            let anchor = chart.drawings_mut().drawings[0].chart_points[0].bar_idx as usize;
-            assert_eq!(
-                chart.bars(SeriesId::MAIN)[anchor].time,
-                start[3].time,
-                "{name}: drawing"
+            let map = chart.get_chart_mapping();
+            let x = chart.drawings().drawings[0].points[0].x;
+            let want = map.idx_to_x(at.floor() as usize) + at.fract() * map.bar_spacing;
+            assert!(
+                (x - want).abs() < 1e-3,
+                "{name}: drawing x {x}, want {want}"
             );
             let (_, study) = chart.indicators().find(|(study, _)| *study == id).unwrap();
             let values: Vec<Option<f64>> = study
@@ -827,31 +815,5 @@ mod tests {
             fresh(&chart, Box::new(RSI::new(14))),
             "RSI"
         );
-    }
-
-    /// Guards the drawing shift of a merge: a point moves by the number of bars inserted in front
-    /// of its bar or at it, every point does for bars in front of the first bar, and none does
-    /// for an appended bar. Points right of the last bar must not creep on each new bar.
-    #[test]
-    fn inserted_bars_move_the_drawings_after_them() {
-        let start: Vec<Bar> = (0..5).map(|i| bar(i * 60, (i + 1) as f64)).collect();
-        let live = |seconds| (bar(seconds, 1.0), Origin::Live);
-        #[rustfmt::skip]
-        let cases = [
-            ("inserts at two positions", vec![live(90), live(100), live(210)],
-                vec![-1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 6.0], vec![-1.0, 0.0, 1.0, 4.0, 5.0, 7.0, 9.0]),
-            ("append", vec![live(300)], vec![3.0, 6.0], vec![3.0, 6.0]),
-            ("history in front", vec![(bar(-60, 1.0), Origin::History)], vec![-1.0, 0.0], vec![0.0, 1.0]),
-        ];
-        for (name, incoming, points, moved) in cases {
-            let mut chart = Chart::new(BarData::from_bars(start.clone()));
-            let mut drawing = Drawing::new(0, DrawingToolType::TrendLine);
-            drawing.chart_points = points.iter().map(|&at| ChartPoint::new(at, 1.0)).collect();
-            chart.drawings_mut().add_synced_drawing(drawing);
-            chart.apply(incoming);
-            let points = &chart.drawings().drawings[0].chart_points;
-            let after: Vec<f32> = points.iter().map(|point| point.bar_idx).collect();
-            assert_eq!(after, moved, "{name}");
-        }
     }
 }

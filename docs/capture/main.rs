@@ -177,11 +177,16 @@ fn extremes(bars: &[Bar], from: usize, to: usize) -> ((usize, f64), (usize, f64)
     (low, high)
 }
 
-fn drawing(tool: DrawingToolType, color: [u8; 4], points: &[(usize, f64)]) -> Drawing {
+fn drawing(
+    bars: &[Bar],
+    tool: DrawingToolType,
+    color: [u8; 4],
+    points: &[(usize, f64)],
+) -> Drawing {
     let mut d = Drawing::with_color(0, tool, color);
     d.chart_points = points
         .iter()
-        .map(|&(i, p)| ChartPoint::new(i as f32, p))
+        .map(|&(i, p)| ChartPoint::new(bars[i].time, p))
         .collect();
     d.completed = true;
     d
@@ -200,6 +205,7 @@ fn retracement(bars: &[Bar]) -> Vec<Drawing> {
         (high, low)
     };
     vec![drawing(
+        bars,
         DrawingToolType::FibonacciRetracement,
         AMBER,
         &[a, b],
@@ -215,10 +221,16 @@ fn analysis(bars: &[Bar]) -> Vec<Drawing> {
     let (second_low, _) = extremes(bars, mid, n);
     let (box_low, box_high) = extremes(bars, n.saturating_sub(12), n);
     let mut out = retracement(bars);
-    let mut trend = drawing(DrawingToolType::TrendLine, BLUE, &[first_low, second_low]);
+    let mut trend = drawing(
+        bars,
+        DrawingToolType::TrendLine,
+        BLUE,
+        &[first_low, second_low],
+    );
     trend.extend_right = true;
     out.push(trend);
     let mut range = drawing(
+        bars,
         DrawingToolType::Rect,
         BLUE,
         &[(box_low.0.min(box_high.0), box_high.1), (n - 1, box_low.1)],
@@ -233,6 +245,7 @@ fn profile(bars: &[Bar]) -> Vec<Drawing> {
     let n = bars.len();
     let (low, _) = extremes(bars, n.saturating_sub(48), n);
     vec![drawing(
+        bars,
         DrawingToolType::FixedRangeVolumeProfile,
         BLUE,
         &[(n.saturating_sub(48), low.1), (n - 1, low.1)],

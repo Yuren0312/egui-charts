@@ -32,7 +32,8 @@ impl Drawing {
         };
         let color = self.color32();
 
-        if let Some((first, bars)) = bars_between(view.bars, anchor_at.bar_idx, f32::INFINITY) {
+        if let Some((first, bars)) = bars_between(view.bars, view.bar_of(anchor_at), f32::INFINITY)
+        {
             self.draw_vwap(painter, view, first, bars, color);
         }
 
@@ -142,7 +143,7 @@ impl Drawing {
             return;
         };
         let color = self.color32();
-        if let Some((first, bars)) = bars_between(view.bars, a.bar_idx, b.bar_idx) {
+        if let Some((first, bars)) = bars_between(view.bars, view.bar_of(&a), view.bar_of(&b)) {
             let (left, right) = (p1.x.min(p2.x), p1.x.max(p2.x));
             self.draw_volume_profile(painter, view, first, bars, left, right);
         }
@@ -155,7 +156,8 @@ impl Drawing {
         else {
             return;
         };
-        if let Some((first, bars)) = bars_between(view.bars, anchor_at.bar_idx, f32::INFINITY) {
+        if let Some((first, bars)) = bars_between(view.bars, view.bar_of(anchor_at), f32::INFINITY)
+        {
             let right = (view.bar_to_x)((first + bars.len() - 1) as f32);
             self.draw_volume_profile(painter, view, first, bars, anchor.x, right);
         }
@@ -636,6 +638,7 @@ mod tests {
             let view = ChartView {
                 bars: &bars,
                 revision: 0,
+                time_to_bar: &crate::drawings::rendering::bar_at,
                 bar_to_x: &|x| x,
                 price_to_y,
             };
@@ -722,6 +725,7 @@ mod tests {
             let view = ChartView {
                 bars,
                 revision: 0,
+                time_to_bar: &crate::drawings::rendering::bar_at,
                 bar_to_x: &|x| x,
                 price_to_y: &|price| price as f32,
             };

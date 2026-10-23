@@ -14,6 +14,7 @@
 //! Also handles Escape to cancel and Enter to complete multi-point drawings.
 
 use crate::drawings::{DrawingInteractionMode, DrawingManager, DrawingToolType};
+use chrono::{DateTime, Utc};
 use egui::{Rect, Response, Ui};
 
 /// Dispatch pointer events to the active drawing tool based on its interaction mode.
@@ -24,7 +25,7 @@ use egui::{Rect, Response, Ui};
 ///
 /// # Arguments
 ///
-/// * `x_to_bar` - Converts screen X to bar index (snapped or precise depending on tool)
+/// * `x_to_time` - Converts screen X to time (snapped or precise depending on tool)
 /// * `y_to_price` - Converts screen Y to price value
 /// * `active_tool` - The currently selected drawing tool type
 pub fn handle_active_tool<F1, F2>(
@@ -32,11 +33,11 @@ pub fn handle_active_tool<F1, F2>(
     drawing_manager: &mut DrawingManager,
     response: &Response,
     price_rect: Rect,
-    x_to_bar: &F1,
+    x_to_time: &F1,
     y_to_price: &F2,
     active_tool: DrawingToolType,
 ) where
-    F1: Fn(f32) -> f32,
+    F1: Fn(f32) -> DateTime<Utc>,
     F2: Fn(f32) -> f64,
 {
     let interaction_mode = active_tool.interaction_mode();
@@ -52,7 +53,7 @@ pub fn handle_active_tool<F1, F2>(
                 && let Some(pos) = pointer_pos
                 && price_rect.contains(pos)
             {
-                drawing_manager.start_drawing_with_coords(active_tool, pos, x_to_bar, y_to_price);
+                drawing_manager.start_drawing_with_coords(active_tool, pos, x_to_time, y_to_price);
             }
         }
 
@@ -65,14 +66,14 @@ pub fn handle_active_tool<F1, F2>(
                         drawing_manager.start_drawing_with_coords(
                             active_tool,
                             pos,
-                            x_to_bar,
+                            x_to_time,
                             y_to_price,
                         );
                     } else {
-                        drawing_manager.add_point_with_coords(pos, x_to_bar, y_to_price);
+                        drawing_manager.add_point_with_coords(pos, x_to_time, y_to_price);
                     }
                 } else if drawing_manager.curr_drawing.is_some() {
-                    drawing_manager.update_last_point_with_coords(pos, x_to_bar, y_to_price);
+                    drawing_manager.update_last_point_with_coords(pos, x_to_time, y_to_price);
                 }
             }
         }
@@ -87,7 +88,7 @@ pub fn handle_active_tool<F1, F2>(
                     drawing_manager.start_drawing_with_coords(
                         active_tool,
                         pos,
-                        x_to_bar,
+                        x_to_time,
                         y_to_price,
                     );
                 }
@@ -97,7 +98,7 @@ pub fn handle_active_tool<F1, F2>(
                 if let Some(pos) = pointer_pos {
                     drawing_manager.update_last_point_with_coords(
                         price_rect.clamp(pos),
-                        x_to_bar,
+                        x_to_time,
                         y_to_price,
                     );
                 }
@@ -115,7 +116,7 @@ pub fn handle_active_tool<F1, F2>(
                     drawing_manager.start_drawing_with_coords(
                         active_tool,
                         pos,
-                        x_to_bar,
+                        x_to_time,
                         y_to_price,
                     );
                 }
@@ -123,7 +124,7 @@ pub fn handle_active_tool<F1, F2>(
                 if let Some(pos) = pointer_pos {
                     drawing_manager.add_point_with_coords(
                         price_rect.clamp(pos),
-                        x_to_bar,
+                        x_to_time,
                         y_to_price,
                     );
                 }
@@ -143,14 +144,14 @@ pub fn handle_active_tool<F1, F2>(
                         drawing_manager.start_drawing_with_coords(
                             active_tool,
                             pos,
-                            x_to_bar,
+                            x_to_time,
                             y_to_price,
                         );
                     } else {
-                        drawing_manager.add_point_with_coords(pos, x_to_bar, y_to_price);
+                        drawing_manager.add_point_with_coords(pos, x_to_time, y_to_price);
                     }
                 } else if drawing_manager.curr_drawing.is_some() {
-                    drawing_manager.update_last_point_with_coords(pos, x_to_bar, y_to_price);
+                    drawing_manager.update_last_point_with_coords(pos, x_to_time, y_to_price);
                 }
             }
         }
@@ -187,6 +188,7 @@ pub fn handle_active_tool<F1, F2>(
 mod tests {
     use super::*;
     use crate::drawings::ChartPoint;
+    use crate::drawings::rendering::bar_time;
     use egui::{Context, Event, Id, PointerButton, Pos2, RawInput, Sense};
 
     /// A drag that ends below the price pane, over the time axis, finishes the drawing with
@@ -223,7 +225,7 @@ mod tests {
                     &mut manager,
                     &response,
                     price_rect,
-                    &|x| x,
+                    &bar_time,
                     &|y| f64::from(y),
                     DrawingToolType::Rect,
                 );
@@ -234,7 +236,7 @@ mod tests {
         assert_eq!(manager.drawings.len(), 1);
         assert_eq!(
             manager.drawings[0].chart_points.last(),
-            Some(&ChartPoint::new(150.0, 300.0))
+            Some(&ChartPoint::new(bar_time(150.0), 300.0))
         );
     }
 }

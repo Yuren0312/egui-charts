@@ -13,6 +13,7 @@
 
 use crate::drawings::domain::{Drawing, DrawingToolType, HandlePos};
 use crate::theme::ThemeExt;
+use chrono::{DateTime, Utc};
 use egui::{Color32, Pos2};
 
 /// Configuration for selection handle appearance and hit testing.
@@ -159,10 +160,10 @@ impl HandleService {
         drawing: &mut Drawing,
         handle: HandlePos,
         new_pos: Pos2,
-        x_to_bar: F,
+        x_to_time: F,
         y_to_price: G,
     ) where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         match drawing.tool_type {
@@ -174,10 +175,10 @@ impl HandleService {
             | DrawingToolType::GannFan
             | DrawingToolType::GannSquare
             | DrawingToolType::GannBox => {
-                Self::update_two_point_handle(drawing, handle, new_pos, &x_to_bar, &y_to_price);
+                Self::update_two_point_handle(drawing, handle, new_pos, &x_to_time, &y_to_price);
             }
             DrawingToolType::Rect => {
-                Self::update_rect_handle(drawing, handle, new_pos, &x_to_bar, &y_to_price);
+                Self::update_rect_handle(drawing, handle, new_pos, &x_to_time, &y_to_price);
             }
             DrawingToolType::HorizontalLine => {
                 if !drawing.points.is_empty() && !drawing.chart_points.is_empty() {
@@ -188,19 +189,19 @@ impl HandleService {
             DrawingToolType::VerticalLine => {
                 if !drawing.points.is_empty() && !drawing.chart_points.is_empty() {
                     drawing.points[0].x = new_pos.x;
-                    drawing.chart_points[0].bar_idx = x_to_bar(new_pos.x);
+                    drawing.chart_points[0].time = x_to_time(new_pos.x);
                 }
             }
             DrawingToolType::LongPos | DrawingToolType::ShortPos => {
-                Self::update_multi_point_handle(drawing, handle, new_pos, &x_to_bar, &y_to_price);
+                Self::update_multi_point_handle(drawing, handle, new_pos, &x_to_time, &y_to_price);
                 // The stop line ends where the target line does; keep its handle there.
                 if drawing.points.len() > 2 && drawing.chart_points.len() > 2 {
                     drawing.points[2].x = drawing.points[1].x;
-                    drawing.chart_points[2].bar_idx = drawing.chart_points[1].bar_idx;
+                    drawing.chart_points[2].time = drawing.chart_points[1].time;
                 }
             }
             _ => {
-                Self::update_multi_point_handle(drawing, handle, new_pos, &x_to_bar, &y_to_price);
+                Self::update_multi_point_handle(drawing, handle, new_pos, &x_to_time, &y_to_price);
             }
         }
     }
@@ -210,24 +211,24 @@ impl HandleService {
         drawing: &mut Drawing,
         handle: HandlePos,
         new_pos: Pos2,
-        x_to_bar: &F,
+        x_to_time: &F,
         y_to_price: &G,
     ) where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         match handle {
             HandlePos::Start if !drawing.points.is_empty() => {
                 drawing.points[0] = new_pos;
                 if !drawing.chart_points.is_empty() {
-                    drawing.chart_points[0].bar_idx = x_to_bar(new_pos.x);
+                    drawing.chart_points[0].time = x_to_time(new_pos.x);
                     drawing.chart_points[0].price = y_to_price(new_pos.y);
                 }
             }
             HandlePos::End if drawing.points.len() >= 2 => {
                 drawing.points[1] = new_pos;
                 if drawing.chart_points.len() >= 2 {
-                    drawing.chart_points[1].bar_idx = x_to_bar(new_pos.x);
+                    drawing.chart_points[1].time = x_to_time(new_pos.x);
                     drawing.chart_points[1].price = y_to_price(new_pos.y);
                 }
             }
@@ -243,9 +244,9 @@ impl HandleService {
                 drawing.points[1].x += delta.x;
                 drawing.points[1].y += delta.y;
                 if drawing.chart_points.len() >= 2 {
-                    drawing.chart_points[0].bar_idx = x_to_bar(drawing.points[0].x);
+                    drawing.chart_points[0].time = x_to_time(drawing.points[0].x);
                     drawing.chart_points[0].price = y_to_price(drawing.points[0].y);
-                    drawing.chart_points[1].bar_idx = x_to_bar(drawing.points[1].x);
+                    drawing.chart_points[1].time = x_to_time(drawing.points[1].x);
                     drawing.chart_points[1].price = y_to_price(drawing.points[1].y);
                 }
             }
@@ -258,10 +259,10 @@ impl HandleService {
         drawing: &mut Drawing,
         handle: HandlePos,
         new_pos: Pos2,
-        x_to_bar: &F,
+        x_to_time: &F,
         y_to_price: &G,
     ) where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         if drawing.points.len() < 2 || drawing.chart_points.len() < 2 {
@@ -271,24 +272,24 @@ impl HandleService {
         match handle {
             HandlePos::TopLeft => {
                 drawing.points[0] = new_pos;
-                drawing.chart_points[0].bar_idx = x_to_bar(new_pos.x);
+                drawing.chart_points[0].time = x_to_time(new_pos.x);
                 drawing.chart_points[0].price = y_to_price(new_pos.y);
             }
             HandlePos::TopRight => {
                 drawing.points[0].y = new_pos.y;
                 drawing.points[1].x = new_pos.x;
                 drawing.chart_points[0].price = y_to_price(new_pos.y);
-                drawing.chart_points[1].bar_idx = x_to_bar(new_pos.x);
+                drawing.chart_points[1].time = x_to_time(new_pos.x);
             }
             HandlePos::BottomLeft => {
                 drawing.points[0].x = new_pos.x;
                 drawing.points[1].y = new_pos.y;
-                drawing.chart_points[0].bar_idx = x_to_bar(new_pos.x);
+                drawing.chart_points[0].time = x_to_time(new_pos.x);
                 drawing.chart_points[1].price = y_to_price(new_pos.y);
             }
             HandlePos::BottomRight => {
                 drawing.points[1] = new_pos;
-                drawing.chart_points[1].bar_idx = x_to_bar(new_pos.x);
+                drawing.chart_points[1].time = x_to_time(new_pos.x);
                 drawing.chart_points[1].price = y_to_price(new_pos.y);
             }
             _ => {}
@@ -300,10 +301,10 @@ impl HandleService {
         drawing: &mut Drawing,
         handle: HandlePos,
         new_pos: Pos2,
-        x_to_bar: &F,
+        x_to_time: &F,
         y_to_price: &G,
     ) where
-        F: Fn(f32) -> f32,
+        F: Fn(f32) -> DateTime<Utc>,
         G: Fn(f32) -> f64,
     {
         match handle {
@@ -311,18 +312,18 @@ impl HandleService {
                 if idx < drawing.points.len() && idx < drawing.chart_points.len() =>
             {
                 drawing.points[idx] = new_pos;
-                drawing.chart_points[idx].bar_idx = x_to_bar(new_pos.x);
+                drawing.chart_points[idx].time = x_to_time(new_pos.x);
                 drawing.chart_points[idx].price = y_to_price(new_pos.y);
             }
             HandlePos::Start if !drawing.points.is_empty() && !drawing.chart_points.is_empty() => {
                 drawing.points[0] = new_pos;
-                drawing.chart_points[0].bar_idx = x_to_bar(new_pos.x);
+                drawing.chart_points[0].time = x_to_time(new_pos.x);
                 drawing.chart_points[0].price = y_to_price(new_pos.y);
             }
             HandlePos::End if drawing.points.len() >= 2 && drawing.chart_points.len() >= 2 => {
                 let last = drawing.points.len() - 1;
                 drawing.points[last] = new_pos;
-                drawing.chart_points[last].bar_idx = x_to_bar(new_pos.x);
+                drawing.chart_points[last].time = x_to_time(new_pos.x);
                 drawing.chart_points[last].price = y_to_price(new_pos.y);
             }
             HandlePos::Middle
@@ -339,7 +340,7 @@ impl HandleService {
                     for i in 0..drawing.points.len() {
                         drawing.points[i].x += delta_x;
                         drawing.points[i].y += delta_y;
-                        drawing.chart_points[i].bar_idx = x_to_bar(drawing.points[i].x);
+                        drawing.chart_points[i].time = x_to_time(drawing.points[i].x);
                         drawing.chart_points[i].price = y_to_price(drawing.points[i].y);
                     }
                 }
@@ -390,12 +391,13 @@ const RING_WIDTH: f32 = 2.0;
 mod tests {
     use super::*;
     use crate::drawings::domain::ChartPoint;
+    use crate::drawings::rendering::bar_time;
     use egui::pos2;
 
     /// Screen to chart mapping used by the tests: 10 px per bar, price 1000 at
     /// the top falling one unit per pixel.
-    fn x_to_bar(x: f32) -> f32 {
-        x / 10.0
+    fn x_to_time(x: f32) -> DateTime<Utc> {
+        bar_time(x / 10.0)
     }
 
     fn y_to_price(y: f32) -> f64 {
@@ -406,7 +408,7 @@ mod tests {
         let mut drawing = Drawing::new(1, tool_type);
         drawing.chart_points = points
             .iter()
-            .map(|p| ChartPoint::new(x_to_bar(p.x), y_to_price(p.y)))
+            .map(|p| ChartPoint::new(x_to_time(p.x), y_to_price(p.y)))
             .collect();
         drawing.points = points;
         drawing
@@ -495,7 +497,10 @@ mod tests {
                 HandlePos::Start,
                 pos2(150.0, 250.0),
                 vec![pos2(150.0, 250.0), pos2(300.0, 400.0)],
-                vec![ChartPoint::new(15.0, 750.0), ChartPoint::new(30.0, 600.0)],
+                vec![
+                    ChartPoint::new(bar_time(15.0), 750.0),
+                    ChartPoint::new(bar_time(30.0), 600.0),
+                ],
             ),
             (
                 DrawingToolType::TrendLine,
@@ -503,7 +508,10 @@ mod tests {
                 HandlePos::Middle,
                 pos2(250.0, 280.0),
                 vec![pos2(150.0, 180.0), pos2(350.0, 380.0)],
-                vec![ChartPoint::new(15.0, 820.0), ChartPoint::new(35.0, 620.0)],
+                vec![
+                    ChartPoint::new(bar_time(15.0), 820.0),
+                    ChartPoint::new(bar_time(35.0), 620.0),
+                ],
             ),
             (
                 DrawingToolType::Rect,
@@ -511,7 +519,10 @@ mod tests {
                 HandlePos::TopRight,
                 pos2(250.0, 80.0),
                 vec![pos2(100.0, 80.0), pos2(250.0, 300.0)],
-                vec![ChartPoint::new(10.0, 920.0), ChartPoint::new(25.0, 700.0)],
+                vec![
+                    ChartPoint::new(bar_time(10.0), 920.0),
+                    ChartPoint::new(bar_time(25.0), 700.0),
+                ],
             ),
             (
                 DrawingToolType::Triangle,
@@ -520,15 +531,15 @@ mod tests {
                 pos2(20.0, 30.0),
                 vec![pos2(10.0, 10.0), pos2(40.0, 10.0), pos2(10.0, 70.0)],
                 vec![
-                    ChartPoint::new(1.0, 990.0),
-                    ChartPoint::new(4.0, 990.0),
-                    ChartPoint::new(1.0, 930.0),
+                    ChartPoint::new(bar_time(1.0), 990.0),
+                    ChartPoint::new(bar_time(4.0), 990.0),
+                    ChartPoint::new(bar_time(1.0), 930.0),
                 ],
             ),
         ];
         for (tool, points, handle, to, screen, chart) in cases {
             let mut drawing = create_test_drawing(tool, points);
-            HandleService::update_handle(&mut drawing, handle, to, x_to_bar, y_to_price);
+            HandleService::update_handle(&mut drawing, handle, to, x_to_time, y_to_price);
             assert_eq!(drawing.points, screen, "{tool:?} {handle:?}");
             assert_eq!(drawing.chart_points, chart, "{tool:?} {handle:?}");
         }

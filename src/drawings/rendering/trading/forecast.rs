@@ -1,6 +1,6 @@
 //! Forecast tool rendering
 
-use crate::drawings::domain::{ChartPoint, Drawing};
+use crate::drawings::domain::Drawing;
 use crate::drawings::rendering::{ChartView, bars_between};
 use crate::model::{Bar, percent_change};
 use crate::styles::typography;
@@ -22,9 +22,13 @@ impl Drawing {
 
         let price_change = to.price - from.price;
         let price_change_pct = percent_change(from.price, to.price);
-        let bar_count = (to.bar_idx - from.bar_idx).round();
+        let bar_count = (view.bar_of(&to) - view.bar_of(&from)).round();
 
-        let (status, status_color) = match forecast_outcome(view.bars, from, to) {
+        let (status, status_color) = match forecast_outcome(
+            view.bars,
+            (view.bar_of(&from), from.price),
+            (view.bar_of(&to), to.price),
+        ) {
             Some(true) => ("SUCCESS", DESIGN_TOKENS.semantic.extended.bullish),
             Some(false) => ("FAILED", DESIGN_TOKENS.semantic.extended.bearish),
             None => (
@@ -76,18 +80,18 @@ impl Drawing {
 /// target bar: `Some(true)` once a bar trades at the target, `Some(false)`
 /// once a bar after the target bar exists without that, `None` while the
 /// target bar is ahead or still forming (or the target is not after the start).
-fn forecast_outcome(bars: &[Bar], from: ChartPoint, to: ChartPoint) -> Option<bool> {
-    let (start, end) = (from.bar_idx.round(), to.bar_idx.round());
+fn forecast_outcome(bars: &[Bar], from: (f32, f64), to: (f32, f64)) -> Option<bool> {
+    let (start, end) = (from.0.round(), to.0.round());
     if end <= start {
         return None;
     }
     let (_, window) = bars_between(bars, start + 1.0, end)?;
-    let up = to.price >= from.price;
+    let up = to.1 >= from.1;
     let reached = window.iter().any(|bar| {
         if up {
-            bar.high >= to.price
+            bar.high >= to.1
         } else {
-            bar.low <= to.price
+            bar.low <= to.1
         }
     });
     if reached {
@@ -123,8 +127,8 @@ mod tests {
             ((3.0, 13.5), (6.0, 11.5), None),
         ];
         for ((from_bar, from_price), (to_bar, to_price), want) in cases {
-            let from = ChartPoint::new(from_bar, from_price);
-            let to = ChartPoint::new(to_bar, to_price);
+            let from = (from_bar, from_price);
+            let to = (to_bar, to_price);
             assert_eq!(
                 forecast_outcome(&bars, from, to),
                 want,

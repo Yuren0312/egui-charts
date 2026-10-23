@@ -801,6 +801,7 @@ impl Drawing {
 mod tests {
     use super::*;
     use crate::drawings::domain::{ChartPoint, DrawingToolType};
+    use crate::drawings::rendering::bar_time;
 
     #[test]
     fn head_and_shoulders_neckline_runs_through_the_troughs() {
@@ -843,7 +844,9 @@ mod tests {
             let mut drawing = Drawing::new(0, DrawingToolType::XABCDPattern);
             for (i, &price) in prices.iter().enumerate() {
                 let x = 10.0 * i as f32;
-                drawing.chart_points.push(ChartPoint::new(x, price));
+                drawing
+                    .chart_points
+                    .push(ChartPoint::new(bar_time(x), price));
                 drawing.points.push(Pos2::new(x, (1000.0 / price) as f32));
             }
             drawing

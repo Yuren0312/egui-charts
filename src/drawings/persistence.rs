@@ -11,7 +11,7 @@
 //! Drawing (in-memory)                    StoredDrawing (serializable)
 //! ─────────────────                      ────────────────────────────
 //! chart_points: Vec<ChartPoint> ──────►  points: Vec<StoredCoord>
-//! (bar index + price)  drawing_to_stored()  (timestamp + price)
+//! (time + price)  drawing_to_stored()  (timestamp + price)
 //! tool type and settings        ──────►  drawing: Drawing
 //!
 //! chart_points: Vec<ChartPoint> ◄──────  points: Vec<StoredCoord>
@@ -39,6 +39,7 @@
 //! (see [`from_json`](crate::drawings::persistence::DrawingStorage::from_json)).
 
 use crate::drawings::{ChartPoint, Drawing, DrawingToolType, ParseToolTypeError, PositionSize};
+use chrono::{DateTime, Utc};
 use serde::de::IntoDeserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -540,16 +541,9 @@ mod v1 {
     }
 }
 
-/// Convert a Drawing to StoredDrawing, its anchors mapped from bar index to timestamp, under
-/// the drawing's stored id and creation time when it was restored from storage, and under its
-/// id and the current time otherwise.
-///
-/// `bar_to_time` must accept fractional bar indices and extrapolate by the bar
-/// interval before index 0 and after the last bar instead of clamping: anchors
-/// can sit between bars, in the history not yet loaded or in the future area,
-/// and a clamping mapping would move them onto the first or last bar. It must
-/// be the inverse of the `time_to_bar` passed to [`stored_to_drawing`].
-pub fn drawing_to_stored(drawing: &Drawing, bar_to_time: impl Fn(f32) -> i64) -> StoredDrawing {
+/// Convert a Drawing to StoredDrawing under its stored id and creation time when restored
+/// from storage, and under its id and the current time otherwise. Anchors keep their times.
+pub fn drawing_to_stored(drawing: &Drawing) -> StoredDrawing {
     let mut settings = drawing.clone();
     settings.points.clear();
     settings.chart_points.clear();
@@ -560,24 +554,15 @@ pub fn drawing_to_stored(drawing: &Drawing, bar_to_time: impl Fn(f32) -> i64) ->
     stored.points = drawing
         .chart_points
         .iter()
-        .map(|p| StoredCoord::new(bar_to_time(p.bar_idx), p.price))
+        .map(|p| StoredCoord::new(p.time.timestamp_millis(), p.price))
         .collect();
     stored
 }
 
-/// Convert StoredDrawing back to a completed Drawing with id `next_id`, its anchors mapped from
-/// timestamp to bar index and the record's id, creation time and notes kept; the screen points
-/// follow on the next [`Drawing::update_screen_coords`].
-///
-/// `time_to_bar` must be the inverse of the `bar_to_time` passed to
-/// [`drawing_to_stored`]: it returns fractional bar indices and extrapolates
-/// before the first and after the last bar instead of clamping, or anchors
-/// outside the loaded bars collapse onto the edge bar.
-pub fn stored_to_drawing(
-    stored: &StoredDrawing,
-    time_to_bar: impl Fn(i64) -> f32,
-    next_id: usize,
-) -> Drawing {
+/// Convert StoredDrawing back to a completed Drawing with id `next_id`, keeping the anchors'
+/// times and the record's id, creation time and notes. Screen points follow on the next
+/// [`Drawing::update_screen_coords`]. A time outside chrono's range loads at its nearer end.
+pub fn stored_to_drawing(stored: &StoredDrawing, next_id: usize) -> Drawing {
     let mut drawing = stored.drawing.clone();
     drawing.id = next_id;
     drawing.stored_id = Some(stored.id.clone());
@@ -586,7 +571,16 @@ pub fn stored_to_drawing(
     drawing.chart_points = stored
         .points
         .iter()
-        .map(|p| ChartPoint::new(time_to_bar(p.ts_ms), p.price))
+        .map(|p| {
+            ChartPoint::new(
+                DateTime::from_timestamp_millis(p.ts_ms).unwrap_or(if p.ts_ms < 0 {
+                    DateTime::<Utc>::MIN_UTC
+                } else {
+                    DateTime::<Utc>::MAX_UTC
+                }),
+                p.price,
+            )
+        })
         .collect();
     drawing.completed = true;
     drawing
@@ -599,12 +593,12 @@ mod tests {
 
     const T0: i64 = 1_704_067_200_000;
 
-    fn bar_to_time(bar: f32) -> i64 {
-        T0 + (bar * 60_000.0) as i64
+    fn time(bar: f32) -> DateTime<Utc> {
+        DateTime::from_timestamp_millis(T0 + (bar * 60_000.0) as i64).unwrap()
     }
 
-    fn time_to_bar(ts_ms: i64) -> f32 {
-        (ts_ms - T0) as f32 / 60_000.0
+    fn bar(time: DateTime<Utc>) -> f32 {
+        (time.timestamp_millis() - T0) as f32 / 60_000.0
     }
 
     fn bar_to_x(bar: f32) -> f32 {
@@ -618,8 +612,8 @@ mod tests {
     /// The drawing `stored` restores to, without the record's identity, which
     /// `a_later_session_keeps_the_stored_drawings_and_their_ids` checks.
     fn restore(stored: &StoredDrawing, id: usize) -> Drawing {
-        let mut drawing = stored_to_drawing(stored, time_to_bar, id);
-        drawing.update_screen_coords(bar_to_x, price_to_y);
+        let mut drawing = stored_to_drawing(stored, id);
+        drawing.update_screen_coords(|time| bar_to_x(bar(time)), price_to_y);
         (drawing.stored_id, drawing.created_at, drawing.notes) = (None, None, None);
         drawing
     }
@@ -629,9 +623,9 @@ mod tests {
     fn non_default_drawing(tool: DrawingToolType) -> Drawing {
         let mut d = Drawing::new(7, tool);
         d.chart_points = vec![
-            ChartPoint::new(3.0, 101.25),
-            ChartPoint::new(10.5, 99.5),
-            ChartPoint::new(-2.0, 120.0),
+            ChartPoint::new(time(3.0), 101.25),
+            ChartPoint::new(time(10.5), 99.5),
+            ChartPoint::new(time(-2.0), 120.0),
         ];
         d.color = [1, 2, 3, 4];
         d.stroke_width = 3.5;
@@ -669,7 +663,7 @@ mod tests {
         d.volume_profile = VolumeProfileConfig::new(50, 0.68);
         d.regression_trend = RegressionTrendConfig::new(1.5);
         d.z_order = -3;
-        d.update_screen_coords(bar_to_x, price_to_y);
+        d.update_screen_coords(|time| bar_to_x(bar(time)), price_to_y);
         d
     }
 
@@ -678,7 +672,7 @@ mod tests {
         for &tool in DrawingToolType::all().iter().filter(|t| !t.is_cursor()) {
             let drawing = non_default_drawing(tool);
             let mut storage = DrawingStorage::new("AAPL");
-            storage.add_drawing(drawing_to_stored(&drawing, bar_to_time));
+            storage.add_drawing(drawing_to_stored(&drawing));
             let (loaded, _) = DrawingStorage::from_json(&storage.to_json().unwrap()).unwrap();
             let back = restore(&loaded.drawings()[0], drawing.id);
             assert_eq!(format!("{back:?}"), format!("{drawing:?}"), "{tool:?}");
@@ -705,19 +699,19 @@ mod tests {
 
         let mut manager = DrawingManager::new();
         for stored in storage.drawings() {
-            manager.add_synced_drawing(stored_to_drawing(stored, time_to_bar, 0));
+            manager.add_synced_drawing(stored_to_drawing(stored, 0));
         }
         manager.add_synced_drawing(manager.drawings[0].clone());
-        let (x_to_bar, y_to_price) = (|x: f32| x, |y: f32| f64::from(y));
+        let (x_to_time, y_to_price) = (time, |y: f32| f64::from(y));
         let at = egui::Pos2::new(5.0, 90.0);
         manager.start_drawing_with_coords(
             DrawingToolType::HorizontalLine,
             at,
-            x_to_bar,
+            x_to_time,
             y_to_price,
         );
         for drawing in &manager.drawings {
-            storage.add_drawing(drawing_to_stored(drawing, bar_to_time));
+            storage.add_drawing(drawing_to_stored(drawing));
         }
         let (saved, _) = DrawingStorage::from_json(&storage.to_json().unwrap()).unwrap();
 
@@ -763,8 +757,11 @@ mod tests {
         assert_eq!(v1.drawings().len(), tools.len());
         for (stored, (tool, text)) in v1.drawings().iter().zip(tools) {
             let mut want = Drawing::with_color(1, tool, [33, 150, 243, 255]);
-            want.chart_points = vec![ChartPoint::new(0.0, 100.0), ChartPoint::new(10.0, 110.0)];
-            want.update_screen_coords(bar_to_x, price_to_y);
+            want.chart_points = vec![
+                ChartPoint::new(time(0.0), 100.0),
+                ChartPoint::new(time(10.0), 110.0),
+            ];
+            want.update_screen_coords(|time| bar_to_x(bar(time)), price_to_y);
             want.stroke_width = 3.0;
             want.completed = true;
             want.text = text.map(String::from);
@@ -793,12 +790,15 @@ mod tests {
 
         let mut first = Drawing::new(1, DrawingToolType::FixedRangeVolumeProfile);
         first.volume_profile = VolumeProfileConfig::new(24, 0.7);
-        first.chart_points = vec![ChartPoint::new(0.0, 100.0), ChartPoint::new(10.0, 110.0)];
+        first.chart_points = vec![
+            ChartPoint::new(time(0.0), 100.0),
+            ChartPoint::new(time(10.0), 110.0),
+        ];
         let mut storage = DrawingStorage::new("AAPL");
-        storage.add_drawing(drawing_to_stored(&first, bar_to_time));
+        storage.add_drawing(drawing_to_stored(&first));
         let mut second = Drawing::new(2, DrawingToolType::TrendLine);
         second.chart_points = first.chart_points.clone();
-        storage.add_drawing(drawing_to_stored(&second, bar_to_time));
+        storage.add_drawing(drawing_to_stored(&second));
         let current = storage.to_json().unwrap();
         // The first drawing as `tool` with only `anchors` anchors, written as `to_json` would
         // without its checks.
@@ -880,6 +880,12 @@ mod tests {
             assert!(storage.to_json().is_ok(), "{error}");
         }
 
+        let outside = current.replacen("1704067200000", "9223372036854775807", 1);
+        let (storage, skipped) = DrawingStorage::from_json(&outside).unwrap();
+        assert!(skipped.is_empty(), "{skipped:?}");
+        let drawing = stored_to_drawing(&storage.drawings()[0], 0);
+        assert_eq!(drawing.chart_points[0].time, DateTime::<Utc>::MAX_UTC);
+
         // A pitchfork finished after one click has two anchors and draws a mark and a segment each.
         let (storage, skipped) =
             DrawingStorage::from_json(&short_of_anchors(DrawingToolType::Pitchfork, 2)).unwrap();
@@ -956,10 +962,9 @@ mod tests {
         ];
         for (spoil, expected) in cases {
             let mut storage = DrawingStorage::new("AAPL");
-            storage.add_drawing(drawing_to_stored(
-                &non_default_drawing(DrawingToolType::TrendLine),
-                bar_to_time,
-            ));
+            storage.add_drawing(drawing_to_stored(&non_default_drawing(
+                DrawingToolType::TrendLine,
+            )));
             spoil(&mut storage);
             let got = match storage.to_json() {
                 Err(SaveError::NonFinite { id, field }) => format!("{id}: non-finite {field}"),

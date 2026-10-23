@@ -3,6 +3,7 @@
 //! Includes: cyclic lines, time cycles, and sine line.
 
 use crate::drawings::domain::Drawing;
+use crate::drawings::rendering::ChartView;
 use crate::drawings::rendering::utils::draw_dashed_line;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
@@ -11,7 +12,12 @@ use egui::{Color32, Pos2, Rect, Stroke};
 impl Drawing {
     /// Renders cyclic vertical lines with customizable period and phase.
     /// Features: repeating vertical lines, cycle number labels, phase shift support.
-    pub(crate) fn render_cyclic_lines(&self, painter: &egui::Painter, chart_rect: Rect) {
+    pub(crate) fn render_cyclic_lines(
+        &self,
+        painter: &egui::Painter,
+        chart_rect: Rect,
+        view: &ChartView,
+    ) {
         if self.points.len() < 2 {
             return;
         }
@@ -101,7 +107,7 @@ impl Drawing {
 
         // Period label at bottom center of first cycle
         let period_bars = if !self.chart_points.is_empty() && self.chart_points.len() >= 2 {
-            (self.chart_points[1].bar_idx - self.chart_points[0].bar_idx).abs() as i32
+            (view.bar_of(&self.chart_points[1]) - view.bar_of(&self.chart_points[0])).abs() as i32
         } else {
             (period / 10.0) as i32 // Approximate
         };
@@ -138,7 +144,12 @@ impl Drawing {
 
     /// Renders time cycles: the anchors span one cycle, repeated as half circles
     /// forward in time to the right edge of the chart.
-    pub(crate) fn render_time_cycles(&self, painter: &egui::Painter, chart_rect: Rect) {
+    pub(crate) fn render_time_cycles(
+        &self,
+        painter: &egui::Painter,
+        chart_rect: Rect,
+        view: &ChartView,
+    ) {
         if self.points.len() < 2 {
             return;
         }
@@ -189,7 +200,7 @@ impl Drawing {
 
         // Base cycle info
         let bars = if !self.chart_points.is_empty() && self.chart_points.len() >= 2 {
-            (self.chart_points[1].bar_idx - self.chart_points[0].bar_idx).abs() as i32
+            (view.bar_of(&self.chart_points[1]) - view.bar_of(&self.chart_points[0])).abs() as i32
         } else {
             (base_radius / 10.0) as i32
         };
@@ -225,7 +236,12 @@ impl Drawing {
 
     /// Renders a sine wave line for cyclical analysis.
     /// The anchors are a peak and a trough half a period apart; the curve extends across the chart.
-    pub(crate) fn render_sine_line(&self, painter: &egui::Painter, chart_rect: Rect) {
+    pub(crate) fn render_sine_line(
+        &self,
+        painter: &egui::Painter,
+        chart_rect: Rect,
+        view: &ChartView,
+    ) {
         if self.points.len() < 2 {
             return;
         }
@@ -314,7 +330,8 @@ impl Drawing {
 
         // Wavelength label
         let wave_bars = if !self.chart_points.is_empty() && self.chart_points.len() >= 2 {
-            ((self.chart_points[1].bar_idx - self.chart_points[0].bar_idx).abs() * 2.0) as i32
+            ((view.bar_of(&self.chart_points[1]) - view.bar_of(&self.chart_points[0])).abs() * 2.0)
+                as i32
         } else {
             (wavelength / 10.0) as i32
         };

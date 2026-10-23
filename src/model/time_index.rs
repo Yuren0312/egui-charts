@@ -1,6 +1,23 @@
 use super::{Bar, Timeframe};
 use chrono::{DateTime, TimeDelta, Utc};
 
+/// A drawing anchor: a time on the chart's time axis and a price. [`TimeIndex`] places the time
+/// on the bars each frame, so the anchor stays on its bar when bars are loaded, inserted or
+/// replaced by another interval's.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChartPoint {
+    /// A bar's open time, or a time between or beyond the bars.
+    pub time: DateTime<Utc>,
+    /// Price level.
+    pub price: f64,
+}
+impl ChartPoint {
+    /// Creates an anchor at `time` and `price`.
+    pub fn new(time: DateTime<Utc>, price: f64) -> Self {
+        Self { time, price }
+    }
+}
+
 /// Places times on a series' bars and back. Bar `i` is at position `i`; a time between two bars
 /// is at its share of the time between their opens; a time before the first or after the last bar
 /// is at one `timeframe` per bar. A bar's open time maps to its index and back exactly, other times

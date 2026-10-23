@@ -65,18 +65,6 @@ impl DrawingCommand {
             DrawingCommand::Modify { id, .. } => *id,
         }
     }
-
-    /// Shift the bar indices at or after `from` for bars inserted in front of them
-    pub fn shift_bar_indices(&mut self, from: f32, delta: f32) {
-        match self {
-            DrawingCommand::Add(d) | DrawingCommand::Delete(d) => {
-                d.shift_bar_indices(from, delta);
-            }
-            DrawingCommand::Modify { old_state, .. } => {
-                old_state.shift_bar_indices(from, delta);
-            }
-        }
-    }
 }
 
 /// History service for undo/redo operations
@@ -235,16 +223,6 @@ impl HistoryService {
         self.redo_stack.clear();
     }
 
-    /// Shift the bar indices at or after `from` in history (for bars inserted in front of them)
-    pub fn shift_bar_indices(&mut self, from: f32, delta: f32) {
-        for cmd in &mut self.undo_stack {
-            cmd.shift_bar_indices(from, delta);
-        }
-        for cmd in &mut self.redo_stack {
-            cmd.shift_bar_indices(from, delta);
-        }
-    }
-
     /// Prune undo history entries for drawings that no longer exist.
     ///
     /// Only the undo stack is pruned against the live id set. The redo stack is
@@ -282,7 +260,7 @@ impl HistoryService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::drawings::{ChartPoint, DrawingToolType};
+    use crate::drawings::DrawingToolType;
 
     fn make_drawing(id: usize) -> Drawing {
         Drawing::new(id, DrawingToolType::TrendLine)
@@ -379,33 +357,6 @@ mod tests {
             assert_eq!(history.undo(&mut drawings), Some(expected));
         }
         assert_eq!(history.undo(&mut drawings), None);
-    }
-
-    /// When history is prepended, commands on both stacks move with the bars,
-    /// so a later undo or redo puts the drawing back at its shifted position.
-    #[test]
-    fn test_shift_bar_indices() {
-        let anchored = |id, bar_idx| {
-            let mut d = make_drawing(id);
-            d.chart_points.push(ChartPoint::new(bar_idx, 50.0));
-            d
-        };
-        let mut history = HistoryService::new();
-        let mut drawings = vec![anchored(1, 120.0), anchored(2, 200.0)];
-
-        history.push_modify(1, anchored(1, 100.0));
-        history.push_add(anchored(2, 200.0));
-        history.undo(&mut drawings); // Add(2) moves to the redo stack
-
-        history.shift_bar_indices(f32::NEG_INFINITY, 50.0);
-
-        // Modify(1) sat on the undo stack: undo restores its old state, shifted.
-        assert_eq!(history.undo(&mut drawings), Some(1));
-        assert_eq!(drawings[0].chart_points[0].bar_idx, 150.0);
-        history.redo(&mut drawings); // reapplies Modify(1)
-        // Add(2) was on the redo stack: redo re-adds it at the shifted bar.
-        assert_eq!(history.redo(&mut drawings), Some(2));
-        assert_eq!(drawings[1].chart_points[0].bar_idx, 250.0);
     }
 
     /// Undoing an `Add` parks the re-add command on the redo stack while the

@@ -88,7 +88,7 @@ pub use strategy::{
     StrategyExit, StrategyPerformance, StrategyReport, StrategySide, StrategyTrade,
 };
 pub use symbol::Symbol;
-pub use time_index::TimeIndex;
+pub use time_index::{ChartPoint, TimeIndex};
 pub use timeframe::Timeframe;
 pub use timescale::{LogicalRange, TimeScale};
 pub use tpo::{

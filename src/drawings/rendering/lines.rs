@@ -3,8 +3,8 @@
 //! Includes: lines, rays, shapes (rect, circle, ellipse, triangle, arc),
 //! arrows, and polylines.
 
+use super::ChartView;
 use crate::drawings::domain::Drawing;
-use crate::model::Bar;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Color32, Pos2, Rect, Stroke, epaint::StrokeKind};
@@ -161,7 +161,7 @@ impl Drawing {
         painter: &egui::Painter,
         color: Color32,
         stroke: Stroke,
-        bars: &[Bar],
+        view: &ChartView,
     ) {
         if self.points.len() >= 2 {
             let start = self.points[0];
@@ -283,7 +283,7 @@ impl Drawing {
                 mid_point.y + info_offset * perpendicular_angle.sin(),
             );
 
-            let info_text = self.measurement_label(bars).unwrap_or_default();
+            let info_text = self.measurement_label(view).unwrap_or_default();
             let info_font = egui::FontId::proportional(typography::XS);
             let muted_color =
                 Color32::from_rgba_unmultiplied(self.color[0], self.color[1], self.color[2], 180);
@@ -314,7 +314,13 @@ impl Drawing {
     }
 
     /// Render rect - with optional middle line and price range
-    pub(crate) fn render_rect(&self, painter: &egui::Painter, color: Color32, stroke: Stroke) {
+    pub(crate) fn render_rect(
+        &self,
+        painter: &egui::Painter,
+        color: Color32,
+        stroke: Stroke,
+        view: &ChartView,
+    ) {
         if self.points.len() >= 2 {
             let rect = Rect::from_two_pos(self.points[0], self.points[1]);
 
@@ -356,7 +362,7 @@ impl Drawing {
             let height = rect.height();
             let width = rect.width();
             let [width_label, height_label] =
-                <[String; 2]>::try_from(self.size_labels(&|_| 0.0)).unwrap_or_default();
+                <[String; 2]>::try_from(self.size_labels(view)).unwrap_or_default();
             let label_bg = DESIGN_TOKENS
                 .semantic
                 .extended

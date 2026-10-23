@@ -141,7 +141,7 @@ impl Drawing {
                 line_stroke,
             );
 
-            let info = self.measurement_label(view.bars).unwrap_or_default();
+            let info = self.measurement_label(view).unwrap_or_default();
 
             // Draw info box at the top-left corner of rect
             let font = egui::FontId::proportional(typography::SM);
@@ -169,7 +169,12 @@ impl Drawing {
         }
     }
 
-    pub(crate) fn render_price_range(&self, painter: &egui::Painter, chart_rect: Rect) {
+    pub(crate) fn render_price_range(
+        &self,
+        painter: &egui::Painter,
+        chart_rect: Rect,
+        view: &ChartView,
+    ) {
         if self.points.len() < 2 {
             if !self.points.is_empty() {
                 painter.circle_filled(
@@ -215,7 +220,7 @@ impl Drawing {
             Stroke::new(stroke::HAIRLINE, color),
         );
 
-        let info = self.measurement_label(&[]).unwrap_or_default();
+        let info = self.measurement_label(view).unwrap_or_default();
 
         painter.text(
             Pos2::new(mid_x + 10.0, (p1.y + p2.y) / 2.0),
@@ -280,7 +285,7 @@ impl Drawing {
             Stroke::new(stroke::HAIRLINE, color),
         );
 
-        let info = self.measurement_label(view.bars).unwrap_or_default();
+        let info = self.measurement_label(view).unwrap_or_default();
 
         painter.text(
             Pos2::new((p1.x + p2.x) / 2.0, mid_y - 10.0),
@@ -327,7 +332,7 @@ impl Drawing {
             StrokeKind::Outside,
         );
 
-        let info = self.measurement_label(view.bars).unwrap_or_default();
+        let info = self.measurement_label(view).unwrap_or_default();
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -357,7 +362,7 @@ impl Drawing {
         painter.circle_filled(start, DESIGN_TOKENS.rounding.md, color);
         painter.circle_filled(end, DESIGN_TOKENS.rounding.md, color);
 
-        let Some(info_text) = self.measurement_label(view.bars) else {
+        let Some(info_text) = self.measurement_label(view) else {
             return;
         };
         let is_positive = self.chart_points[1].price >= self.chart_points[0].price;
@@ -421,15 +426,16 @@ impl Drawing {
     /// and for the info line the angle of the line on screen. Each anchor counts at its nearest
     /// bar: anchors N bars apart span N bars of time and the volume of the N + 1 bars from one to
     /// the other, both included.
-    pub(crate) fn measurement_label(&self, bars: &[Bar]) -> Option<String> {
+    pub(crate) fn measurement_label(&self, view: &ChartView) -> Option<String> {
         let [a, b, ..] = &self.chart_points[..] else {
             return None;
         };
+        let bars = view.bars;
         let change = b.price - a.price;
         let pct = percent_change(a.price, b.price);
         let decimals = price_decimals(a.price);
         let change = format!("{change:+.decimals$} ({pct:+.2}%)");
-        let (from, to) = (a.bar_idx.round(), b.bar_idx.round());
+        let (from, to) = (view.bar_of(a).round(), view.bar_of(b).round());
         let mut span = format!("{} bars", (to - from).abs() as i64);
         if let Some(ms) = elapsed_ms(bars, from, to) {
             span = format!("{span}, {}", format_duration(ms));
@@ -468,7 +474,8 @@ impl Drawing {
     /// then its height in price), from the anchors' bars and prices. The lines are straight on
     /// screen, so their prices between the anchors come from the chart's `price_to_y`, which
     /// on a logarithmic scale puts the trend line's midpoint at the geometric mean.
-    pub(crate) fn size_labels(&self, price_to_y: &dyn Fn(f64) -> f32) -> Vec<String> {
+    pub(crate) fn size_labels(&self, view: &ChartView) -> Vec<String> {
+        let price_to_y = view.price_to_y;
         let gap = |a: f64, b: f64| {
             let (low, gap) = (a.min(b), (a - b).abs());
             let pct = percent_change(low, low + gap);
@@ -488,16 +495,16 @@ impl Drawing {
             (DrawingToolType::DisjointChannel, [a, b, c, ..]) => {
                 let (ya, yb) = (price_to_y(a.price), price_to_y(b.price));
                 let first_y = |bar: f32| {
-                    let run = b.bar_idx - a.bar_idx;
+                    let run = view.bar_of(b) - view.bar_of(a);
                     let t = if run != 0.0 {
-                        (bar - a.bar_idx) / run
+                        (bar - view.bar_of(a)) / run
                     } else {
                         0.0
                     };
                     ya + (yb - ya) * t
                 };
-                let y = first_y((b.bar_idx + c.bar_idx) / 2.0);
-                let second_y = y + price_to_y(c.price) - first_y(c.bar_idx);
+                let y = first_y((view.bar_of(b) + view.bar_of(c)) / 2.0);
+                let second_y = y + price_to_y(c.price) - first_y(view.bar_of(c));
                 label(
                     price_at_y(price_to_y, y, a.price),
                     price_at_y(price_to_y, second_y, c.price),
@@ -506,7 +513,7 @@ impl Drawing {
                 .collect()
             }
             (DrawingToolType::Rect, [a, b, ..]) => vec![
-                format!("{} bars", (b.bar_idx - a.bar_idx).abs() as i64),
+                format!("{} bars", (view.bar_of(b) - view.bar_of(a)).abs() as i64),
                 gap(a.price, b.price),
             ],
             _ => Vec::new(),
@@ -616,6 +623,7 @@ mod tests {
     use super::*;
     use crate::drawings::ChartPoint;
     use crate::drawings::rendering::sample_bars;
+    use crate::drawings::rendering::{bar_at, bar_time};
 
     /// Hourly bars with volumes 100, 200, 150, 300, 250, 400 and 50, the last one 49 h after the
     /// one before it, at 54 h, as across a weekend. Prices change from the first anchor to the
@@ -666,9 +674,19 @@ mod tests {
         let mut wrong = Vec::new();
         for (tool, (b1, p1), (b2, p2), want) in cases {
             let mut drawing = Drawing::new(1, tool);
-            drawing.chart_points = vec![ChartPoint::new(b1, p1), ChartPoint::new(b2, p2)];
-            drawing.update_screen_coords(|bar| bar * 10.0, |price| 500.0 - price as f32);
-            let got = drawing.measurement_label(&bars);
+            drawing.chart_points = vec![
+                ChartPoint::new(bar_time(b1), p1),
+                ChartPoint::new(bar_time(b2), p2),
+            ];
+            drawing.update_screen_coords(|time| bar_at(time) * 10.0, |price| 500.0 - price as f32);
+            let view = ChartView {
+                bars: &bars,
+                revision: 0,
+                time_to_bar: &bar_at,
+                bar_to_x: &|bar| bar * 10.0,
+                price_to_y: &|price| 500.0 - price as f32,
+            };
+            let got = drawing.measurement_label(&view);
             if got.as_deref() != Some(want) {
                 wrong.push(format!("{tool:?}: got {got:?}, want {want:?}"));
             }
@@ -723,13 +741,20 @@ mod tests {
             let mut drawing = Drawing::new(1, tool);
             drawing.chart_points = anchors
                 .into_iter()
-                .map(|(bar, price)| ChartPoint::new(bar, price))
+                .map(|(bar, price)| ChartPoint::new(bar_time(bar), price))
                 .collect();
             for (scale, top) in [(10.0, 120.0), (3.0, 300.0)] {
                 let value = |price: f64| if log { price.ln() * 100.0 } else { price };
                 let price_to_y = |price: f64| ((value(top) - value(price)) * scale) as f32;
-                drawing.update_screen_coords(|bar| bar * 10.0, price_to_y);
-                let got = drawing.size_labels(&price_to_y);
+                drawing.update_screen_coords(|time| bar_at(time) * 10.0, price_to_y);
+                let view = ChartView {
+                    bars: &[],
+                    revision: 0,
+                    time_to_bar: &bar_at,
+                    bar_to_x: &|bar| bar * 10.0,
+                    price_to_y: &price_to_y,
+                };
+                let got = drawing.size_labels(&view);
                 if got != want {
                     wrong.push(format!(
                         "{tool:?} at {scale} px per unit, log {log}: got {got:?}, want {want:?}"
