@@ -13,19 +13,24 @@ use egui::Color32;
 /// depends on the indicator:
 ///
 /// - **`Single(f64)`** -- used by single-line indicators (SMA, EMA, RSI, ATR, ...).
-/// - **`Multiple(Vec<f64>)`** -- used by multi-line indicators. For example,
+/// - **`Multiple(Vec<f64>)`** -- used by multi-line indicators, one value per
+///   line in the order of [`line_names`](Indicator::line_names). For example,
 ///   MACD emits `[macd_line, signal_line, histogram]` and Bollinger Bands
-///   emits `[upper, middle, lower]`.
-/// - **`None`** -- emitted for bars that fall within the indicator's warmup
-///   period (i.e. not enough prior data to compute a value).
+///   emits `[upper, middle, lower]`. A line without a value on the bar, such
+///   as a signal line during its warmup, is NaN.
+/// - **`None`** -- emitted for bars where no line has a value: within the
+///   indicator's warmup period, or on a bar whose inputs are not finite.
+///
+/// An indicator with more than one line emits `Multiple` with
+/// [`line_cnt`](Indicator::line_cnt) values or `None`, never `Single`.
 #[derive(Debug, Clone)]
 pub enum IndicatorValue {
     /// A single computed value (e.g. SMA output at one bar).
     Single(f64),
-    /// Multiple computed values for multi-output indicators (e.g. MACD
-    /// producing MACD line, signal line, and histogram).
+    /// One value per line for multi-line indicators (e.g. MACD producing
+    /// MACD line, signal line, and histogram), NaN for a line without one.
     Multiple(Vec<f64>),
-    /// No value available, typically during the warmup period.
+    /// No value on this bar: warmup, or inputs that are not finite.
     None,
 }
 
@@ -142,17 +147,20 @@ pub trait Indicator: Send {
         true
     }
 
-    /// The number of lines this indicator plots.
+    /// The number of lines this indicator plots, and the number of entries in
+    /// each [`IndicatorValue::Multiple`] it emits. Renderers draw lines
+    /// `0..line_cnt()`.
     ///
     /// For example, SMA returns `1`, MACD returns `3` (MACD line, signal,
-    /// histogram), and Ichimoku returns `5`. Defaults to `1`.
+    /// histogram), and Ichimoku returns `5`. Defaults to the number of
+    /// [`line_names`](Indicator::line_names).
     fn line_cnt(&self) -> usize {
-        1
+        self.line_names().len()
     }
 
     /// Return display names for each line, used in chart legends.
     ///
-    /// The length of the returned `Vec` should match [`line_cnt`](Indicator::line_cnt).
+    /// The length of the returned `Vec` must match [`line_cnt`](Indicator::line_cnt).
     /// Defaults to a single entry containing [`name`](Indicator::name).
     fn line_names(&self) -> Vec<String> {
         vec![self.name().to_string()]
