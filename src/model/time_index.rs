@@ -1,3 +1,5 @@
+//! Drawing anchors in time, and the mapping between times and a series' bar positions.
+
 use super::{Bar, Timeframe};
 use chrono::{DateTime, TimeDelta, Utc};
 
@@ -21,8 +23,8 @@ impl ChartPoint {
 /// Places times on a series' bars and back. Bar `i` is at position `i`; a time between two bars
 /// is at its share of the time between their opens; a time before the first or after the last bar
 /// is at one `timeframe` per bar. A bar's open time maps to its index and back exactly, other times
-/// come back within a millisecond. `bars` are in time order without repeats, as a chart holds them.
-/// Months extrapolate at the timeframe's 30 days.
+/// come back within a millisecond. `bars` are in time order, as a chart holds them; equal times
+/// map to the last of them. Months extrapolate at the timeframe's 30 days.
 #[derive(Debug, Clone, Copy)]
 pub struct TimeIndex<'a> {
     bars: &'a [Bar],
@@ -37,6 +39,7 @@ impl<'a> TimeIndex<'a> {
             step: TimeDelta::milliseconds(timeframe.duration_ms()),
         })
     }
+
     /// The fractional bar position of `time`.
     pub fn position(&self, time: DateTime<Utc>) -> f64 {
         let next = self.bars.partition_point(|bar| bar.time <= time);
@@ -47,11 +50,12 @@ impl<'a> TimeIndex<'a> {
         };
         at as f64 + (time - self.bars[at].time).as_seconds_f64() / span.as_seconds_f64()
     }
+
     /// The time at a fractional bar position, including positions outside the series.
     pub fn time_at(&self, position: f64) -> DateTime<Utc> {
         let last = self.bars.len() - 1;
         let (at, span) = if position <= 0.0 || position.is_nan() {
-            (0, self.step) // NaN too
+            (0, self.step)
         } else if position >= last as f64 {
             (last, self.step)
         } else {
@@ -69,6 +73,7 @@ impl<'a> TimeIndex<'a> {
                 DateTime::<Utc>::MAX_UTC
             })
     }
+
     /// The bar whose slot holds `time`: the last bar opening at or before it, and for the last
     /// bar only within one timeframe of its open.
     pub fn bar_containing(&self, time: DateTime<Utc>) -> Option<usize> {
@@ -77,6 +82,22 @@ impl<'a> TimeIndex<'a> {
             .partition_point(|bar| bar.time <= time)
             .checked_sub(1)?;
         (at + 1 < self.bars.len() || time - self.bars[at].time < self.step).then_some(at)
+    }
+
+    /// The slot a time from another chart is drawn on: the bar that holds it, and in a gap of a
+    /// missing bar or more (a night, a weekend) the first bar after the gap once the time is a
+    /// timeframe past the bar before it. Before the first and after the last bar, one slot per
+    /// timeframe.
+    pub fn slot(&self, time: DateTime<Utc>) -> f64 {
+        let next = self.bars.partition_point(|bar| bar.time <= time);
+        if let Some(at) = next.checked_sub(1)
+            && let Some(after) = self.bars.get(next)
+            && time - self.bars[at].time >= self.step
+            && after.time - self.bars[at].time >= self.step * 2
+        {
+            return next as f64;
+        }
+        self.position(time).floor()
     }
 }
 
@@ -108,20 +129,21 @@ mod tests {
         let third = start + TimeDelta::seconds(20);
         assert!((index.position(third) - 1.0 / 3.0).abs() < 1e-12);
         assert_eq!(index.time_at(index.position(third)), third);
-        for (millis, slot) in [
-            (-1, None),
-            (0, Some(0)),
-            (59_999, Some(0)),
-            (60_000, Some(1)),
-            (200_000, Some(2)),
-            (359_999, Some(3)),
-            (360_000, None),
+        // The gap after bar 2 runs from 180 s to bar 3 at 300 s.
+        for (millis, holds, slot) in [
+            (-1, None, -1.0),
+            (0, Some(0), 0.0),
+            (59_999, Some(0), 0.0),
+            (60_000, Some(1), 1.0),
+            (179_999, Some(2), 2.0),
+            (180_000, Some(2), 3.0),
+            (200_000, Some(2), 3.0),
+            (359_999, Some(3), 3.0),
+            (360_000, None, 4.0),
         ] {
-            assert_eq!(
-                index.bar_containing(start + TimeDelta::milliseconds(millis)),
-                slot,
-                "{millis} ms"
-            );
+            let time = start + TimeDelta::milliseconds(millis);
+            assert_eq!(index.bar_containing(time), holds, "{millis} ms");
+            assert_eq!(index.slot(time), slot, "{millis} ms");
         }
         assert!(TimeIndex::new(&[], Timeframe::Min1).is_none());
     }
