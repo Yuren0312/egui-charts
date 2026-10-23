@@ -146,6 +146,11 @@ impl Chart {
     /// applies what it sent; studies are then brought up to date. While bars stream, a study
     /// that does not update incrementally is refreshed at most four times a second.
     ///
+    /// On price-based types the time scale and reported indices count elements, one OHLC bar
+    /// per brick, line, column or range bar. Each carries the last contributing bar's time.
+    /// Price-based types keep studies, drawings and markers but do not draw, hit or edit them.
+    /// Studies continue to update and all three appear again on time-based types.
+    ///
     /// Returns an [`egui::Response`] for additional interaction handling.
     pub fn show(&mut self, ui: &mut Ui) -> Response {
         self.pump(ui.ctx());
@@ -153,6 +158,7 @@ impl Chart {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_secs_f64(wait));
         }
+        self.show_elements();
         self.last_rendered_indicator_panes.clear();
         // Only pane studies need the pane layout, which gives the main pane at
         // least 200 points; without one the chart keeps the space it is given.
@@ -161,7 +167,7 @@ impl Chart {
             .indicators()
             .iter()
             .any(|study| !study.is_overlay() && study.is_visible());
-        if has_panes {
+        if has_panes && !self.chart_type.is_time_independent() {
             self.show_with_panes(ui)
         } else {
             self.show_internal(ui)
@@ -329,9 +335,12 @@ impl Chart {
 
         // Handle mouse wheel for zoom/scroll
         // Block pan/zoom when drawing tool is active OR when manipulating a drawing
-        let is_drawing_interaction = self.drawings.active_tool.is_some()
-            || self.drawings.dragging_handle.is_some()
-            || self.drawings.curr_drawing.is_some();
+        let time_based = !self.chart_type.is_time_independent();
+        let show_volume = self.config.show_volume && self.chart_type.supports_volume();
+        let is_drawing_interaction = time_based
+            && (self.drawings.active_tool.is_some()
+                || self.drawings.dragging_handle.is_some()
+                || self.drawings.curr_drawing.is_some());
         let pending_price_zoom = self.handle_mouse_wheel(
             ui,
             &response,
@@ -411,7 +420,7 @@ impl Chart {
         }
 
         // Split chart area into price and volume sections
-        let (price_rect, volume_rect) = if self.config.show_volume {
+        let (price_rect, volume_rect) = if show_volume {
             let split_y =
                 chart_rect.min.y + chart_rect.height() * (1.0 - self.config.volume_height_fraction);
             (
@@ -427,7 +436,7 @@ impl Chart {
         self.start_idx = start_idx;
 
         // Capture near_live status for button
-        let near_live_edge = self.state.time_scale().right_offset() >= -1.5;
+        let near_live_edge = self.state.time_scale().is_near_live_edge();
 
         // Handle "Jump to Latest" button interaction
         if !near_live_edge {
@@ -454,7 +463,7 @@ impl Chart {
                 .indicators()
                 .iter()
                 .zip(&self.study_autoscale)
-                .filter(|(_, autoscale)| **autoscale)
+                .filter(|(_, autoscale)| time_based && **autoscale)
                 .map(|(study, _)| study.as_ref()),
         );
         self.apply_price_zoom(pending_price_zoom, &response, price_rect, transform);
@@ -607,7 +616,7 @@ impl Chart {
             .feed_link
             .as_ref()
             .and_then(|link| link.bubbles.as_ref())
-            .filter(|_| !self.chart_type.is_time_independent())
+            .filter(|_| time_based)
         {
             let x = |i| idx_to_coord(start_idx + i, chart_rect.min.x);
             bubbles.render(&clipped_painter, visible_data, x, |p| {
@@ -615,10 +624,17 @@ impl Chart {
             });
         }
 
+        // Bar-indexed studies have no position on an element time scale.
+        let hidden_studies = crate::studies::IndicatorRegistry::new();
+        let studies = if time_based {
+            &self.studies
+        } else {
+            &hidden_studies
+        };
         // Draw indicators
         renderers::IndicatorRenderer::render(
             &price_ctx,
-            self.studies.indicators(),
+            studies.indicators(),
             visible_data,
             &price_map,
             &coords,
@@ -632,18 +648,18 @@ impl Chart {
         if response.clicked()
             && let Some(click_pos) = response.interact_pointer_pos()
         {
-            let volume_coords = if self.config.show_volume {
+            let volume_coords = if show_volume {
                 Some(coords.with_rect(volume_rect))
             } else {
                 None
             };
             let hit = hit_test_main_chart(
                 click_pos,
-                &self.studies,
+                studies,
                 &self.study_ids,
                 &coords,
                 volume_coords.as_ref(),
-                &self.state.data().bars,
+                self.state.shown(),
                 max_volume,
                 main_visible_range.clone(),
             );
@@ -666,7 +682,7 @@ impl Chart {
             let price = coords.y_to_price(click_pos.y);
 
             // Drawings sit on top of the series, so they take priority.
-            let drawing_hit = self.drawings.hit_test(click_pos);
+            let drawing_hit = self.drawings.hit_test(click_pos).filter(|_| time_based);
 
             self.right_click = Some(if let Some(drawing_id) = drawing_hit {
                 // Right-clicking a drawing selects it and
@@ -679,18 +695,18 @@ impl Chart {
                     pos: click_pos,
                 }
             } else {
-                let volume_coords = if self.config.show_volume {
+                let volume_coords = if show_volume {
                     Some(coords.with_rect(volume_rect))
                 } else {
                     None
                 };
                 let element_hit = hit_test_main_chart(
                     click_pos,
-                    &self.studies,
+                    studies,
                     &self.study_ids,
                     &coords,
                     volume_coords.as_ref(),
-                    &self.state.data().bars,
+                    self.state.shown(),
                     max_volume,
                     main_visible_range.clone(),
                 );
@@ -720,7 +736,7 @@ impl Chart {
         self.render_main_chart_selection(&painter, &coords, visible_data, main_visible_range);
 
         // Render bar marks (Widget API annotations)
-        if !self.marks.is_empty() {
+        if time_based && !self.marks.is_empty() {
             renderers::render_markers(
                 &clipped_price_ctx,
                 &self.marks,
@@ -801,12 +817,13 @@ impl Chart {
                     visible_data,
                     sizing::chart::PADDING,
                     self.config.text_color,
+                    self.chart_type.supports_volume(),
                 );
             }
         }
 
         // Handle drawing tools
-        {
+        if time_based {
             // Clone/extract values before mutable borrow of self
             let timescale = self.state.time_scale().clone();
 
@@ -831,6 +848,20 @@ impl Chart {
             // Put them back
             self.drawings = drawings;
             self.cursor_modes = cursor_modes;
+        }
+
+        if !time_based
+            && (!self.study_ids.is_empty()
+                || !self.drawings.drawings.is_empty()
+                || !self.marks.is_empty())
+        {
+            painter.text(
+                price_rect.left_bottom() + Vec2::new(8.0, -8.0),
+                egui::Align2::LEFT_BOTTOM,
+                "Studies, drawings and markers are not shown on this chart type",
+                egui::FontId::proportional(typography::SM),
+                self.config.text_color,
+            );
         }
 
         // Render "Jump to Latest" button
@@ -862,6 +893,20 @@ impl Chart {
             );
         }
 
+        // Source-bar cadence sets precision even when many elements share one time.
+        let bars = &self.state.data().bars;
+        let first = &visible_data[0];
+        let last = &visible_data[visible_data.len() - 1];
+        let end = bars.partition_point(|bar| bar.time <= last.time);
+        let at = bars
+            .partition_point(|bar| bar.time < first.time)
+            .min(end.saturating_sub(2));
+        let bar_seconds = if end >= 2 {
+            (bars[at + 1].time - bars[at].time).num_seconds().abs()
+        } else {
+            1
+        };
+
         // Draw crosshair with options from chart_options. The pointer still hovers the chart
         // while a context menu is open, so the crosshair, its labels and the tooltip wait until
         // the menu closes.
@@ -885,13 +930,15 @@ impl Chart {
                     rect.max.x,
                     last_price_tag,
                     formatter.as_ref(),
+                    bar_seconds,
                 );
 
                 // Draw the OHLC/value readout for the bar under the cursor, matching
                 // the bar the crosshair snaps to. Resolve via the shared coordinate
                 // mapping so the readout and the crosshair never disagree, and skip
                 // it when the cursor is in the empty scroll margin past the data.
-                let tooltip_options = &self.chart_options.tooltip;
+                let mut tooltip_options = self.chart_options.tooltip.clone();
+                tooltip_options.show_volume &= self.chart_type.supports_volume();
                 if tooltip_options.enabled
                     && let Some(local_idx) = coords.local_idx_at_x(hover_pos.x, visible_data.len())
                 {
@@ -900,7 +947,7 @@ impl Chart {
                         &price_ctx,
                         hover_pos,
                         candle,
-                        tooltip_options,
+                        &tooltip_options,
                         &price_map,
                         &coords,
                         visible_data,
@@ -932,6 +979,7 @@ impl Chart {
                             rect.max.x,
                             last_price_tag,
                             formatter.as_ref(),
+                            bar_seconds,
                         );
                     }
                 }
@@ -1015,19 +1063,50 @@ mod tests {
     /// 3 Jan 2024 and bar 51 is 4 Jan 2024; 0.7 of a bar past the centre of bar 50 is nearer to 51.
     #[test]
     fn crosshair_time_label_names_the_nearest_bar() {
-        // (pointer over the chart, index another chart reports, expected time label)
+        use crate::model::{ChartType, ChartTypeParams};
+        let mut highs = vec![120.0; 100];
+        highs[99] = 3120.0;
+        // (type, highs, element index, pointer over chart, synced index, expected label)
         for case in [
-            (true, None, "Jan 04, 2024"),
-            (false, Some(50.7), "Jan 04, 2024"),
+            (
+                ChartType::Candles,
+                &[200.0][..],
+                50,
+                true,
+                None,
+                "Jan 04, 2024",
+            ),
+            (
+                ChartType::Candles,
+                &[200.0][..],
+                50,
+                false,
+                Some(50.7),
+                "Jan 04, 2024",
+            ),
+            // Bar 99 alone completes 300 bricks, all dated 21 February 2024.
+            (
+                ChartType::Renko,
+                highs.as_slice(),
+                250,
+                true,
+                None,
+                "Feb 21, 2024",
+            ),
         ] {
-            let (pointer, synced, expected) = case;
+            let (kind, highs, index, pointer, synced, expected) = case;
             let ctx = egui::Context::default();
-            let mut chart = chart(&[100.0], &[200.0]);
+            let mut chart = chart(&[100.0], highs);
+            chart.set_chart_type(kind);
+            chart.set_chart_type_params(ChartTypeParams {
+                renko_brick_size: 10.0,
+                ..Default::default()
+            });
             chart.set_synced_crosshair_bar_idx(synced);
             frame(&ctx, &mut chart, 0.0, Vec::new());
             let map = chart.get_chart_mapping();
             let hover = Pos2::new(
-                map.idx_to_x(50) + 0.7 * map.bar_spacing,
+                map.idx_to_x(index) + 0.7 * map.bar_spacing,
                 map.rect.center().y,
             );
             let events = || {
