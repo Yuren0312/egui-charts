@@ -447,7 +447,9 @@ impl Chart {
         // Handle mouse wheel for zoom/scroll
         // Block pan/zoom when drawing tool is active OR when manipulating a drawing
         let time_based = !self.chart_type.is_time_independent();
-        let show_volume = self.config.show_volume && self.chart_type.supports_volume();
+        let show_volume = self.main_series_visible
+            && self.config.show_volume
+            && self.chart_type.supports_volume();
         let is_drawing_interaction = time_based
             && (self.drawings.active_tool.is_some()
                 || self.drawings.dragging_handle.is_some()
@@ -742,39 +744,41 @@ impl Chart {
             self.config.price_source,
         );
 
-        if let Some((flow, config)) = footprint.filter(|_| time_based) {
-            if show_volume {
-                rendering::candles::volume::render_volume_bars(
-                    &clipped_volume_ctx,
-                    visible_data,
-                    start_idx,
-                    max_volume,
-                    &colors,
-                    chart_rect.min.x,
+        if self.main_series_visible {
+            if let Some((flow, config)) = footprint.filter(|_| time_based) {
+                if show_volume {
+                    rendering::candles::volume::render_volume_bars(
+                        &clipped_volume_ctx,
+                        visible_data,
+                        start_idx,
+                        max_volume,
+                        &colors,
+                        chart_rect.min.x,
+                        idx_to_coord,
+                    );
+                }
+                crate::chart::overlays::render_footprint(
+                    &clipped_painter,
+                    &self.get_chart_mapping(),
+                    self.bars(super::SeriesId::MAIN),
+                    flow,
+                    config,
+                );
+            } else {
+                rendering::render_chart_type(
+                    self.chart_type,
+                    &render_ctx,
+                    &render_params,
                     idx_to_coord,
                 );
             }
-            crate::chart::overlays::render_footprint(
-                &clipped_painter,
-                &self.get_chart_mapping(),
-                self.bars(super::SeriesId::MAIN),
-                flow,
-                config,
-            );
-        } else {
-            rendering::render_chart_type(
-                self.chart_type,
-                &render_ctx,
-                &render_params,
-                idx_to_coord,
-            );
         }
 
         if let Some(bubbles) = self
             .feed_link
             .as_ref()
             .and_then(|link| link.bubbles.as_ref())
-            .filter(|_| time_based)
+            .filter(|_| time_based && self.main_series_visible)
         {
             let x = |i| idx_to_coord(start_idx + i, chart_rect.min.x);
             bubbles.render(&clipped_painter, visible_data, x, |p| {
@@ -820,7 +824,11 @@ impl Chart {
                 self.state.shown(),
                 max_volume,
                 main_visible_range.clone(),
-            );
+            )
+            .filter(|(id, _)| {
+                self.main_series_visible
+                    || matches!(id, crate::widget::ChartElementId::Indicator(_))
+            });
             match hit {
                 Some((id, bar_idx)) => self.selection.select(id, Some(bar_idx)),
                 None => self.selection.deselect(),
@@ -867,7 +875,11 @@ impl Chart {
                     self.state.shown(),
                     max_volume,
                     main_visible_range.clone(),
-                );
+                )
+                .filter(|(id, _)| {
+                    self.main_series_visible
+                        || matches!(id, crate::widget::ChartElementId::Indicator(_))
+                });
                 match element_hit {
                     Some((id, bar_idx)) => {
                         self.selection.select(id, Some(bar_idx));
@@ -894,7 +906,7 @@ impl Chart {
         self.render_main_chart_selection(&painter, &coords, visible_data, main_visible_range);
 
         // Render bar marks (Widget API annotations)
-        if time_based && !self.marks.is_empty() {
+        if time_based && self.main_series_visible && !self.marks.is_empty() {
             renderers::render_markers(
                 &clipped_price_ctx,
                 &self.marks,
@@ -929,7 +941,8 @@ impl Chart {
             })
             .collect();
 
-        if (self.config.show_symbol_prev_close || self.config.show_prev_close_line)
+        if self.main_series_visible
+            && (self.config.show_symbol_prev_close || self.config.show_prev_close_line)
             && let Some(last) = self.state.data().bars.last()
             && let Some(index) = self
                 .state
@@ -962,7 +975,13 @@ impl Chart {
         }
 
         // Last price line & label, from the newest bar even when it is scrolled out of view
-        let last_price_tag = if let Some(last) = self.state.data().bars.last() {
+        let last_price_tag = if let Some(last) = self
+            .state
+            .data()
+            .bars
+            .last()
+            .filter(|_| self.main_series_visible)
+        {
             let color = if last.close >= last.open {
                 self.config.bullish_color
             } else {
@@ -1141,12 +1160,16 @@ impl Chart {
                 legend.instrument = self.instrument();
                 legend.badge = self.legend_badge.clone();
                 legend.statuses = &statuses;
-                legend.quote = self.quote.as_ref().filter(|_| self.config.show_quote_boxes);
-                legend.show_title = self.config.show_symbol_labels;
+                legend.quote = self
+                    .quote
+                    .as_ref()
+                    .filter(|_| self.main_series_visible && self.config.show_quote_boxes);
+                legend.show_title = self.main_series_visible && self.config.show_symbol_labels;
                 legend.title_as_description = self.config.title_as_description;
-                legend.show_ohlc = self.config.show_ohlc_info;
-                legend.show_change = self.config.show_ohlc_change;
-                legend.show_change_percent = self.config.show_ohlc_change_percent;
+                legend.show_ohlc = self.main_series_visible && self.config.show_ohlc_info;
+                legend.show_change = self.main_series_visible && self.config.show_ohlc_change;
+                legend.show_change_percent =
+                    self.main_series_visible && self.config.show_ohlc_change_percent;
                 legend.show_indicator_titles = self.config.show_indicator_labels;
                 legend.show_indicator_inputs = self.config.show_indicator_inputs;
                 legend.show_indicator_values = self.config.show_indicator_last_val;
@@ -1162,8 +1185,9 @@ impl Chart {
                 } else {
                     &[]
                 };
-                legend.show_volume =
-                    self.chart_type.supports_volume() && self.config.show_legend_volume;
+                legend.show_volume = self.main_series_visible
+                    && self.chart_type.supports_volume()
+                    && self.config.show_legend_volume;
                 let (quote_action, study_settings) = ui
                     .push_id(shown.id, |ui| {
                         legend.show_with_colors(ui, price_rect, &colors)
@@ -1184,6 +1208,7 @@ impl Chart {
 
             if !menu_open {
                 let mut tooltip_options = self.chart_options.tooltip.clone();
+                tooltip_options.enabled &= self.main_series_visible;
                 tooltip_options.show_volume &= self.chart_type.supports_volume();
                 let held = ui.input(|input| {
                     input.pointer.primary_down()
@@ -1496,6 +1521,7 @@ mod tests {
             (true, 8),
             (true, 9),
             (true, 10),
+            (true, 11),
         ] {
             let ctx = egui::Context::default();
             let mut chart = chart(&[100.0], &[110.0]);
@@ -1527,8 +1553,12 @@ mod tests {
             config.show_indicator_labels = hidden != 6;
             config.show_indicator_inputs = hidden != 7;
             config.show_indicator_last_val = hidden != 8;
+            chart.set_main_series_visible(hidden != 11);
             frame(&ctx, &mut chart, 0.0, vec![]);
             let painted = shapes(&ctx, &mut chart, 0.1, vec![]);
+            assert_eq!(painted.iter().any(|shape| matches!(shape, Shape::Rect(rect)
+                if rect.fill == chart.config.bullish_color && chart.last_rendered_price_rect.contains(rect.rect.center()))), hidden != 11, "main series body: hidden={hidden}");
+            assert_eq!(chart.bars(crate::widget::SeriesId::MAIN).len(), 100);
             let texts: Vec<_> = painted
                 .iter()
                 .filter_map(|shape| match shape {
@@ -1549,7 +1579,7 @@ mod tests {
             ] {
                 assert_eq!(
                     texts.contains(&text),
-                    hidden != flag,
+                    hidden != flag && (hidden != 11 || matches!(flag, 6..=8)),
                     "{text}: hidden={hidden} {texts:?}"
                 );
             }
@@ -1570,12 +1600,12 @@ mod tests {
             };
             assert_eq!(
                 texts.iter().any(|text| text.starts_with(title)),
-                hidden != 1,
+                hidden != 1 && hidden != 11,
                 "{texts:?}"
             );
             assert_eq!(
                 chart.last_rendered_volume_rect.is_positive(),
-                hidden != 10,
+                hidden != 10 && hidden != 11,
                 "legend visibility and histogram visibility are independent"
             );
         }
