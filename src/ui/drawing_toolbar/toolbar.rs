@@ -6,6 +6,7 @@
 //! - `categories/` for tool category submenus
 //! - `utilities/` for bottom toolbar btns
 
+use super::SubmenuBuilder;
 use super::categories::cursors::CursorType;
 use crate::drawings::DrawingToolType;
 use crate::icons::{Icon, icons as embedded_icons};
@@ -16,6 +17,22 @@ use crate::tokens::DESIGN_TOKENS;
 use crate::ui::Control;
 use egui::{Color32, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
 use std::collections::HashSet;
+
+/// The icons the Icons/Emojis menu offers: the glyph a drawing shows, and its name. They are
+/// drawn with the app's fonts, so the app needs emoji fonts, such as egui's
+/// `monochrome_emoji_fonts` feature, as the demo has.
+const ICONS: [(&str, &str); 10] = [
+    ("👍", "Thumbs up"),
+    ("👎", "Thumbs down"),
+    ("🔥", "Fire"),
+    ("🚀", "Rocket"),
+    ("⭐", "Star"),
+    ("⚠", "Warning"),
+    ("✅", "Check mark"),
+    ("❌", "Cross mark"),
+    ("📌", "Pin"),
+    ("💰", "Money bag"),
+];
 
 /// Data struct for passing cursor state to submenu via context
 #[derive(Clone, Copy, Debug)]
@@ -192,20 +209,16 @@ impl DrawingToolbar {
 
         // === TEMPLATE NAME DIALOG (outside scroll area) ===
         if self.state.show_template_name_input
-            && self.state.expanded_category.as_deref() != Some("Templates")
-        {
-            if let Some(template_action) = TemplatesButton::show_name_dialog(
+            && let Some(template_action) = TemplatesButton::show_name_dialog(
                 ui,
                 sidebar_rect,
                 &mut self.state.template_name_input,
-            ) {
-                self.state.show_template_name_input = false;
-                self.state.template_name_input.clear();
+            )
+        {
+            self.state.show_template_name_input = false;
+            self.state.template_name_input.clear();
+            if template_action != DrawingToolbarAction::None {
                 action = template_action;
-            }
-            // Cancel: empty input means user pressed Cancel/Escape
-            if self.state.template_name_input.is_empty() {
-                self.state.show_template_name_input = false;
             }
         }
 
@@ -566,24 +579,26 @@ impl DrawingToolbar {
             "Remove" => {
                 return RemoveMenu::show_submenu(ui, sidebar_rect, self.expanded_category_rect);
             }
-            "Templates" => {
-                if self.state.show_template_name_input {
-                    let result = TemplatesButton::show_name_dialog(
-                        ui,
-                        sidebar_rect,
-                        &mut self.state.template_name_input,
-                    );
-                    if result.is_some() {
-                        self.state.show_template_name_input = false;
-                        self.state.template_name_input.clear();
-                        self.state.expanded_category = None;
-                    }
-                    if self.state.template_name_input.is_empty() {
-                        self.state.show_template_name_input = false;
-                    }
-                    return result;
+            "Icons/Emojis" => {
+                let mut builder = SubmenuBuilder::new(ui, sidebar_rect);
+                if let Some(rect) = self.expanded_category_rect {
+                    builder = builder.with_category_rect(rect);
                 }
-
+                for (icon_name, name) in ICONS {
+                    builder = builder.add_text_item_with_action(
+                        format!("{icon_name}  {name}"),
+                        format!("Place a {} icon", name.to_lowercase()),
+                        move || Some(DrawingToolbarAction::InsertEmoji { icon_name }),
+                    );
+                }
+                let action = builder.show();
+                if action.is_some() {
+                    self.select_tool(DrawingToolType::FontIcon);
+                    self.state.expanded_category = None;
+                }
+                return action;
+            }
+            "Templates" => {
                 let templates = self.state.templates.clone();
                 let result = TemplatesButton::show_submenu(
                     ui,
@@ -594,10 +609,11 @@ impl DrawingToolbar {
                     self.state.show_template_name_input,
                 );
 
-                // If "Save as Template..." was clicked, show the name dialog
+                // "Save as Template..." closes the menu and opens the name dialog.
                 if matches!(result, Some(DrawingToolbarAction::OpenTemplateMenu)) {
                     self.state.show_template_name_input = true;
                     self.state.template_name_input.clear();
+                    self.state.expanded_category = None;
                     return None;
                 }
 
@@ -995,5 +1011,40 @@ impl DrawingToolbar {
         }
 
         new_selection
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Context, Event, Key, Modifiers, RawInput};
+
+    /// The name dialog that "Save as Template..." opens, with its name still empty, stays open
+    /// until it is cancelled.
+    #[test]
+    fn the_template_name_dialog_stays_open_until_cancelled() {
+        let ctx = Context::default();
+        let mut toolbar = DrawingToolbar::new();
+        toolbar.state.show_template_name_input = true;
+        let escape = Event::Key {
+            key: Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        let mut open = Vec::new();
+        for events in [vec![], vec![], vec![escape]] {
+            let input = RawInput {
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(input, |ui| {
+                toolbar.show_with_action(ui);
+            })
+            .drop_without_applying_deltas();
+            open.push(toolbar.state.show_template_name_input);
+        }
+        assert_eq!(open, [true, true, false]);
     }
 }
