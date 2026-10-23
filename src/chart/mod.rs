@@ -6,34 +6,19 @@
 //!
 //! # Architecture
 //!
-//! ```text
-//!                        ┌─────────────┐
-//!                        │  builder.rs  │  ChartBuilder / TradingChart
-//!                        └──────┬───────┘
-//!                               │ owns
-//!                        ┌──────▼───────┐
-//!                        │  widget::Chart│  Core chart widget (state + data)
-//!                        └──────┬───────┘
-//!          ┌────────┬───────────┼───────────┬──────────┐
-//!          │        │           │           │          │
-//!     ┌────▼───┐┌───▼────┐┌────▼───┐┌──────▼───┐┌────▼────────┐
-//!     │ coords ││pan_zoom││interact││ rendering ││tool_interact│
-//!     │        ││        ││        ││           ││             │
-//!     │idx ↔ x ││scroll  ││keys   ││candles    ││drawings     │
-//!     │price↔y ││zoom    ││track  ││grid/axes  ││selection    │
-//!     └────────┘│kinetic ││focus  ││overlays   ││effects      │
-//!               └────────┘└───────┘│pipeline   │└─────────────┘
-//!                                  └───────────┘
-//! ```
+//! [`builder`] owns a [`Chart`](crate::widget::Chart), which keeps the chart state and data.
+//! [`coords`] maps bar indices and prices to the screen, and the internal `rendering` and
+//! `renderers` modules draw candles, lines, the grid, axes and overlays. Pan, zoom, keyboard
+//! input and drawing input are in the [`widget`](crate::widget) module.
 //!
 //! # Public Modules
 //!
 //! | Module | Purpose |
 //! |--------|---------|
 //! | [`builder`] | `ChartBuilder` (fluent API) and `TradingChart` (runtime wrapper) |
-//! | [`coords`] | Unified coordinate system — single source of truth for idx/price ↔ screen |
+//! | [`coords`] | Unified coordinate system: the one mapping between bar index or price and the screen |
 //! | [`series`] | Series hit testing, selection and display settings |
-//! | [`overlays`] | Visual overlays — order lines, heatmap strips, volume bubbles |
+//! | [`overlays`] | Visual overlays: order lines, heatmap strips, volume bubbles |
 //!
 //! # Internal Modules (crate-only)
 //!
@@ -68,7 +53,7 @@ pub mod overlays;
 pub mod selection;
 pub mod series;
 
-// Internal engine modules — used within the crate but not part of the public API.
+// Internal engine modules: used within the crate but not part of the public API.
 pub(crate) mod cursor_modes;
 pub(crate) mod hit_test;
 pub(crate) mod indicators;
