@@ -110,6 +110,9 @@ impl Chart {
             last_refresh: Vec::new(),
             // 0 and 1 are the main and volume series.
             next_series: 2,
+            series: Vec::new(),
+            main_visible: true,
+            left_scale: crate::scales::PriceScale::new(Default::default()),
             drawings: DrawingManager::new(),
             box_zoom: BoxZoomState::new(),
             zoom_mode_active: false,

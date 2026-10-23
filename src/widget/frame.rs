@@ -378,8 +378,9 @@ impl Chart {
             return response;
         }
 
+        let show_volume = self.config.show_volume && self.main_visible;
         // Split chart area into price and volume sections
-        let (price_rect, volume_rect) = if self.config.show_volume {
+        let (price_rect, volume_rect) = if show_volume {
             let split_y =
                 chart_rect.min.y + chart_rect.height() * (1.0 - self.config.volume_height_fraction);
             (
@@ -417,19 +418,14 @@ impl Chart {
         }
 
         // Fit the price scale, then apply this frame's price zoom
-        let transform = self.state.fit_price_scale(
-            self.studies
-                .indicators()
-                .iter()
-                .zip(&self.study_autoscale)
-                .filter(|(_, autoscale)| **autoscale)
-                .map(|(study, _)| study.as_ref()),
-        );
+        let transform = self.fit_scales();
         self.apply_price_zoom(pending_price_zoom, &response, price_rect, transform);
         let price_map = self
             .state
             .price_scale()
             .map(transform, price_rect.min.y, price_rect.max.y);
+
+        self.map_series(price_rect);
 
         // Store the final price mapping and rects for external use (selection dots, hit testing)
         self.last_price_map = price_map;
@@ -559,26 +555,35 @@ impl Chart {
 
         let render_params = rendering::ChartTypeParams::new(
             rendering::BarDimensions::new(bar_width, self.config.wick_width),
-            rendering::VolumeSettings::new(self.config.show_volume, max_volume),
+            rendering::VolumeSettings::new(show_volume, max_volume),
             &self.chart_type_params,
             rendering::TradingColors::new(self.config.bullish_color, self.config.bearish_color),
             rendering::CoordMapping::new(chart_rect.min.x),
             self.config.price_source,
         );
 
-        rendering::render_chart_type(self.chart_type, &render_ctx, &render_params, idx_to_coord);
+        if self.main_visible {
+            rendering::render_chart_type(
+                self.chart_type,
+                &render_ctx,
+                &render_params,
+                idx_to_coord,
+            );
+        }
 
         if let Some(bubbles) = self
             .feed_link
             .as_ref()
             .and_then(|link| link.bubbles.as_ref())
-            .filter(|_| !self.chart_type.is_time_independent())
+            .filter(|_| self.main_visible && !self.chart_type.is_time_independent())
         {
             let x = |i| idx_to_coord(start_idx + i, chart_rect.min.x);
             bubbles.render(&clipped_painter, visible_data, x, |p| {
                 price_map.price_to_y(p)
             });
         }
+
+        self.render_added_series(&clipped_price_ctx, &coords, &colors);
 
         // Draw indicators
         renderers::IndicatorRenderer::render(
@@ -597,7 +602,7 @@ impl Chart {
         if response.clicked()
             && let Some(click_pos) = response.interact_pointer_pos()
         {
-            let volume_coords = if self.config.show_volume {
+            let volume_coords = if show_volume {
                 Some(coords.with_rect(volume_rect))
             } else {
                 None
@@ -608,7 +613,11 @@ impl Chart {
                 &self.study_ids,
                 &coords,
                 volume_coords.as_ref(),
-                &self.state.data().bars,
+                if self.main_visible {
+                    &self.state.data().bars
+                } else {
+                    &[]
+                },
                 max_volume,
                 main_visible_range.clone(),
             );
@@ -644,7 +653,7 @@ impl Chart {
                     pos: click_pos,
                 }
             } else {
-                let volume_coords = if self.config.show_volume {
+                let volume_coords = if show_volume {
                     Some(coords.with_rect(volume_rect))
                 } else {
                     None
@@ -655,7 +664,11 @@ impl Chart {
                     &self.study_ids,
                     &coords,
                     volume_coords.as_ref(),
-                    &self.state.data().bars,
+                    if self.main_visible {
+                        &self.state.data().bars
+                    } else {
+                        &[]
+                    },
                     max_volume,
                     main_visible_range.clone(),
                 );
@@ -685,7 +698,7 @@ impl Chart {
         self.render_main_chart_selection(&painter, &coords, visible_data, main_visible_range);
 
         // Render bar marks (Widget API annotations)
-        if !self.marks.is_empty() {
+        if self.main_visible && !self.marks.is_empty() {
             renderers::render_markers(
                 &clipped_price_ctx,
                 &self.marks,
@@ -701,6 +714,7 @@ impl Chart {
         let mut tags: Vec<_> = self
             .price_lines
             .iter()
+            .filter(|_| self.main_visible)
             .map(|line| {
                 rendering::render_price_line(
                     &painter,
@@ -715,7 +729,8 @@ impl Chart {
             .collect();
 
         // Last price line & label, from the newest bar even when it is scrolled out of view
-        let last_price_tag = if self.config.show_symbol_last_val
+        let last_price_tag = if self.main_visible
+            && self.config.show_symbol_last_val
             && let Some(last) = self.state.data().bars.last()
         {
             let color = if last.close >= last.open {

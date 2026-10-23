@@ -115,24 +115,16 @@ pub(crate) fn auto_scale_span(min: f64, max: f64) -> f64 {
     }
 }
 
-/// Identifies one of a pane's price axes.
+/// The price scale a series is drawn against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PriceScaleId {
-    /// Left price scale
+    /// The pane's left scale, labelled on the left axis while a shown series is on it.
     Left,
-    /// Right price scale (holds the main series)
+    /// The pane's right scale, which holds the main series.
     #[default]
     Right,
-}
-
-impl PriceScaleId {
-    /// Returns the opposite scale
-    pub fn opposite(&self) -> Self {
-        match self {
-            Self::Left => Self::Right,
-            Self::Right => Self::Left,
-        }
-    }
+    /// A scale of the series' own, fitted to that series alone and not labelled.
+    Overlay,
 }
 
 impl fmt::Display for PriceScaleId {
@@ -140,6 +132,7 @@ impl fmt::Display for PriceScaleId {
         match self {
             Self::Left => write!(f, "left"),
             Self::Right => write!(f, "right"),
+            Self::Overlay => write!(f, "overlay"),
         }
     }
 }
@@ -170,6 +163,20 @@ pub struct PriceTransform {
 }
 
 impl PriceTransform {
+    /// Relative modes need a finite non-zero base; without one the series shows prices.
+    pub(crate) fn with_base(mode: PriceScaleMode, base: f64) -> Self {
+        if !matches!(
+            mode,
+            PriceScaleMode::Percentage | PriceScaleMode::IndexedTo100
+        ) {
+            Self { mode, base: 0.0 }
+        } else if base.is_finite() && base != 0.0 {
+            Self { mode, base }
+        } else {
+            Self::default()
+        }
+    }
+
     /// Converts a price to scale units.
     ///
     /// Logarithmic maps non-positive prices to negative infinity, which
@@ -204,6 +211,20 @@ impl PriceTransform {
     }
 }
 
+/// Finite bounds in scale units; empty input leaves an existing scale unchanged.
+pub(crate) fn scale_bounds(
+    values: impl IntoIterator<Item = f64>,
+    transform: PriceTransform,
+) -> (f64, f64) {
+    values
+        .into_iter()
+        .map(|value| transform.to_scale(value))
+        .filter(|value| value.is_finite())
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+            (min.min(value), max.max(value))
+        })
+}
+
 /// One price axis: options and the visible range in scale units, fitted to the
 /// data until the user scales it by hand.
 #[derive(Debug, Clone)]
@@ -220,6 +241,12 @@ pub struct PriceScale {
 }
 
 impl PriceScale {
+    /// Rebase a manual range, or fit an automatic range to bounds in scale units.
+    pub(crate) fn fit(&mut self, transform: PriceTransform, bounds: (f64, f64)) {
+        self.rebase(transform);
+        self.autoscale(bounds.0, bounds.1);
+    }
+
     /// Creates an auto-scaled price scale.
     pub fn new(options: PriceScaleOptions) -> Self {
         Self {

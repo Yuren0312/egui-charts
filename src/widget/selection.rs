@@ -164,10 +164,6 @@ pub(super) fn hit_test_main_chart(
     max_volume: f64,
     visible_range: std::ops::Range<usize>,
 ) -> Option<(ChartElementId, usize)> {
-    if bars.is_empty() {
-        return None;
-    }
-
     // 1. Overlay indicators (drawn on top of the series).
     for (idx, indicator) in studies.indicators().iter().enumerate() {
         if let Some(hit) = hit_test_indicator(
@@ -183,6 +179,10 @@ pub(super) fn hit_test_main_chart(
                 hit.bar_idx,
             ));
         }
+    }
+
+    if bars.is_empty() {
+        return None;
     }
 
     // 2. Main price series (candles/bars/line).

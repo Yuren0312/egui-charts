@@ -1,7 +1,8 @@
 //! The chart's bars, merged by one set of rules for history and live updates, and the studies
 //! computed from them.
 
-use super::{Chart, ChartElementId, SeriesId};
+use super::series_set::Series;
+use super::{Chart, ChartElementId, SeriesId, SeriesOptions};
 use crate::data::FeedState;
 use crate::data::merge::{Merged, Origin, merge, valid};
 use crate::model::{Bar, BarClock, BarData, Marker, PriceLine};
@@ -19,12 +20,22 @@ impl Chart {
     /// first bar that changed on the next [`show`](Self::show), and near the live edge the view
     /// follows a new last bar, as with [`update`](Self::update).
     ///
-    /// Only [`SeriesId::MAIN`] holds bars; a call with another id is ignored with a warning.
+    /// [`SeriesId::MAIN`] and the series added with [`add_series`](Self::add_series) hold bars;
+    /// a call with another id is ignored with a warning. The bars of an added series leave the
+    /// drawings, studies and view as they are.
     pub fn set_data(&mut self, series: SeriesId, bars: Vec<Bar>) {
-        if !holds_bars(series, "set_data") {
+        let (bars, rejected) = clean(bars, &self.clock());
+        if series != SeriesId::MAIN {
+            if let Some(s) = self.series.iter_mut().find(|s| s.id == series) {
+                s.bars = bars;
+                s.feed.rejected_bars += rejected;
+                s.from_ticks.clear();
+                s.revision = crate::model::next_revision();
+            } else {
+                log::warn!("Chart::set_data ignored: {series:?} holds no bars");
+            }
             return;
         }
-        let (bars, rejected) = clean(bars, &self.clock());
         self.feed.rejected_bars += rejected;
         self.from_ticks.clear();
         let before = self.edge();
@@ -47,29 +58,41 @@ impl Chart {
     /// [`feed_state`](Self::feed_state). Drawings move with their bars, studies follow them on the
     /// next [`show`](Self::show), and near the live edge the view follows a new last bar.
     ///
-    /// Only [`SeriesId::MAIN`] holds bars; a call with another id is ignored with a warning.
+    /// [`SeriesId::MAIN`] and the series added with [`add_series`](Self::add_series) hold bars;
+    /// a call with another id is ignored with a warning. The bars of an added series leave the
+    /// drawings, studies and view as they are.
     pub fn update(&mut self, series: SeriesId, bar: Bar) {
-        if holds_bars(series, "update") {
+        let clock = self.clock();
+        if series == SeriesId::MAIN {
             self.apply(vec![(bar, Origin::Live)]);
+        } else if let Some(s) = self.series.iter_mut().find(|s| s.id == series) {
+            s.apply(&clock, vec![(bar, Origin::Live)]);
+        } else {
+            log::warn!("Chart::update ignored: {series:?} holds no bars");
         }
     }
 
-    /// The bars of `series`, oldest first. Empty for any id but [`SeriesId::MAIN`]: volume and
+    /// The bars of `series`, oldest first. Empty for any other id: volume and
     /// studies hold no bars.
     pub fn bars(&self, series: SeriesId) -> &[Bar] {
         if series == SeriesId::MAIN {
             &self.state.data().bars
         } else {
-            &[]
+            self.series
+                .iter()
+                .find(|s| s.id == series)
+                .map_or(&[], |s| &s.bars)
         }
     }
 
     /// Replaces the markers drawn on the bars of `series` (trade signals, events).
     ///
-    /// Only [`SeriesId::MAIN`] holds bars; a call with another id is ignored with a warning.
+    /// Only [`SeriesId::MAIN`] has markers; a call with another id is ignored with a warning.
     pub fn set_markers(&mut self, series: SeriesId, markers: Vec<Marker>) {
-        if holds_bars(series, "set_markers") {
+        if series == SeriesId::MAIN {
             self.marks = markers;
+        } else {
+            log::warn!("Chart::set_markers ignored: only SeriesId::MAIN has markers");
         }
     }
 
@@ -78,15 +101,21 @@ impl Chart {
     /// Only [`SeriesId::MAIN`] has price lines; another id is ignored with a warning. The price
     /// scale does not fit to them: a line whose price is off the scale or not finite is not drawn.
     pub fn set_price_lines(&mut self, series: SeriesId, lines: Vec<PriceLine>) {
-        if holds_bars(series, "set_price_lines") {
+        if series == SeriesId::MAIN {
             self.price_lines = lines;
+        } else {
+            log::warn!("Chart::set_price_lines ignored: only SeriesId::MAIN has price lines");
         }
     }
 
     /// What the chart knows about the feed of `series`, such as the bars dropped as invalid.
-    /// `Some` for [`SeriesId::MAIN`].
+    /// `Some` for [`SeriesId::MAIN`] and the added series.
     pub fn feed_state(&self, series: SeriesId) -> Option<&FeedState> {
-        (series == SeriesId::MAIN).then_some(&self.feed)
+        if series == SeriesId::MAIN {
+            Some(&self.feed)
+        } else {
+            self.series.iter().find(|s| s.id == series).map(|s| &s.feed)
+        }
     }
 
     /// Merges `incoming` into the main bars by the rules of each bar's origin and counts the
@@ -133,6 +162,76 @@ impl Chart {
         merged
     }
 
+    /// Adds a series of bars to the price pane, drawn with `options` over the main series.
+    ///
+    /// Bars are placed by time on the main series: at a main bar's time on its slot, between
+    /// two main bars in proportion to elapsed time, and never before the first or after the
+    /// last main bar. `symbol` labels the legend and, with a feed, names the symbol loaded at
+    /// the chart's timeframe. Without a feed, supply bars through [`set_data`](Self::set_data)
+    /// and [`update`](Self::update). A value series uses equal open, high, low and close.
+    ///
+    /// In percentage and indexed modes each series is measured from its own close at the first
+    /// visible main bar. Adding a series does not change the scale mode. To compare in percent:
+    ///
+    /// ```
+    /// use egui_charts::model::BarData;
+    /// use egui_charts::scales::PriceScaleMode;
+    /// use egui_charts::widget::{Chart, SeriesOptions};
+    /// let mut chart = Chart::new(BarData::default());
+    /// let id = chart.add_series("ETHUSD", SeriesOptions::default());
+    /// if let Some(scale) = chart.price_scale_mut(id) {
+    ///     scale.options_mut().mode = PriceScaleMode::Percentage;
+    ///     scale.reset();
+    /// }
+    /// ```
+    pub fn add_series(&mut self, symbol: impl Into<String>, options: SeriesOptions) -> SeriesId {
+        let id = SeriesId(self.next_series);
+        self.next_series += 1;
+        self.series.push(Series::new(id, symbol.into(), options));
+        id
+    }
+
+    /// Options of a series added with [`add_series`](Self::add_series), `None` for any other
+    /// id. A change shows from the next [`show`](Self::show).
+    pub fn series_options_mut(&mut self, series: SeriesId) -> Option<&mut SeriesOptions> {
+        self.series
+            .iter_mut()
+            .find(|s| s.id == series)
+            .map(|s| &mut s.options)
+    }
+
+    /// Shows or hides a bar series, including [`SeriesId::MAIN`]. Hidden series keep their
+    /// bars, do not contribute to auto-scale and cannot be selected. Hiding the main also hides
+    /// its volume, markers, price lines and last-price line; studies keep their own visibility
+    /// and the time axis still follows its bars. Returns `false` for any other id.
+    pub fn set_series_visible(&mut self, series: SeriesId, visible: bool) -> bool {
+        if series == SeriesId::MAIN {
+            self.main_visible = visible;
+        } else if let Some(s) = self.series.iter_mut().find(|s| s.id == series) {
+            s.visible = visible;
+        } else {
+            return false;
+        }
+        if !visible
+            && (self.selection.selected_id() == Some(ChartElementId::Series(series))
+                || (series == SeriesId::MAIN
+                    && self.selection.selected_id()
+                        == Some(ChartElementId::Series(SeriesId::VOLUME))))
+        {
+            self.selection.deselect();
+        }
+        true
+    }
+
+    /// Whether `series` is a bar series of the chart that is shown.
+    pub fn is_series_visible(&self, series: SeriesId) -> bool {
+        if series == SeriesId::MAIN {
+            self.main_visible
+        } else {
+            self.series.iter().any(|s| s.id == series && s.visible)
+        }
+    }
+
     /// Adds a study, computed at once from the bars, which [`show`](Self::show) draws: on the
     /// main pane if [`Indicator::is_overlay`], otherwise in a pane below it. Returns the study's
     /// id, which stays valid when other studies are removed.
@@ -148,9 +247,14 @@ impl Chart {
         id
     }
 
-    /// Removes the study `id` and clears the selection if it is that study. Returns `false` for
-    /// [`SeriesId::MAIN`] and any id that is not a study of the chart.
+    /// Removes the study or added series `id` and clears its selection. Returns `false` for
+    /// [`SeriesId::MAIN`] and any id that is neither.
     pub fn remove_series(&mut self, id: SeriesId) -> bool {
+        if let Some(at) = self.series.iter().position(|s| s.id == id) {
+            self.set_series_visible(id, false);
+            self.series.remove(at);
+            return true;
+        }
         let Some(at) = self.study_ids.iter().position(|study| *study == id) else {
             return false;
         };
@@ -309,15 +413,6 @@ pub(super) fn clean(bars: Vec<Bar>, clock: &BarClock) -> (Vec<Bar>, u64) {
     (clean, merged.rejected)
 }
 
-/// Whether `series` holds bars, warning about a call that names another. Until compare series
-/// exist only [`SeriesId::MAIN`] does.
-fn holds_bars(series: SeriesId, call: &str) -> bool {
-    if series != SeriesId::MAIN {
-        log::warn!("Chart::{call} ignored: {series:?} holds no bars, only SeriesId::MAIN does");
-    }
-    series == SeriesId::MAIN
-}
-
 #[cfg(all(test, feature = "studies"))]
 mod tests {
     use super::super::test_frames::frame;
@@ -355,7 +450,11 @@ mod tests {
             ] {
                 let ctx = egui::Context::default();
                 let mut chart = chart(&[100.0], &[110.0]);
-                chart.price_scale_mut().options_mut().mode = mode;
+                chart
+                    .price_scale_mut(SeriesId::MAIN)
+                    .unwrap()
+                    .options_mut()
+                    .mode = mode;
                 frame(&ctx, &mut chart, 0.0, Vec::new());
                 chart.set_visible_bars(20);
                 chart.set_start_idx(40);
@@ -400,7 +499,7 @@ mod tests {
                 } else {
                     bars_only
                 };
-                let range = chart.price_scale_mut().range();
+                let range = chart.price_scale_mut(SeriesId::MAIN).unwrap().range();
                 assert!(
                     (range.min - expected.0).abs() < 1e-10
                         && (range.max - expected.1).abs() < 1e-10,

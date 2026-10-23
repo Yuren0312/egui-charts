@@ -49,6 +49,7 @@ pub fn render_price_labels_at_pos(
 
     // Determine positioning based on scale position
     let (x_offset, alignment) = match position {
+        PriceScaleId::Overlay => return,
         PriceScaleId::Right => (
             context.rect.max.x + PRICE_LABEL_GAP,
             egui::Align2::LEFT_CENTER,

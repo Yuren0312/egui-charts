@@ -27,6 +27,7 @@ pub use price_formatter::{
 };
 #[cfg(feature = "widget")]
 pub(crate) use pricescale::auto_scale_span;
+pub(crate) use pricescale::scale_bounds;
 pub use pricescale::{
     PriceMap, PriceRange, PriceScale, PriceScaleId, PriceScaleMargins, PriceScaleMode,
     PriceScaleOptions, PriceTransform,

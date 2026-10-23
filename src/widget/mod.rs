@@ -132,6 +132,8 @@ pub(crate) mod pan_zoom;
 mod panes;
 mod selection;
 mod series;
+mod series_set;
+pub use series_set::SeriesOptions;
 mod sync;
 use feed::FeedLink;
 pub(crate) mod tool_interaction;
@@ -243,7 +245,11 @@ pub struct Chart {
     pub(crate) pending_from: Vec<Option<usize>>,
     /// For each study in `studies`, the input time of its last refresh, in seconds.
     pub(crate) last_refresh: Vec<f64>,
-    /// Id of the next study added.
+    /// Added bar series in draw order.
+    series: Vec<series_set::Series>,
+    main_visible: bool,
+    left_scale: PriceScale,
+    /// Id of the next study or series added.
     pub(crate) next_series: usize,
     /// The chart's drawings and the active drawing tool.
     pub(crate) drawings: DrawingManager,
@@ -551,9 +557,21 @@ impl Chart {
         &self.state
     }
 
-    /// The main price scale, to zoom it or change its mode and options.
-    pub fn price_scale_mut(&mut self) -> &mut PriceScale {
-        self.state.price_scale_mut()
+    /// The price scale the bar series is drawn against: the right scale for
+    /// [`SeriesId::MAIN`] and the series on it, the left scale, or the series' own overlay
+    /// scale. `None` for an id that is not a bar series. Series on one scale share its
+    /// options and range.
+    pub fn price_scale_mut(&mut self, series: SeriesId) -> Option<&mut PriceScale> {
+        use crate::scales::PriceScaleId;
+        if series == SeriesId::MAIN {
+            return Some(self.state.price_scale_mut());
+        }
+        let s = self.series.iter_mut().find(|s| s.id == series)?;
+        Some(match s.options.price_scale {
+            PriceScaleId::Right => self.state.price_scale_mut(),
+            PriceScaleId::Left => &mut self.left_scale,
+            PriceScaleId::Overlay => &mut s.scale,
+        })
     }
 
     /// The chart's drawings and drawing tools.

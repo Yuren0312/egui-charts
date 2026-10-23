@@ -41,7 +41,7 @@ impl SeriesId {
 /// (SMA, EMA, …) or in a pane below it (RSI, MACD, …).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChartElementId {
-    /// A price or volume series on the main chart.
+    /// The main series, its volume or a series added with `Chart::add_series`.
     Series(SeriesId),
     /// A study, identified by the id [`Chart::add_indicator`](crate::Chart::add_indicator)
     /// returned.

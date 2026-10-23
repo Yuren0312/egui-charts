@@ -7,7 +7,7 @@
 /// ChartState Backend - Pure state management (no rendering).
 /// Combines data with coordinate systems.
 use super::{Bar, BarData, TimeScale};
-use crate::scales::{PriceScale, PriceScaleMode, PriceScaleOptions, PriceTransform};
+use crate::scales::{PriceScale, PriceScaleOptions, PriceTransform, scale_bounds};
 use crate::studies::{Indicator, IndicatorValue};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -15,8 +15,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// histories ever share one.
 static REVISIONS: AtomicU64 = AtomicU64::new(0);
 
-fn next_revision() -> u64 {
+pub(crate) fn next_revision() -> u64 {
     REVISIONS.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Keep cached prefixes while only the tail changes; corrections and removals get a new key.
+pub(crate) fn revise(
+    revision: &mut u64,
+    old_len: usize,
+    new_len: usize,
+    first_changed: Option<usize>,
+) {
+    if first_changed.is_some_and(|first| first < old_len.saturating_sub(1)) || new_len < old_len {
+        *revision = next_revision();
+    }
 }
 
 /// A snapshot of zoom parameters, used for undo/redo of zoom operations.
@@ -145,11 +157,7 @@ impl ChartState {
     ) -> Option<usize> {
         let old_len = self.data.len();
         let first_changed = edit(&mut self.data.bars);
-        if first_changed.is_some_and(|first| first < old_len.saturating_sub(1))
-            || self.data.len() < old_len
-        {
-            self.revision = next_revision();
-        }
+        revise(&mut self.revision, old_len, self.data.len(), first_changed);
         self.time_scale.set_bar_cnt(self.data.len());
         first_changed
     }
@@ -277,23 +285,21 @@ impl ChartState {
         &mut self,
         indicators: impl IntoIterator<Item = &'a dyn Indicator>,
     ) -> PriceTransform {
+        self.fit_price_scale_with(indicators, true, (f64::INFINITY, f64::NEG_INFINITY))
+    }
+
+    /// Fit the shared right scale, including bounds already transformed by other series.
+    pub(crate) fn fit_price_scale_with<'a>(
+        &mut self,
+        indicators: impl IntoIterator<Item = &'a dyn Indicator>,
+        main_shown: bool,
+        others: (f64, f64),
+    ) -> PriceTransform {
         let mode = self.price_scale.options().mode;
         let (start, end) = self.visible_range();
         let visible = &self.data.bars[start..end];
         let base = visible.first().map_or(f64::NAN, |bar| bar.close);
-        let relative = matches!(
-            mode,
-            PriceScaleMode::Percentage | PriceScaleMode::IndexedTo100
-        );
-        // Without a usable base there is no percentage, so such a frame shows prices. The other
-        // modes ignore the base, so a scroll does not change their transform.
-        let transform = if !relative {
-            PriceTransform { mode, base: 0.0 }
-        } else if base.is_finite() && base != 0.0 {
-            PriceTransform { mode, base }
-        } else {
-            PriceTransform::default()
-        };
+        let transform = PriceTransform::with_base(mode, base);
         let study_values = indicators
             .into_iter()
             .filter(|study| study.is_visible() && study.is_overlay())
@@ -310,17 +316,16 @@ impl ChartState {
                     })
                     .copied()
             });
-        let (min, max) = visible
-            .iter()
-            .flat_map(|bar| [bar.low, bar.high])
-            .chain(study_values)
-            .map(|value| transform.to_scale(value))
-            .filter(|value| value.is_finite())
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
-                (min.min(value), max.max(value))
-            });
-        self.price_scale.rebase(transform);
-        self.price_scale.autoscale(min, max);
+        let (min, max) = scale_bounds(
+            visible
+                .iter()
+                .filter(|_| main_shown)
+                .flat_map(|bar| [bar.low, bar.high])
+                .chain(study_values),
+            transform,
+        );
+        self.price_scale
+            .fit(transform, (min.min(others.0), max.max(others.1)));
         transform
     }
 
@@ -376,6 +381,7 @@ impl ChartState {
 mod tests {
     use super::*;
     use crate::model::Bar;
+    use crate::scales::PriceScaleMode;
     use chrono::{TimeZone, Utc};
 
     /// Flat visible data must not collapse the auto range to a near-zero span,
