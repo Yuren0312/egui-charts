@@ -224,7 +224,8 @@ impl Chart {
     /// Handle drag-to-pan, price-axis scaling, and time-axis drag-zoom.
     ///
     /// When the drag starts on the main chart area, horizontal movement pans the
-    /// time axis. Starting on the price axis enables price scale dragging.
+    /// time axis and, while auto-scale is off, vertical movement pans the price
+    /// axis. Starting on the price axis enables price scale dragging.
     /// Starting on the time axis enables drag-to-zoom the time scale. Also
     /// tracks velocity for kinetic scrolling continuation after release.
     pub fn handle_drag_pan(
@@ -331,6 +332,18 @@ impl Chart {
                 let new_offset = start_offset - drag_in_bars;
 
                 self.state.time_scale_mut().set_right_offset(new_offset);
+
+                // With auto-scale off the prices follow the pointer too. The range is still in
+                // the units of the last frame's map, which places the pointer's previous position.
+                if self.state.price_scale().is_manual() {
+                    let map = self.last_price_map;
+                    let dy = response.drag_delta().y;
+                    let shift = map.y_to_scale(curr_pos.y - dy) - map.y_to_scale(curr_pos.y);
+                    let range = self.state.price_scale().range();
+                    self.state
+                        .price_scale_mut()
+                        .set_range(range.min + shift, range.max + shift);
+                }
             }
 
             // Track velocity for kinetic scrolling
@@ -507,31 +520,18 @@ impl Chart {
         // Save current zoom state to history before applying new zoom
         self.state.push_zoom_state();
 
-        let left_x_relative = min_x - chart_rect.min.x;
-        let right_x_relative = max_x - chart_rect.min.x;
-
-        let left_idx = self
-            .state
-            .time_scale()
-            .coord_to_idx(min_x, chart_rect.min.x, chart_width);
-        let right_idx = self
-            .state
-            .time_scale()
-            .coord_to_idx(max_x, chart_rect.min.x, chart_width);
-
-        let num_bars = right_idx.max(left_idx) - right_idx.min(left_idx) + 1.0;
-        if num_bars > 0.0 {
-            let new_spacing = (right_x_relative - left_x_relative) / num_bars;
-            self.state.time_scale_mut().set_bar_spacing(new_spacing);
-
-            let center_idx = (left_idx + right_idx) / 2.0;
-            let base_idx = self.state.time_scale().base_idx() as f32;
-            let visible_bars = chart_width / self.state.time_scale().bar_spacing();
-            let target_right_offset = center_idx + (visible_bars / 2.0) - base_idx;
-            self.state
-                .time_scale_mut()
-                .set_right_offset(target_right_offset);
-        }
+        // Horizontal zoom: the box's bars fill the width (up to the maximum spacing), centred.
+        // A box inside one bar shows that bar across the width, or keeps a wider spacing.
+        let time_scale = self.state.time_scale_mut();
+        let center_idx =
+            time_scale.coord_to_idx((min_x + max_x) / 2.0, chart_rect.min.x, chart_width);
+        let old = time_scale.bar_spacing();
+        time_scale.set_bar_spacing((old * chart_width / (max_x - min_x)).min(chart_width.max(old)));
+        // The inverse of `coord_to_idx` at the middle of the width.
+        let spacing = time_scale.bar_spacing();
+        let base_idx = time_scale.base_idx() as f32;
+        time_scale
+            .set_right_offset(center_idx - base_idx + (chart_width / 2.0 - 1.0) / spacing - 0.5);
 
         // Vertical zoom: the box's prices, in the units of the window it selects, whose first
         // visible close (the base of the relative modes) can differ from the one it was drawn on.
@@ -541,7 +541,10 @@ impl Chart {
         );
         let transform = self.state.fit_price_scale();
         let (a, b) = (transform.to_scale(p), transform.to_scale(q));
-        self.state.price_scale_mut().set_range(a.min(b), a.max(b));
+        let scale = self.state.price_scale_mut();
+        // Widened around its middle to the span zooming stops at.
+        let pad = (scale.min_span() - (a - b).abs()).max(0.0) / 2.0;
+        scale.set_range(a.min(b) - pad, a.max(b) + pad);
 
         true // Zoom successfully applied
     }
@@ -621,16 +624,15 @@ impl Chart {
 mod tests {
     use crate::chart::series::SeriesSettings;
     use crate::scales::PriceScaleMode;
+    use crate::widget::Chart;
     use crate::widget::test_frames::{chart, frame};
-    use egui::{Event, Modifiers, PointerButton, Pos2};
+    use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
 
-    /// Drags the price axis down by 100 points in `steps` frames and returns the resulting range.
-    fn drag_price_axis(steps: usize) -> (f64, f64) {
+    /// Drags down by 100 points in `steps` frames from the point `start` picks given the price pane.
+    fn drag_down(chart: &mut Chart, start: fn(Rect) -> Pos2, steps: usize) {
         let ctx = egui::Context::default();
-        let mut chart = chart(&[95.0, 100.0], &[105.0, 110.0]);
-        frame(&ctx, &mut chart, 0.0, Vec::new());
-        let rect = chart.last_rendered_price_rect;
-        let start = Pos2::new(rect.max.x + 10.0, rect.center().y);
+        frame(&ctx, chart, 0.0, Vec::new());
+        let start = start(chart.last_rendered_price_rect);
         let button = |pos, pressed| Event::PointerButton {
             pos,
             button: PointerButton::Primary,
@@ -642,14 +644,24 @@ mod tests {
             t += 0.02;
             frame(&ctx, chart, t, events);
         };
-        step(&mut chart, vec![Event::PointerMoved(start)]);
-        step(&mut chart, vec![button(start, true)]);
+        step(chart, vec![Event::PointerMoved(start)]);
+        step(chart, vec![button(start, true)]);
         let mut pos = start;
         for _ in 0..steps {
             pos.y += 100.0 / steps as f32;
-            step(&mut chart, vec![Event::PointerMoved(pos)]);
+            step(chart, vec![Event::PointerMoved(pos)]);
         }
-        step(&mut chart, vec![button(pos, false)]);
+        step(chart, vec![button(pos, false)]);
+    }
+
+    /// Drags the price axis down by 100 points in `steps` frames and returns the resulting range.
+    fn drag_price_axis(steps: usize) -> (f64, f64) {
+        let mut chart = chart(&[95.0, 100.0], &[105.0, 110.0]);
+        drag_down(
+            &mut chart,
+            |rect| Pos2::new(rect.max.x + 10.0, rect.center().y),
+            steps,
+        );
         let range = chart.state.price_scale().range();
         (range.min, range.max)
     }
@@ -742,10 +754,33 @@ mod tests {
         );
     }
 
-    /// The prices inside a zoom box fill the pane on the next frame. The box re-centres the time
-    /// window, so the relative modes rebase on another first visible close than the box was drawn on.
+    /// With auto-scale off, the prices follow a drag on the chart: 100 points down moves the
+    /// 20-wide range up by 20 * 100 / height, or down by as much on an inverted scale.
     #[test]
-    fn box_zoom_fills_the_pane_with_the_selected_prices() {
+    fn chart_drag_pans_a_manual_price_range() {
+        for (invert_scale, sign) in [(false, 1.0), (true, -1.0)] {
+            let mut chart = chart(&[95.0, 100.0], &[105.0, 110.0]);
+            chart.apply_series_settings(&SeriesSettings {
+                invert_scale,
+                ..SeriesSettings::default()
+            });
+            chart.state.price_scale_mut().set_range(90.0, 110.0);
+            drag_down(&mut chart, |rect| rect.center(), 10);
+            let shift = sign * 20.0 * 100.0 / chart.last_rendered_price_rect.height() as f64;
+            let range = chart.state.price_scale().range();
+            assert!(
+                (range.min - (90.0 + shift)).abs() < 1e-4
+                    && (range.max - (110.0 + shift)).abs() < 1e-4,
+                "inverted {invert_scale}: {range:?}, expected a shift of {shift}"
+            );
+        }
+    }
+
+    /// The bars and prices inside a zoom box fill the pane on the next frame. The box re-centres
+    /// the time window, so the relative modes rebase on another first visible close than the box
+    /// was drawn on.
+    #[test]
+    fn box_zoom_fills_the_pane_with_the_selected_bars_and_prices() {
         let lows: Vec<f64> = (0..100).map(|i| 100.0 + i as f64).collect();
         let highs: Vec<f64> = lows.iter().map(|low| low + 1.0).collect();
         for mode in [PriceScaleMode::Normal, PriceScaleMode::Percentage] {
@@ -764,8 +799,20 @@ mod tests {
                 Pos2::new(rect.right() - 150.0, y_hi),
                 Pos2::new(rect.right() - 50.0, y_lo),
             );
+            let idx = |x| {
+                let ts = chart.state.time_scale();
+                ts.coord_to_idx(x, rect.left(), rect.width())
+            };
+            let (left, right) = (idx(start.x), idx(end.x));
             assert!(chart.execute_box_zoom(start, end, rect, rect.width()));
             frame(&ctx, &mut chart, 0.1, Vec::new());
+            let ts = chart.state.time_scale();
+            let x = |idx| ts.idx_to_coord_precise(idx, rect.left(), rect.width());
+            let (x_left, x_right) = (x(left), x(right));
+            assert!(
+                (x_left - rect.left()).abs() < 0.5 && (x_right - rect.right()).abs() < 0.5,
+                "{mode:?}: bars {left}..{right} at x {x_left}..{x_right}, pane {rect:?}"
+            );
             let after = chart.get_chart_mapping().price;
             let (top, bottom) = after.extent();
             let (y_hi, y_lo) = (after.price_to_y(hi), after.price_to_y(lo));
@@ -774,5 +821,34 @@ mod tests {
                 "{mode:?}: {lo}..{hi} at y {y_lo}..{y_hi}, pane {top}..{bottom}"
             );
         }
+
+        // A box inside one bar zooms to one bar across the pane, no further.
+        let ctx = egui::Context::default();
+        let mut one_bar = chart(&lows, &highs);
+        frame(&ctx, &mut one_bar, 0.0, Vec::new());
+        let rect = one_bar.last_rendered_price_rect;
+        one_bar.state.time_scale_mut().set_bar_spacing(40.0);
+        let (x, y) = (rect.center().x, rect.top() + 100.0);
+        let (start, end) = (Pos2::new(x, y), Pos2::new(x + 25.0, y + 100.0));
+        assert!(one_bar.execute_box_zoom(start, end, rect, rect.width()));
+        assert_eq!(one_bar.state.time_scale().bar_spacing(), rect.width());
+
+        // A box over a range narrower than the zoom floor widens to it: a millionth of the
+        // visible data's highest price, 110.
+        let ctx = egui::Context::default();
+        let mut narrow = chart(&[95.0, 100.0], &[105.0, 110.0]);
+        narrow.state.price_scale_mut().set_range(100.0, 100.00001);
+        frame(&ctx, &mut narrow, 0.0, Vec::new());
+        let rect = narrow.last_rendered_price_rect;
+        let (start, end) = (
+            Pos2::new(rect.right() - 150.0, rect.top() + 100.0),
+            Pos2::new(rect.right() - 50.0, rect.top() + 200.0),
+        );
+        assert!(narrow.execute_box_zoom(start, end, rect, rect.width()));
+        let range = narrow.state.price_scale().range();
+        assert!(
+            (range.max - range.min - 1.1e-4).abs() < 1e-10,
+            "{range:?}, expected a span of 1.1e-4"
+        );
     }
 }
