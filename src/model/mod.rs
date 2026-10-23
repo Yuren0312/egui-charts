@@ -45,6 +45,7 @@ pub mod session;
 mod signal;
 mod strategy;
 mod symbol;
+mod time_index;
 mod timeframe;
 mod timescale;
 pub mod tpo;
@@ -87,6 +88,7 @@ pub use strategy::{
     StrategyExit, StrategyPerformance, StrategyReport, StrategySide, StrategyTrade,
 };
 pub use symbol::Symbol;
+pub use time_index::TimeIndex;
 pub use timeframe::Timeframe;
 pub use timescale::{LogicalRange, TimeScale};
 pub use tpo::{

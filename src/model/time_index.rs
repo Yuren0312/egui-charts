@@ -1,0 +1,111 @@
+use super::{Bar, Timeframe};
+use chrono::{DateTime, TimeDelta, Utc};
+
+/// Places times on a series' bars and back. Bar `i` is at position `i`; a time between two bars
+/// is at its share of the time between their opens; a time before the first or after the last bar
+/// is at one `timeframe` per bar. A bar's open time maps to its index and back exactly, other times
+/// come back within a millisecond. `bars` are in time order without repeats, as a chart holds them.
+/// Months extrapolate at the timeframe's 30 days.
+#[derive(Debug, Clone, Copy)]
+pub struct TimeIndex<'a> {
+    bars: &'a [Bar],
+    step: TimeDelta,
+}
+
+impl<'a> TimeIndex<'a> {
+    /// `None` without bars.
+    pub fn new(bars: &'a [Bar], timeframe: Timeframe) -> Option<Self> {
+        (!bars.is_empty()).then(|| Self {
+            bars,
+            step: TimeDelta::milliseconds(timeframe.duration_ms()),
+        })
+    }
+    /// The fractional bar position of `time`.
+    pub fn position(&self, time: DateTime<Utc>) -> f64 {
+        let next = self.bars.partition_point(|bar| bar.time <= time);
+        let (at, span) = match next {
+            0 => (0, self.step),
+            n if n == self.bars.len() => (n - 1, self.step),
+            n => (n - 1, self.bars[n].time - self.bars[n - 1].time),
+        };
+        at as f64 + (time - self.bars[at].time).as_seconds_f64() / span.as_seconds_f64()
+    }
+    /// The time at a fractional bar position, including positions outside the series.
+    pub fn time_at(&self, position: f64) -> DateTime<Utc> {
+        let last = self.bars.len() - 1;
+        let (at, span) = if position <= 0.0 || position.is_nan() {
+            (0, self.step) // NaN too
+        } else if position >= last as f64 {
+            (last, self.step)
+        } else {
+            let at = position as usize;
+            (at, self.bars[at + 1].time - self.bars[at].time)
+        };
+        let nanos = (position - at as f64) * span.as_seconds_f64() * 1e9;
+        // Never panics: `as` saturates and the add is checked.
+        self.bars[at]
+            .time
+            .checked_add_signed(TimeDelta::nanoseconds(nanos.round() as i64))
+            .unwrap_or(if nanos < 0.0 {
+                DateTime::<Utc>::MIN_UTC
+            } else {
+                DateTime::<Utc>::MAX_UTC
+            })
+    }
+    /// The bar whose slot holds `time`: the last bar opening at or before it, and for the last
+    /// bar only within one timeframe of its open.
+    pub fn bar_containing(&self, time: DateTime<Utc>) -> Option<usize> {
+        let at = self
+            .bars
+            .partition_point(|bar| bar.time <= time)
+            .checked_sub(1)?;
+        (at + 1 < self.bars.len() || time - self.bars[at].time < self.step).then_some(at)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::model::{Bar, TimeIndex, Timeframe};
+    use chrono::{TimeDelta, TimeZone, Utc};
+
+    #[test]
+    fn time_index_places_times_on_the_bars_and_back() {
+        let start = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let bars = [0, 60, 120, 300]
+            .map(|seconds| Bar::new(start + TimeDelta::seconds(seconds), 1.0, 1.0, 1.0, 1.0, 0.0));
+        let index = TimeIndex::new(&bars, Timeframe::Min1).unwrap();
+        for (seconds, position) in [
+            (-90, -1.5),
+            (0, 0.0),
+            (30, 0.5),
+            (120, 2.0),
+            (210, 2.5),
+            (300, 3.0),
+            (330, 3.5),
+            (420, 5.0),
+        ] {
+            let time = start + TimeDelta::seconds(seconds);
+            assert_eq!(index.position(time), position, "{seconds} s");
+            assert_eq!(index.time_at(position), time, "position {position}");
+        }
+        let third = start + TimeDelta::seconds(20);
+        assert!((index.position(third) - 1.0 / 3.0).abs() < 1e-12);
+        assert_eq!(index.time_at(index.position(third)), third);
+        for (millis, slot) in [
+            (-1, None),
+            (0, Some(0)),
+            (59_999, Some(0)),
+            (60_000, Some(1)),
+            (200_000, Some(2)),
+            (359_999, Some(3)),
+            (360_000, None),
+        ] {
+            assert_eq!(
+                index.bar_containing(start + TimeDelta::milliseconds(millis)),
+                slot,
+                "{millis} ms"
+            );
+        }
+        assert!(TimeIndex::new(&[], Timeframe::Min1).is_none());
+    }
+}
