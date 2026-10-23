@@ -804,6 +804,7 @@ impl Chart {
                     rect,
                     &self.symbol,
                     &self.timeframe.map(|tf| tf.as_str()).unwrap_or_default(),
+                    self.instrument.as_ref(),
                     visible_data,
                     prev_close,
                     &colors,

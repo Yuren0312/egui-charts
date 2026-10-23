@@ -262,6 +262,8 @@ pub struct Chart {
     pub(crate) timeframe: Option<Timeframe>,
     /// The feed the chart loads from, if it was built with one.
     pub(crate) feed_link: Option<FeedLink>,
+    /// The description of the symbol; see [`Chart::instrument`].
+    pub(crate) instrument: Option<crate::model::Instrument>,
     /// Cursor mode state (Demonstration, Magic, Eraser effects)
     pub(crate) cursor_modes: CursorModeState,
     /// Price mapping of the last rendered frame (includes zoom adjustments)

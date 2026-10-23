@@ -118,6 +118,7 @@ impl Chart {
             symbol: String::new(),
             timeframe: None,
             feed_link: None,
+            instrument: None,
             cursor_modes: CursorModeState::new(),
             last_price_map: PriceMap::new(
                 PriceTransform::default(),

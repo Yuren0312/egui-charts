@@ -67,12 +67,16 @@ pub struct Instrument {
     pub tick_size: Option<f64>,
     /// Decimals of price labels.
     pub price_decimals: Option<u8>,
+    /// Decimals of volume labels.
+    pub volume_decimals: Option<u8>,
     /// Currency of prices, such as "USD".
     pub currency: Option<String>,
     /// Exchange time zone.
     pub time_zone: Option<TimezoneId>,
     /// Regular trading hours, in exchange time.
     pub session: Option<Session>,
+    /// How current the feed's data is.
+    pub data_status: Option<DataStatus>,
 }
 
 impl Instrument {
@@ -85,9 +89,11 @@ impl Instrument {
             symbol_type: None,
             tick_size: None,
             price_decimals: None,
+            volume_decimals: None,
             currency: None,
             time_zone: None,
             session: None,
+            data_status: None,
         }
     }
 
@@ -121,6 +127,12 @@ impl Instrument {
         self
     }
 
+    /// Sets [`volume_decimals`](Self::volume_decimals).
+    pub fn with_volume_decimals(mut self, decimals: u8) -> Self {
+        self.volume_decimals = Some(decimals);
+        self
+    }
+
     /// Sets [`currency`](Self::currency).
     pub fn with_currency(mut self, currency: impl Into<String>) -> Self {
         self.currency = Some(currency.into());
@@ -138,6 +150,24 @@ impl Instrument {
         self.session = Some(session);
         self
     }
+
+    /// Sets [`data_status`](Self::data_status).
+    pub fn with_data_status(mut self, status: DataStatus) -> Self {
+        self.data_status = Some(status);
+        self
+    }
+}
+
+/// How current a feed's data is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum DataStatus {
+    /// Updates as the market trades.
+    Realtime,
+    /// Updates later than the market trades, as many exchanges require of free data.
+    Delayed,
+    /// Updates once a day, after the close.
+    EndOfDay,
 }
 
 /// A time zone.

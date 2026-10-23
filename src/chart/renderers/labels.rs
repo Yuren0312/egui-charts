@@ -1,6 +1,6 @@
 use super::context::{ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering::axes::{PRICE_LABEL_GAP, TIME_LABEL_GAP, axis_font};
-use crate::model::{Bar, percent_change};
+use crate::model::{Bar, DataStatus, Instrument, percent_change};
 use crate::scales::{
     PriceMap, PriceMarkGenerator, PriceScaleId, TickMark, TickMarkGenerator,
     TickMarkGeneratorConfig, TimeFormatter,
@@ -325,13 +325,15 @@ pub fn render_ohlc_info(
     );
 }
 
-/// Legend showing symbol info, OHLC values with colors, and change percentage
-/// Example: "BTCUSD . 1h   O 43,521.50  H 43,650.00  L 43,400.00  C 43,580.25  +58.75 (+0.14%)"
+/// Legend showing symbol info, OHLC values with colors, and change percentage, with the
+/// instrument's price currency and whether its data is delayed or end of day.
+/// Example: "BTCUSD . 1h . USD   O 43,521.50  H 43,650.00  L 43,400.00  C 43,580.25  +58.75 (+0.14%)"
 pub fn render_legend(
     painter: &egui::Painter,
     rect: Rect,
     symbol: &str,
     timeframe: &str,
+    instrument: Option<&Instrument>,
     visible_data: &[Bar],
     prev_close: Option<f64>,
     colors: &StyleColors,
@@ -372,7 +374,26 @@ pub fn render_legend(
     // Timeframe
     let tf_galley = painter.layout_no_wrap(timeframe.to_string(), sep_font.clone(), colors.text);
     painter.galley(Pos2::new(x, y), tf_galley.clone(), colors.text);
-    x += tf_galley.rect.width() + 20.0;
+    x += tf_galley.rect.width() + 8.0;
+
+    if let Some(currency) = instrument.and_then(|instrument| instrument.currency.as_deref()) {
+        painter.galley(Pos2::new(x, y), sep.clone(), label_color);
+        x += sep.rect.width() + 8.0;
+        let galley = painter.layout_no_wrap(currency.to_owned(), sep_font.clone(), colors.text);
+        painter.galley(Pos2::new(x, y), galley.clone(), colors.text);
+        x += galley.rect.width() + 8.0;
+    }
+    let status = match instrument.and_then(|instrument| instrument.data_status) {
+        Some(DataStatus::Delayed) => Some("Delayed"),
+        Some(DataStatus::EndOfDay) => Some("End of day"),
+        _ => None,
+    };
+    if let Some(status) = status {
+        let galley = painter.layout_no_wrap(status.to_owned(), sep_font.clone(), theme.ui.warning);
+        painter.galley(Pos2::new(x, y), galley.clone(), theme.ui.warning);
+        x += galley.rect.width() + 8.0;
+    }
+    x += 12.0;
 
     // OHLC values with labels and color coding
     let label_font = FontId::proportional(typography::SM);

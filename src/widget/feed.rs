@@ -52,7 +52,6 @@ pub(crate) struct FeedLink {
     /// Requests not answered yet; an answer under any other key is stale and dropped.
     pending: Vec<(u64, Request)>,
     subscription: Option<SubscriptionId>,
-    instrument: Option<Instrument>,
     trades: Trades,
     /// The held trades as volume bubbles, when the host turned them on.
     pub(super) bubbles: Option<VolumeBubbles>,
@@ -84,14 +83,13 @@ impl FeedLink {
     }
 
     /// Sums the held trades again, after the clock, the instrument or the trades changed.
-    fn rebuild_bubbles(&mut self) {
+    fn rebuild_bubbles(&mut self, tick_size: Option<f64>) {
         if let Some(bubbles) = self.bubbles.take() {
-            self.bubbles = Some(self.bubbles(bubbles.config));
+            self.bubbles = Some(self.bubbles(bubbles.config, tick_size));
         }
     }
 
-    fn bubbles(&self, config: VolumeBubblesConfig) -> VolumeBubbles {
-        let tick_size = self.instrument.as_ref().and_then(|i| i.tick_size);
+    fn bubbles(&self, config: VolumeBubblesConfig, tick_size: Option<f64>) -> VolumeBubbles {
         VolumeBubbles::new(config, self.clock.clone(), tick_size, self.trades.iter())
     }
 }
@@ -121,7 +119,6 @@ impl Chart {
             next_key: 0,
             pending: Vec::new(),
             subscription: None,
-            instrument: None,
             trades: Trades::new(TRADE_CAPACITY),
             bubbles: None,
             order_book: None,
@@ -178,9 +175,26 @@ impl Chart {
         self.timeframe
     }
 
-    /// The feed's description of the symbol, once it answered.
+    /// The description of the symbol: the feed's once it answered, or the one set with
+    /// [`set_instrument`](Self::set_instrument).
     pub fn instrument(&self) -> Option<&Instrument> {
-        self.feed_link.as_ref()?.instrument.as_ref()
+        self.instrument.as_ref()
+    }
+
+    /// Describes the symbol of a chart without a feed: its price and volume decimals, tick
+    /// size, currency, time zone, trading hours and data status. A chart with a feed asks the
+    /// feed instead, and every load replaces what this set.
+    pub fn set_instrument(&mut self, instrument: Instrument) {
+        let tick_size = instrument.tick_size;
+        self.instrument = Some(instrument);
+        if let Some(link) = &mut self.feed_link {
+            link.rebuild_bubbles(tick_size);
+        }
+    }
+
+    /// The tick size the volume bubbles bin prices by: the instrument's.
+    fn tick_size(&self) -> Option<f64> {
+        self.instrument.as_ref().and_then(|i| i.tick_size)
     }
 
     /// The trades of `series` the feed sent, oldest first, at most 100,000. Empty for any id but
@@ -196,8 +210,9 @@ impl Chart {
     /// is not time. Sums every held trade again: call it when the settings change, not every
     /// frame.
     pub fn set_volume_bubbles(&mut self, config: Option<VolumeBubblesConfig>) {
+        let tick_size = self.tick_size();
         if let Some(link) = &mut self.feed_link {
-            link.bubbles = config.map(|config| link.bubbles(config));
+            link.bubbles = config.map(|config| link.bubbles(config, tick_size));
         }
     }
 
@@ -322,7 +337,7 @@ impl Chart {
             link.feed.unsubscribe(id);
         }
         link.pending.clear();
-        link.instrument = None;
+        self.instrument = None;
         link.trades = Trades::new(TRADE_CAPACITY);
         link.order_book = None;
         link.paging_stopped = false;
@@ -330,7 +345,7 @@ impl Chart {
         link.failures = 0;
         let timeframe = self.timeframe.unwrap_or_default();
         link.clock = BarClock::new(timeframe);
-        link.rebuild_bubbles();
+        link.rebuild_bubbles(None);
         // Drawings stay: they belong to the chart, not to the bars of one symbol.
         self.set_data(SeriesId::MAIN, Vec::new());
         self.feed = FeedState::default();
@@ -372,8 +387,8 @@ impl Chart {
 
     /// Subscribes to live updates once the symbol resolved, and asks for the recent trades.
     fn subscribe(&mut self, link: &mut FeedLink, instrument: Instrument) {
-        link.instrument = Some(instrument);
-        link.rebuild_bubbles();
+        link.rebuild_bubbles(instrument.tick_size);
+        self.instrument = Some(instrument);
         let sink = link.inbox.subscribe(link.clock.clone(), TRADE_CAPACITY);
         link.subscription = Some(sink.id);
         let subscription = Subscription {
