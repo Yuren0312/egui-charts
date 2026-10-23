@@ -19,7 +19,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// Drawings use a dual coordinate system:
 /// - `points: Vec<Pos2>` - Screen coordinates, updated each frame
-/// - `chart_points: Vec<ChartPoint>` - Chart coordinates (time, price), placed on the current bars each frame
+/// - `chart_points: Vec<ChartPoint>` - Chart coordinates (time, price), placed on the current
+///   bars each frame
 ///
 /// # Example
 ///

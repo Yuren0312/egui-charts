@@ -47,7 +47,13 @@
 //! # ) {
 //! let drawing = Drawing::new(1, DrawingToolType::TrendLine);
 //! // After setting up points and calling update_screen_coords:
-//! let view = ChartView { bars, revision, time_to_bar: &time_to_bar, bar_to_x: &bar_to_x, price_to_y: &price_to_y };
+//! let view = ChartView {
+//!     bars,
+//!     revision,
+//!     time_to_bar: &time_to_bar,
+//!     bar_to_x: &bar_to_x,
+//!     price_to_y: &price_to_y,
+//! };
 //! drawing.render(painter, price_rect, &view);
 //! # }
 //! ```

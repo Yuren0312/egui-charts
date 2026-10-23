@@ -3,8 +3,8 @@
 //! This module implements the drawing system: trend lines, Fibonacci tools,
 //! harmonic patterns, Elliott Wave counts, Gann tools, and more. Drawings are
 //! anchored by time and price ([`ChartPoint`]) so they stay at their times through
-//! pan, zoom and changes to the bars, and are rendered each frame by converting chart coordinates back
-//! to screen space.
+//! pan, zoom and changes to the bars, and are rendered each frame by converting
+//! chart coordinates back to screen space.
 //!
 //! # Architecture
 //!

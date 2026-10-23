@@ -440,22 +440,25 @@ impl Drawing {
         if let Some(ms) = elapsed_ms(bars, from, to) {
             span = format!("{span}, {}", format_duration(ms));
         }
-        let volume = bars_between(bars, from, to)
-            .map(|(_, bars)| {
-                let volume = bars
-                    .iter()
-                    .map(|bar| bar.volume)
-                    .filter(|v| v.is_finite())
-                    .sum();
-                format!("\nVol {}", VolumeFormatter::default().format(volume))
-            })
-            .unwrap_or_default();
+        // Summed only for the labels that show it.
+        let volume = || {
+            bars_between(bars, from, to)
+                .map(|(_, bars)| {
+                    let volume = bars
+                        .iter()
+                        .map(|bar| bar.volume)
+                        .filter(|v| v.is_finite())
+                        .sum();
+                    format!("\nVol {}", VolumeFormatter::default().format(volume))
+                })
+                .unwrap_or_default()
+        };
         Some(match self.tool_type {
             DrawingToolType::Measure | DrawingToolType::DateAndPriceRange => {
-                format!("{change}\n{span}{volume}")
+                format!("{change}\n{span}{}", volume())
             }
             DrawingToolType::PriceRange => change,
-            DrawingToolType::DateRange => format!("{span}{volume}"),
+            DrawingToolType::DateRange => format!("{span}{}", volume()),
             DrawingToolType::TrendAngle => format!("{change}, {span}"),
             DrawingToolType::InfoLine => {
                 let [start, end, ..] = self.points[..] else {

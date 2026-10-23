@@ -14,9 +14,10 @@ impl Chart {
     /// value, a high or low on the wrong side of the open and close, negative volume) are dropped
     /// and counted in [`feed_state`](Self::feed_state), the rest sorted by time, and of several
     /// bars with one open time, or in one slot of the timeframe for a chart built with a feed, the
-    /// last is kept. Drawings keep their times, so older history can be loaded in front of the bars. The studies are updated from the
-    /// first bar that changed on the next [`show`](Self::show), and near the live edge the view
-    /// follows a new last bar, as with [`update`](Self::update).
+    /// last is kept. Drawings keep their times, so older history can be loaded in front of the
+    /// bars. The studies are updated from the first bar that changed on the next
+    /// [`show`](Self::show), and near the live edge the view follows a new last bar, as with
+    /// [`update`](Self::update).
     ///
     /// Only [`SeriesId::MAIN`] holds bars; a call with another id is ignored with a warning.
     pub fn set_data(&mut self, series: SeriesId, bars: Vec<Bar>) {
@@ -529,31 +530,31 @@ mod tests {
                 vec![None, Some(1.5), Some(2.5), Some(3.5), Some(5.0)], false, 0, 3.0_f32),
             ("append", vec![Update(bar(300, 6.0))],
                 series(&[(0, 1.0), (60, 2.0), (120, 3.0), (180, 4.0), (240, 5.0), (300, 6.0)]),
-                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5), Some(5.5)], false, 0, 3.0_f32),
+                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5), Some(5.5)], false, 0, 3.0),
             ("correction", vec![Update(bar(120, 9.0))],
                 series(&[(0, 1.0), (60, 2.0), (120, 9.0), (180, 4.0), (240, 5.0)]),
-                vec![None, Some(1.5), Some(5.5), Some(6.5), Some(4.5)], true, 0, 3.0_f32),
+                vec![None, Some(1.5), Some(5.5), Some(6.5), Some(4.5)], true, 0, 3.0),
             ("out of order", vec![Update(bar(90, 7.0))],
                 series(&[(0, 1.0), (60, 2.0), (90, 7.0), (120, 3.0), (180, 4.0), (240, 5.0)]),
-                vec![None, Some(1.5), Some(4.5), Some(5.0), Some(3.5), Some(4.5)], true, 0, 4.0_f32),
+                vec![None, Some(1.5), Some(4.5), Some(5.0), Some(3.5), Some(4.5)], true, 0, 4.0),
             ("invalid", vec![Update(invalid.clone()), SetData([start.clone(), vec![invalid]].concat())],
                 start.clone(),
-                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5)], false, 2, 3.0_f32),
+                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5)], false, 2, 3.0),
             ("replace", vec![SetData(series(&[(120, 3.0), (0, 1.0), (240, 5.0), (60, 2.0), (180, 4.0), (120, 8.0)]))],
                 series(&[(0, 1.0), (60, 2.0), (120, 8.0), (180, 4.0), (240, 5.0)]),
-                vec![None, Some(1.5), Some(5.0), Some(6.0), Some(4.5)], true, 0, 3.0_f32),
+                vec![None, Some(1.5), Some(5.0), Some(6.0), Some(4.5)], true, 0, 3.0),
             ("replay step", vec![SetData([start.clone(), vec![bar(300, 6.0)]].concat())],
                 series(&[(0, 1.0), (60, 2.0), (120, 3.0), (180, 4.0), (240, 5.0), (300, 6.0)]),
-                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5), Some(5.5)], false, 0, 3.0_f32),
+                vec![None, Some(1.5), Some(2.5), Some(3.5), Some(4.5), Some(5.5)], false, 0, 3.0),
             ("truncate", vec![SetData(start[..4].to_vec())],
                 start[..4].to_vec(),
-                vec![None, Some(1.5), Some(2.5), Some(3.5)], true, 0, 3.0_f32),
+                vec![None, Some(1.5), Some(2.5), Some(3.5)], true, 0, 3.0),
             ("sorted with a repeated time", vec![SetData(series(&[(0, 1.0), (60, 2.0), (120, 3.0), (120, 8.0), (180, 4.0)]))],
                 series(&[(0, 1.0), (60, 2.0), (120, 8.0), (180, 4.0)]),
-                vec![None, Some(1.5), Some(5.0), Some(6.0)], true, 0, 3.0_f32),
+                vec![None, Some(1.5), Some(5.0), Some(6.0)], true, 0, 3.0),
             ("correction, then append", vec![Update(bar(120, 9.0)), Update(bar(300, 6.0))],
                 series(&[(0, 1.0), (60, 2.0), (120, 9.0), (180, 4.0), (240, 5.0), (300, 6.0)]),
-                vec![None, Some(1.5), Some(5.5), Some(6.5), Some(4.5), Some(5.5)], true, 0, 3.0_f32),
+                vec![None, Some(1.5), Some(5.5), Some(6.5), Some(4.5), Some(5.5)], true, 0, 3.0),
             ("in front", vec![Update(bar(-60, 1.0))],
                 series(&[(-60, 1.0), (0, 1.0), (60, 2.0), (120, 3.0), (180, 4.0), (240, 5.0)]),
                 vec![None, Some(1.0), Some(1.5), Some(2.5), Some(3.5), Some(4.5)], true, 0, 4.0),
