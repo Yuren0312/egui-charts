@@ -14,7 +14,7 @@ use crate::drawings::domain::{ChartPoint, Drawing, DrawingToolType, HandlePos};
 use crate::drawings::rendering::ChartView;
 use crate::drawings::services::{
     DrawingInteraction, HandleConfig, HandleService, HistoryService, SelectionService, SnapOptions,
-    SnapService,
+    SnapService, ZOrderService, in_z_order,
 };
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Pos2, Rect};
@@ -144,6 +144,8 @@ pub struct DrawingManager {
     pub active_tool: Option<DrawingToolType>,
     /// The drawing currently being created (not yet completed).
     pub curr_drawing: Option<Drawing>,
+    /// Whether the last point of `curr_drawing` follows the pointer rather than a click.
+    preview_point: bool,
     /// Next available drawing ID (monotonically increasing).
     next_id: usize,
 
@@ -162,8 +164,9 @@ pub struct DrawingManager {
 
     /// Whether to stay in drawing mode after completing a drawing.
     pub stay_in_drawing_mode: bool,
-    /// Current chart timeframe string (e.g., `"1D"`, `"1h"`), used for
-    /// per-timeframe drawing visibility filtering.
+    /// Current chart timeframe string (e.g., `"1D"`, `"1h"`): drawings hidden on it are
+    /// neither drawn nor hit. [`Chart::set_timeframe`](crate::widget::Chart::set_timeframe)
+    /// keeps it in step with the chart.
     pub curr_timeframe: String,
     /// Whether eraser mode is active.
     pub eraser_mode: bool,
@@ -187,6 +190,7 @@ impl DrawingManager {
             drawings: Vec::new(),
             active_tool: None,
             curr_drawing: None,
+            preview_point: false,
             next_id: 0,
             selection: SelectionService::new(),
             history: HistoryService::new(),
@@ -322,9 +326,14 @@ impl DrawingManager {
         HandleService::hit_test_handle(drawing, point, self.options.handle_config.size)
     }
 
-    /// Begins a handle drag operation, saving the drawing's current state for undo.
+    /// Begins a handle drag operation, saving the drawing's current state for undo. A locked
+    /// drawing is not dragged.
     pub fn start_drag_handle(&mut self, drawing_id: usize, handle: HandlePos) {
-        if let Some(drawing) = self.drawings.iter().find(|d| d.id == drawing_id) {
+        if let Some(drawing) = self
+            .drawings
+            .iter()
+            .find(|d| d.id == drawing_id && !d.locked)
+        {
             self.dragging_handle = Some((drawing_id, handle));
             self.drag_old_state = Some(drawing.clone());
         }
@@ -378,7 +387,7 @@ impl DrawingManager {
     pub fn set_active_tool(&mut self, tool: Option<DrawingToolType>) {
         self.active_tool = tool;
         if tool.is_some() {
-            self.curr_drawing = None;
+            self.cancel_curr_drawing();
         }
     }
 
@@ -398,12 +407,9 @@ impl DrawingManager {
         self.set_active_tool(Some(DrawingToolType::FontIcon));
 
         // Create a new drawing with the icon name
-        let mut drawing = Drawing::with_color(
-            self.next_id,
-            DrawingToolType::FontIcon,
-            self.options.default_color,
-        );
-        self.next_id += 1;
+        let id = self.take_id();
+        let mut drawing =
+            Drawing::with_color(id, DrawingToolType::FontIcon, self.options.default_color);
 
         // Store the icon name in the text field
         drawing.text = Some(icon_name);
@@ -432,9 +438,10 @@ impl DrawingManager {
         F: Fn(f32) -> f32,
         G: Fn(f32) -> f64,
     {
-        let mut drawing = Drawing::with_color(self.next_id, tool_type, self.options.default_color);
-        let drawing_id = self.next_id;
-        self.next_id += 1;
+        let drawing_id = self.take_id();
+        let mut drawing = Drawing::with_color(drawing_id, tool_type, self.options.default_color);
+        drawing.z_order = self.top_z_order();
+        self.preview_point = false;
         drawing.add_point_with_chart_coords(point, x_to_bar, y_to_price);
 
         if drawing.completed {
@@ -467,6 +474,11 @@ impl DrawingManager {
     {
         if let Some(ref mut drawing) = self.curr_drawing {
             let drawing_id = drawing.id;
+            // The click takes the place of the pointer preview.
+            if std::mem::take(&mut self.preview_point) {
+                drawing.points.pop();
+                drawing.chart_points.pop();
+            }
             drawing.add_point_with_chart_coords(point, &x_to_bar, &y_to_price);
 
             if drawing.completed {
@@ -486,8 +498,9 @@ impl DrawingManager {
         }
     }
 
-    /// Updates the last point of the in-progress drawing (used for live preview
-    /// as the cursor moves between the first click and the final placement).
+    /// Moves the pointer preview of the in-progress drawing to `point`, adding it after the
+    /// placed anchors if there is none yet. The next click or the end of a drag replaces it
+    /// with an anchor; finishing a multi-point drawing drops it.
     pub fn update_last_point_with_coords<F, G>(&mut self, point: Pos2, x_to_bar: F, y_to_price: G)
     where
         F: Fn(f32) -> f32,
@@ -497,19 +510,26 @@ impl DrawingManager {
             && !drawing.points.is_empty()
             && !drawing.completed
         {
-            if drawing.points.len() == 1 {
+            if self.preview_point {
+                drawing.update_last_point_with_chart_coords(point, x_to_bar, y_to_price);
+            } else {
                 drawing.add_point_with_chart_coords(point, &x_to_bar, &y_to_price);
                 drawing.completed = false;
-            } else if drawing.points.len() >= 2 {
-                drawing.update_last_point_with_chart_coords(point, x_to_bar, y_to_price);
+                self.preview_point = true;
             }
         }
     }
 
     /// Manually completes the in-progress drawing (e.g., on double-click or Enter
-    /// for multi-point tools). Requires at least 2 points, and as many as the tool draws
-    /// with, so that what it adds can be saved.
+    /// for multi-point tools), without its pointer preview. Requires at least 2 points, and
+    /// as many as the tool draws with, so that what it adds can be saved.
     pub fn complete_curr_drawing(&mut self) {
+        if let Some(drawing) = &mut self.curr_drawing
+            && std::mem::take(&mut self.preview_point)
+        {
+            drawing.points.pop();
+            drawing.chart_points.pop();
+        }
         if let Some(ref mut drawing) = self.curr_drawing
             && drawing.points.len() >= drawing.tool_type.anchors_needed().max(2)
         {
@@ -526,6 +546,7 @@ impl DrawingManager {
     /// Cancels the in-progress drawing without adding it to the drawing list.
     pub fn cancel_curr_drawing(&mut self) {
         self.curr_drawing = None;
+        self.preview_point = false;
     }
 
     // === Drawing CRUD ===
@@ -534,13 +555,17 @@ impl DrawingManager {
     ///
     /// The deleted drawing is pushed to the undo history and a cloud sync
     /// delete action is queued. If the deleted drawing was selected, the
-    /// selection is cleared.
+    /// selection is cleared. A locked drawing is not deleted.
     pub fn delete_drawing(&mut self, id: usize) {
+        if self.drawings.iter().any(|d| d.id == id && d.locked) {
+            return;
+        }
         if let Some(drawing) = self.drawings.iter().find(|d| d.id == id).cloned() {
             self.drawings.retain(|d| d.id != id);
+            let stored_id = drawing.stored_id.clone().unwrap_or_else(|| id.to_string());
             self.history.push_delete(drawing);
             if let Ok(mut sync) = self.pending_sync.lock() {
-                sync.push(DrawingSyncAction::Delete(id.to_string()));
+                sync.push(DrawingSyncAction::Delete(stored_id));
             }
         }
         if self.selection.primary() == Some(id) {
@@ -555,31 +580,57 @@ impl DrawingManager {
         }
     }
 
-    /// Removes all drawings and clears the current drawing and selection.
+    /// Removes every drawing that is not locked and clears the current drawing and selection.
     ///
     /// Note: This does not push to the undo history (it is a destructive reset).
     pub fn clear_all(&mut self) {
-        self.drawings.clear();
-        self.curr_drawing = None;
+        self.drawings.retain(|d| d.locked);
+        self.cancel_curr_drawing();
         self.selection.deselect_all();
     }
 
     // === Layer ordering ===
+    //
+    // `Drawing::z_order` decides the layering: drawings are drawn in ascending z-order and hit
+    // from the highest down, in list order where it is the same.
 
-    /// Bring a drawing to the front (rendered last, on top)
+    /// Bring a drawing to the front (drawn last, on top), above the highest z-order
     pub fn bring_to_front(&mut self, id: usize) {
-        if let Some(idx) = self.drawings.iter().position(|d| d.id == id) {
-            let drawing = self.drawings.remove(idx);
-            self.drawings.push(drawing);
-        }
+        ZOrderService::bring_to_front(&mut self.drawings, id);
     }
 
-    /// Send a drawing to the back (rendered first, behind others)
+    /// Send a drawing to the back (drawn first, behind others), below the lowest z-order
     pub fn send_to_back(&mut self, id: usize) {
-        if let Some(idx) = self.drawings.iter().position(|d| d.id == id) {
-            let drawing = self.drawings.remove(idx);
-            self.drawings.insert(0, drawing);
-        }
+        ZOrderService::send_to_back(&mut self.drawings, id);
+    }
+
+    /// An id above every drawing's id and every numeric id a drawing is stored under, so a new
+    /// drawing is never saved over a stored one. A stored id too large to leave room above it
+    /// is not one this manager hands out, so it cannot collide and is left out.
+    fn take_id(&mut self) -> usize {
+        let floor = self
+            .drawings
+            .iter()
+            .flat_map(|d| {
+                [
+                    Some(d.id),
+                    d.stored_id
+                        .as_deref()
+                        .and_then(|s| s.parse().ok())
+                        .filter(|&id: &usize| id < usize::MAX / 2),
+                ]
+            })
+            .flatten()
+            .max()
+            .map_or(0, |id: usize| id.saturating_add(1));
+        let id = self.next_id.max(floor);
+        self.next_id = id.saturating_add(1);
+        id
+    }
+
+    /// The z-order that puts a drawing added now on top of the others.
+    fn top_z_order(&self) -> i32 {
+        self.drawings.iter().map(|d| d.z_order).max().unwrap_or(0)
     }
 
     // === Coordinate updates ===
@@ -662,6 +713,8 @@ impl DrawingManager {
 
     /// Complete a drag-to-draw drawing (see [`Self::complete_curr_drawing`])
     pub fn complete_drag_drawing(&mut self) {
+        // The pointer preview is where the drag ended: the drawing's last anchor.
+        self.preview_point = false;
         // A position's stop starts mirrored around the entry, as an anchor of
         // its own so it can be moved without moving the target.
         if let Some(drawing) = &mut self.curr_drawing
@@ -707,19 +760,33 @@ impl DrawingManager {
         }
     }
 
-    /// Add a drawing from another source (for multi-chart sync)
+    /// Add a drawing from another source (for multi-chart sync, or restored from storage)
+    /// under a new id. A drawing restored from storage keeps its stored identity (`stored_id`,
+    /// `created_at`, `notes`) and its z-order. A drawing that was never stored goes on top, and
+    /// so does a copy, one stored under the id of a drawing already here, which is saved as a
+    /// new drawing.
     pub fn add_synced_drawing(&mut self, mut drawing: Drawing) {
+        if drawing.stored_id.is_some()
+            && self
+                .drawings
+                .iter()
+                .any(|d| d.stored_id == drawing.stored_id)
+        {
+            (drawing.stored_id, drawing.created_at) = (None, None);
+        }
+        if drawing.stored_id.is_none() {
+            drawing.z_order = self.top_z_order();
+        }
         // Assign a new ID to avoid conflicts
-        drawing.id = self.next_id;
-        self.next_id += 1;
+        drawing.id = self.take_id();
         self.drawings.push(drawing);
     }
 
     /// Render all drawings against the chart's bars and coordinate mapping
     pub fn render_all(&self, painter: &egui::Painter, price_rect: Rect, view: &ChartView) {
-        // Render completed drawings
-        for drawing in &self.drawings {
-            if drawing.visible {
+        // Render completed drawings, bottom layer first
+        for drawing in in_z_order(&self.drawings) {
+            if drawing.is_visible_on_timeframe(&self.curr_timeframe) {
                 drawing.render(painter, price_rect, view);
             }
         }
@@ -749,7 +816,7 @@ mod tests {
         assert!(manager.active_tool.is_none());
     }
 
-    /// One click, a hover and Enter finish a multi-point tool with two anchors. Whatever the
+    /// Two clicks and Enter finish a multi-point tool with two anchors. Whatever the
     /// manager finishes must save, and a tool that draws nothing with two anchors (the parallel
     /// channel) must stay in progress, or the whole storage would refuse to save.
     #[test]
@@ -764,7 +831,7 @@ mod tests {
             let mut manager = DrawingManager::new();
             let (x_to_bar, y_to_price) = (|x: f32| x, |y: f32| f64::from(y));
             manager.start_drawing_with_coords(tool, Pos2::new(10.0, 10.0), x_to_bar, y_to_price);
-            manager.update_last_point_with_coords(Pos2::new(50.0, 40.0), x_to_bar, y_to_price);
+            manager.add_point_with_coords(Pos2::new(50.0, 40.0), x_to_bar, y_to_price);
             manager.complete_curr_drawing();
             assert_eq!(manager.drawings.len(), usize::from(finishes), "{tool:?}");
             let mut storage = DrawingStorage::new("AAPL");
@@ -777,6 +844,120 @@ mod tests {
                 storage.to_json()
             );
         }
+    }
+
+    /// The pointer moves between the clicks that place a drawing's anchors. The drawing must
+    /// finish on the click that places its last anchor and keep exactly the clicked positions,
+    /// with no anchor left at a hovered position.
+    #[test]
+    fn hovering_between_clicks_adds_no_anchor() {
+        for (tool, clicks) in [
+            (DrawingToolType::TrendLine, 2),
+            (DrawingToolType::ParallelChannel, 3),
+            (DrawingToolType::XABCDPattern, 5),
+            (DrawingToolType::Polyline, 3),
+        ] {
+            let mut manager = DrawingManager::new();
+            let (x_to_bar, y_to_price) = (|x: f32| x, |y: f32| f64::from(y));
+            let click = |i: usize| Pos2::new(10.0 * (i + 1) as f32, 5.0 * (i % 2) as f32);
+            manager.start_drawing_with_coords(tool, click(0), x_to_bar, y_to_price);
+            for i in 1..clicks {
+                manager.update_last_point_with_coords(Pos2::new(99.0, 99.0), x_to_bar, y_to_price);
+                assert!(
+                    manager.drawings.is_empty(),
+                    "{tool:?} finished after {i} clicks"
+                );
+                manager.add_point_with_coords(click(i), x_to_bar, y_to_price);
+            }
+            manager.update_last_point_with_coords(Pos2::new(99.0, 99.0), x_to_bar, y_to_price);
+            manager.complete_curr_drawing();
+            let want: Vec<_> = (0..clicks)
+                .map(|i| ChartPoint::new(click(i).x, f64::from(click(i).y)))
+                .collect();
+            assert_eq!(manager.drawings.len(), 1, "{tool:?}");
+            assert_eq!(manager.drawings[0].chart_points, want, "{tool:?}");
+        }
+    }
+
+    /// A locked drawing keeps its place when one of its handles is dragged and survives a
+    /// delete, which is how the eraser, the Delete key and the menus remove a drawing.
+    #[test]
+    fn a_locked_drawing_is_neither_moved_nor_deleted() {
+        let mut manager = DrawingManager::new();
+        let mut line = Drawing::new(3, DrawingToolType::TrendLine);
+        line.chart_points = vec![ChartPoint::new(10.0, 10.0), ChartPoint::new(20.0, 20.0)];
+        line.update_screen_coords(|bar| bar, |price| price as f32);
+        line.locked = true;
+        manager.drawings.push(line);
+
+        manager.start_drag_handle(3, HandlePos::Start);
+        manager.update_drag_handle(Pos2::new(50.0, 50.0), |x| x, f64::from);
+        manager.end_drag_handle();
+        manager.delete_drawing(3);
+
+        assert_eq!(manager.drawings.len(), 1);
+        assert_eq!(
+            manager.drawings[0].chart_points[0],
+            ChartPoint::new(10.0, 10.0)
+        );
+    }
+
+    /// Of two overlapping drawings, the one with the higher `z_order` is hit, whichever was
+    /// added last, the manager's layer operations set `z_order`, which is what is saved, and a
+    /// drawing a host adds goes on top.
+    #[test]
+    fn z_order_decides_which_overlapping_drawing_is_hit() {
+        use crate::drawings::services::ZOrderService;
+        let mut manager = DrawingManager::new();
+        for id in [1, 2] {
+            let mut line = Drawing::new(id, DrawingToolType::HorizontalLine);
+            line.chart_points = vec![ChartPoint::new(10.0, 50.0)];
+            line.update_screen_coords(|bar| bar, |price| price as f32);
+            manager.drawings.push(line);
+        }
+        let on_both = Pos2::new(30.0, 50.0);
+        let z = |m: &DrawingManager, id| m.drawings.iter().find(|d| d.id == id).unwrap().z_order;
+        assert_eq!(manager.hit_test(on_both), Some(2));
+
+        ZOrderService::bring_to_front(&mut manager.drawings, 1);
+        assert_eq!(manager.hit_test(on_both), Some(1));
+
+        manager.send_to_back(1);
+        assert_eq!(manager.hit_test(on_both), Some(2));
+        assert!(z(&manager, 1) < z(&manager, 2));
+
+        manager.bring_to_front(1);
+        assert_eq!(manager.hit_test(on_both), Some(1));
+        assert!(z(&manager, 1) > z(&manager, 2));
+
+        // A drawing a host adds, never stored, goes on top of one at z-order 5.
+        manager
+            .drawings
+            .iter_mut()
+            .find(|d| d.id == 1)
+            .unwrap()
+            .z_order = 5;
+        let mut fresh = Drawing::new(0, DrawingToolType::HorizontalLine);
+        fresh.chart_points = vec![ChartPoint::new(10.0, 50.0)];
+        fresh.update_screen_coords(|bar| bar, |price| price as f32);
+        manager.add_synced_drawing(fresh);
+        let fresh_id = manager.drawings.last().unwrap().id;
+        assert_eq!(manager.hit_test(on_both), Some(fresh_id));
+    }
+
+    /// Deleting a restored drawing asks the host to delete the record it is stored under.
+    #[test]
+    fn deleting_a_restored_drawing_queues_its_stored_id() {
+        let mut manager = DrawingManager::new();
+        let mut restored = Drawing::new(0, DrawingToolType::HorizontalLine);
+        restored.stored_id = Some("a1b2".into());
+        manager.add_synced_drawing(restored);
+        manager.delete_drawing(manager.drawings[0].id);
+        let queued = manager.pending_sync.lock().unwrap();
+        assert!(
+            matches!(queued.as_slice(), [DrawingSyncAction::Delete(id)] if id == "a1b2"),
+            "{queued:?}"
+        );
     }
 
     #[test]

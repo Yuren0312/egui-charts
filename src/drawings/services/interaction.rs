@@ -229,7 +229,8 @@ impl DrawingInteraction {
         }
     }
 
-    /// Hit-tests a screen point against all visible drawings (back-to-front order).
+    /// Hit-tests a screen point against all visible drawings, from the top layer down
+    /// (descending z-order, and the later drawing first where the z-order is the same).
     ///
     /// Returns the ID of the topmost drawing at `point`, or `None` if no drawing
     /// was hit. Respects visibility and per-timeframe visibility filtering.
@@ -238,7 +239,7 @@ impl DrawingInteraction {
     pub fn hit_test(&self, point: Pos2, drawings: &[Drawing], timeframe: &str) -> Option<usize> {
         let hit_distance = 5.0;
 
-        for drawing in drawings.iter().rev() {
+        for drawing in super::in_z_order(drawings).into_iter().rev() {
             // Skip hidden drawings
             if !drawing.visible {
                 continue;
@@ -250,7 +251,16 @@ impl DrawingInteraction {
             }
 
             match drawing.tool_type {
-                DrawingToolType::TrendLine | DrawingToolType::Measure => {
+                // A trend line is hit along the extensions it is drawn with.
+                DrawingToolType::TrendLine => {
+                    let reach = (point.x - hit_distance, point.x + hit_distance);
+                    if let Some((left, right)) = drawing.trend_line_ends(reach.0, reach.1)
+                        && point_to_line_distance(point, left, right) <= hit_distance
+                    {
+                        return Some(drawing.id);
+                    }
+                }
+                DrawingToolType::Measure => {
                     if drawing.points.len() >= 2 {
                         let dist =
                             point_to_line_distance(point, drawing.points[0], drawing.points[1]);
