@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- `Drawing::pitchfork` stores per-level colour, visibility and line style, with mirrored levels at 0, 0.5, 1 and 1.5 and filled bands by default. Hidden levels remove both adjacent bands. Old drawings use the defaults. Parallel channels support `channel_midline`, `fill_color`, `extend_left` and `extend_right`, with selection following the lines and filled area. Migration: `Drawing` struct literals set `pitchfork` and `channel_midline`, or use `Drawing::new`.
+
 - Chart settings now retain and apply title format, quote controls and independent study title/input/value visibility. `Chart::set_indicator_inputs` supplies study input captions, retained through host templates; status-line volume no longer hides the histogram. The settings dialog keeps one top edge across tabs through `Modal::top`.
 - Price scale placement and independent current/previous close labels and lines now reach rendering on either axis. Countdown visibility is honoured, with its default enabled to retain the existing displayed countdown. Migration: add `..Default::default()` to `ChartConfig`, `settings_menu::data::StatusLineOptions`, `ScalesAndLinesSettings` and `IndicatorPaneConfig` literals, or set the new visibility fields explicitly. Construct `Legend` with `Legend::new` and set its public fields; it has no `Default` implementation. Previous close is the last bar before the latest UTC date.
 
@@ -16,6 +18,7 @@ All notable changes to this project are documented in this file. The format is b
 - `TabBar::pills` renders rounded tab chips through the shared tab component; the indicator browser uses them.
 
 - `top_toolbar::buttons::toolbar_tooltip` attaches compact toolbar tips with optional platform shortcut chips. `Modal::rounding` and `Modal::fill` preserve per-dialog styling, and an empty modal title lets a search row serve as the header.
+
 - `Chart::set_instrument`, `set_legend_badge`, `set_legend_statuses` and `set_quote` connect host metadata and current bid/ask to the responsive legend. Historical OHLC and study values follow the pointer independently of quotes, including over the axis add cell. `take_quote_action` retains buy/sell intents until taken; changing symbols clears supplied metadata and quotes. The demo labels generated data with SIM and records quote intents without submitting orders.
 - `Chart::set_session_quote` and `set_events` connect independent session prices and event badges. `take_event_click` and `take_scale_settings_request` route clicks to the host; the price-tag add cell opens the existing context menu at the displayed price, including in Magnet mode. Current close tags include a countdown when a supplied quote belongs to that bar, and volume has a separate tag at the pane bottom.
 - `CrosshairStyle::Demonstration` and `CursorType::Demonstration` draw a fading pointer trail that expires while stationary. `TooltipOptions::on_long_press` restricts values to a held pointer, waiting half a second for touch; the floating panel shows OHLC, absolute and percentage change from the previous close, and volume, with one snapped guide and hollow series points. `Chart::set_tooltip_enabled` connects the values switch. Migration: exhaustive cursor matches need a Demonstration arm; tooltip struct literals need `on_long_press` or `..Default::default()`.
@@ -89,6 +92,28 @@ All notable changes to this project are documented in this file. The format is b
 - `ToolbarState::lock_all` and `ToolbarState::hide_drawings`, `hide_indicators`, `hide_positions` and `hide_orders` hold what the Lock button and the Hide menu show: the lock button is filled with a closed padlock while `lock_all` is set, and the Hide menu checks each hidden group. The bar sets them from the clicks it reports; a host that changes the chart's state elsewhere sets them too. Migration: struct literals of `ToolbarState` set the five fields or use `..ToolbarState::default()`.
 
 ### Fixed
+
+- Measurement boxes stay inside the pane when their anchors approach an edge. Gann and trend-time labels omit collisions in small drawings, and harmonic ratio labels move along their comparison chords to avoid anchors.
+- Parallel channel extensions follow chart left and right even when the anchors were placed right to left. Rays retain their direction when panned beyond the pane, and leftward Fibonacci time zones keep their fills. Drawing rail menus use the same available entries as drawing categories.
+
+- Pitchforks without custom level settings retain the drawing colour and the existing tine width. Fixed Gann grids without custom divisions retain their quarter grid.
+
+- Three-anchor projections add the first price and bar leg at the third anchor before mapping to screen coordinates, so logarithmic charts preserve the measured move. The target label shows the projected price.
+
+- Gann grid percentages suppress floating-point tails, the fixed-ratio label sizes to its text, and pitchfan labels sit at the visible ray ends where they have room.
+
+- Drawing placement collects the construction anchors: three for extensions, trend-based time, wedges, pitchfans, arcs, rotated rectangles, projections and channels; four for triangle patterns; seven for three drives; three and five for double and triple Elliott combinations. Price notes and arrow markers take two points. Positions place entry, target and stop in one click, with independent editable anchors. Extensions project the price leg from the third anchor and trend-based time projects its bar interval there.
+- Rotated rectangles use a sloping base and perpendicular width, Curve has a placed quadratic control, Double curve has two placed cubic controls, arcs pass through a third control, and pitchfan rays pass through Fibonacci fractions of the second-to-third anchor span. Table, Image, X post, Idea and Ghost feed stay loadable but are removed from tool menus until their content is implemented. Migration: new Curve and Double curve placements collect three and four anchors. Older saved placements still load: rotated rectangles gain their axis-aligned corner, double curves gain endpoint controls, wedges and pitchfans gain a boundary at the second time and first price, and one-point notes and markers gain a coincident second anchor. The added controls can be dragged after loading.
+
+- Fibonacci speed resistance fans include the time fan, ratio grid and quarter arcs in the anchor direction, and selection follows them. A three-anchor Fib wedge draws circular ratio arcs between its two trend rays, using the first trend radius and the signed shorter sweep.
+
+- Measuring tools count signed ticks and pips from `Instrument::tick_size` and the new optional `pip_size` (`with_pip_size`). Unknown, non-positive and non-finite sizes are omitted. `Chart` passes its host or feed instrument to drawings. Migration: `ChartView` literals set `instrument` (`None` when unknown); `Instrument` literals set `pip_size: None` or use `Instrument::new`.
+
+- Gann fans follow the signed anchor direction and retain their steep rays when they leave through the pane's top or bottom. Fixed Gann squares keep their anchor-defined price-per-bar ratio through zoom. `Drawing::gann` (`GannConfig`) sets independent price and time grid fractions on boxes and squares; levels count from the first anchor. Migration: `Drawing` struct literals set `gann`, or use `Drawing::new`. Saved grid and pitchfork settings reject non-finite values.
+
+- Inside pitchforks use the first leg midpoint and second anchor as their tines, with the first tine passing through the third anchor and the median halfway between the tines. All fork rays follow their direction, including leftward and vertical forks.
+
+- ABCD, XABCD and Cypher label every price ratio on its comparison chord, including C's retracement and D's placement. Undefined ratios on flat legs are omitted.
 
 - Chart settings read back current status and scale controls before opening. Choosing log or percentage scale clears the other mode; legend volume remains independent of the histogram. Custom price-line tags and axis gestures follow left placement, and long session tags stay inside the chart.
 - Enlarged modals fit narrow windows, with scrollable settings content and tabs. Indicator results use a 32 px row pitch.
