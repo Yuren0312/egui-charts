@@ -238,9 +238,9 @@ Note: tools with a fixed point count (parallel channel, pitchforks, triangle, ha
 
 ---
 
-## Technical Indicators (123 registered)
+## Technical Indicators (119 registered)
 
-All 123 registered indicators have calculation code: no `todo!()` or `unimplemented!()` stubs.
+All 119 registered indicators have calculation code: no `todo!()` or `unimplemented!()` stubs.
 Some indicators appear in more than one category below (for example Standard Error in Volatility and Statistics).
 
 ### Rendering Limitation
@@ -295,14 +295,13 @@ All indicators use a **generic polyline renderer**. There is no indicator-specif
 - [x] Historical Volatility: Annualized log-return std dev
 - [x] Chaikin Volatility
 - [x] Acceleration Bands
-- [x] OHLC Volatility (Garman-Klass), Parkinson Vol
-- [x] Volatility Index: ATR-based annualized %
+- [x] OHLC Volatility (Garman-Klass), Parkinson Vol (high-low range), Zero-Trend Vol (zero-mean close-to-close log returns); annualisation assumes daily bars and 252 trading days per year (see #672)
 - [x] Standard Error, Standard Error Bands
 
 ### Volume
 - [x] OBV, VWAP (restarts at each session, week or month in the exchange zone and trading hours, with deviation bands; the indicator dialog builds it without an instrument, so its sessions follow the UTC date), Anchored VWAP
 - [x] MFI, A/D Line, CMF, Klinger Oscillator
-- [x] Ease of Movement, Net Volume, Volume ROC, Volume Oscillator
+- [x] Ease of Movement, Net Volume (volume signed by the change from the previous close, first bar blank), Volume ROC, Volume Oscillator
 - [ ] Volume Profile Visible Range, Volume Profile Fixed Range: bin volume over the whole history; bin 0 is plotted on the price scale, so nothing visible draws
 - [x] VWMA, Balance of Power
 - [x] Volume Price Trend, NVI, PVI
@@ -311,7 +310,6 @@ All indicators use a **generic polyline renderer**. There is no indicator-specif
 - [x] Commodity Selection Index
 
 ### Correlation / Statistics
-- [x] Correlation with time (Pearson of close vs bar index), Correlation Log Returns (log returns vs bar index)
 - [x] Linear Regression, Linear Regression Slope
 - [x] Rank Correlation Index (Spearman)
 - [x] Standard Error, Standard Error Bands
@@ -321,11 +319,9 @@ All indicators use a **generic polyline renderer**. There is no indicator-specif
 - [x] Typical Price, Weighted Close, Median Price
 - [x] OHLC4
 - [x] True Range
-- [x] Spread Study (bar high minus low), Ratio Study (close/open percent change); single symbol only
 
 ### Market Structure
-- [x] Advance/Decline Line (simulated from single symbol)
-- [x] 52-Week High/Low %
+- [x] 52-Week High/Low % and 52W High/Low: a 364-day timestamp window on every interval, blank before 52 weeks of history; high and low draw as two overlay lines
 
 ### Support / Resistance
 - [x] Pivot Points: Standard, Fibonacci, Woodie, Camarilla, DeMark formulas over a rolling N-bar window, pivot and six support and resistance levels
@@ -335,7 +331,7 @@ All indicators use a **generic polyline renderer**. There is no indicator-specif
 - [x] PPO and PVO (Percentage Volume Oscillator): oscillator, signal and histogram, drawn as three lines
 
 ### Factory Coverage
-- [x] `IndicatorFactory` registers all 123 built-in indicators by name and category, each a distinct study; `CVD`, `CloseToCloseVol`, `HL2`, `HLC3` and `PriceChannel` repeat a registered study and `EhlersFisher` is a variant of Fisher Transform; these six types are built directly
+- [x] `IndicatorFactory` registers all 119 built-in indicators by name and category, each a distinct study; `CVD`, `CloseToCloseVol`, `HL2`, `HLC3` and `PriceChannel` repeat a registered study and `EhlersFisher` is a variant of Fisher Transform; these six types are built directly
 - [x] The indicator dialog lists every study its `IndicatorFactory` registers, including a host's own, and creates them through it
 
 ---
@@ -537,7 +533,7 @@ The ui_kit components are generic building blocks:
 - 19 of 19 chart types render
 - Pan/zoom and crosshair; linear, logarithmic, percentage, indexed and inverted price scales
 - `DrawingToolType` defines 94 drawing tool types counting the four cursor modes; the status of each is listed above, several with limits
-- 123 registered indicators with calculation code
+- 119 registered indicators with calculation code
 - UI component library (toolbars, dialogs, panels, controls); several widgets are not wired yet, see above
 - Reusable ui_kit building blocks
 - Theme system with design tokens and dark, light and high-contrast presets

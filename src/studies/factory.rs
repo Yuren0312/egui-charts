@@ -175,7 +175,7 @@ impl IndicatorFactory {
                 Envelopes,
                 PercentB,
                 OhlcVolatility,
-                VolatilityIndex,
+                ParkinsonVol,
                 ZeroTrendVol,
                 CommoditySelectionIndex,
             ],
@@ -203,8 +203,6 @@ impl IndicatorFactory {
                 ZigZag,
             ],
             "Statistics" => [
-                CorrelationCoefficient,
-                CorrelationLogReturns,
                 LinearRegression,
                 LinearRegressionSlope,
                 StandardError,
@@ -219,11 +217,9 @@ impl IndicatorFactory {
                 WeightedClose,
                 OHLC4,
             ],
-            "Breadth and spread" => [
-                AdvanceDeclineLine,
+            "Market structure" => [
                 Week52HighLow,
-                SpreadStudy,
-                RatioStudy,
+                Week52HighLowLevels,
             ],
         );
     }
@@ -347,13 +343,14 @@ mod tests {
         use crate::model::Bar;
         use chrono::{TimeZone, Utc};
 
+        // Two bars per session over more than 52 weeks distinguish session and calendar studies.
         let bars: Vec<Bar> = (0..400)
             .map(|i: i64| {
                 let x = i as f64;
                 let close = 100.0 + (x * 0.13).sin() * 8.0 + (x * 0.029).cos() * 5.0;
                 let open = close - (x * 0.7).sin() * 1.5;
                 Bar {
-                    time: Utc.timestamp_opt(i * 3_600, 0).unwrap(),
+                    time: Utc.timestamp_opt((i / 2 * 48 + i % 2) * 3_600, 0).unwrap(),
                     open,
                     high: close.max(open) + 0.5 + (x * 0.3).sin().abs(),
                     low: close.min(open) - 0.5 - (x * 0.5).cos().abs(),
@@ -491,7 +488,7 @@ mod tests {
             Box::new(PercentB::new(l(0), x(2.0))),
             Box::new(CloseToCloseVol::new(l(0))),
             Box::new(OhlcVolatility::new(l(0))),
-            Box::new(VolatilityIndex::new(l(0))),
+            Box::new(ParkinsonVol::new(l(0))),
             Box::new(ZeroTrendVol::new(l(0))),
             Box::new(
                 CommoditySelectionIndex::new(l(0))
@@ -520,8 +517,6 @@ mod tests {
             Box::new(PivotPoints::new(l(0))),
             Box::new(ZigZag::new(x(5.0), l(0))),
             Box::new(PriceChannel::new(l(0))),
-            Box::new(CorrelationCoefficient::new(l(0))),
-            Box::new(CorrelationLogReturns::new(l(0))),
             Box::new(LinearRegression::new(l(0))),
             Box::new(LinearRegressionSlope::new(l(0))),
             Box::new(StandardError::new(l(0))),
@@ -535,10 +530,8 @@ mod tests {
             Box::new(HL2::new()),
             Box::new(HLC3::new()),
             Box::new(OHLC4::new()),
-            Box::new(AdvanceDeclineLine::new()),
-            Box::new(Week52HighLow::new(l(0))),
-            Box::new(SpreadStudy::new()),
-            Box::new(RatioStudy::new()),
+            Box::new(Week52HighLow::new()),
+            Box::new(Week52HighLowLevels::new()),
         ]
     }
 
