@@ -180,6 +180,7 @@ All notable changes to this project are documented in this file. The format is b
 - ADX starts from the mean of the first n DX values, as Wilder defines it, instead of n - 1 values divided by n, so it no longer reads low after its warm-up.
 - ATR with length 1 has a value on a single bar, its range, instead of none until a second bar exists.
 - The Commodity Selection Index computes Wilder's formula, ADXR * ATR(n) * (V / sqrt(M)) * (1 / (150 + C)) * 100, from the ADX and ATR studies, and starts on bar 3n - 1; it used a simple mean of true ranges, an unsmoothed DX and a division by the close. Migration: `CommoditySelectionIndex::new(period, cost)` is now `new(period)`; set the contract with `with_point_value`, `with_margin` and `with_commission`. The old cost parameter had no counterpart in Wilder's formula.
+- The release workflow fails when `cargo publish` fails; it skips the publish only when crates.io already has the exact version.
 
 ### Changed
 
@@ -251,6 +252,8 @@ All notable changes to this project are documented in this file. The format is b
 - Widget bar icons are 20 px, as in the top toolbar, and their tooltips open to the left of the button instead of over the button below. The bottom bar's date button icon is 16 px.
 - `BarData::from_csv` requires the header row `ts,open,high,low,close,volume` (any case, spaces around names ignored) and returns an error naming it otherwise, instead of taking the first row as a header unchecked and reading the columns by position, which lost the first bar of a file without a header and swapped the columns of a file in another order. An empty file is refused too. Migration: give the file that header, with the columns in that order.
 - The `tauri_integration` example is now `data_source`, and its docs describe what it does: a chart with a sample `DataSource` in an eframe window. Its `fetch_historical` returns the newest bars before the requested end instead of the oldest, so scrolling back loads older bars instead of the start of the series again. Migration: run it with `cargo run --example data_source`.
+- Every CI job has a `timeout-minutes` limit, so a hung job fails in minutes instead of after the 6 hour default.
+- CI runs the library tests on Linux, macOS and Windows with stable Rust and on Linux with the MSRV, 1.95.0, each with all features and with `--no-default-features`.
 
 ### Removed
 
