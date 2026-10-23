@@ -8,15 +8,18 @@
 //! boundary (week, then month) so the dividers stay meaningful rather than
 //! landing on every bar.
 //!
-//! Boundaries are detected with [`find_session_breaks`] over the *visible* bar
-//! slice and placed with the chart's canonical [`ChartMapping::idx_to_x`], so
-//! they track the bars exactly under pan and zoom and never duplicate the
-//! coordinate math used by the candles.
+//! Boundaries are detected with [`find_session_breaks`](crate::model::find_session_breaks) over
+//! the *visible* bar slice, once a frame for both layers, and placed with the chart's canonical
+//! [`ChartMapping::idx_to_x`], so they track the bars exactly under pan and zoom and never
+//! duplicate the coordinate math used by the candles.
 
 use super::context::{ChartMapping, RenderContext};
 use crate::chart::rendering::draw_dashed_line;
 use crate::config::SessionBreakStyle;
-use crate::model::{Bar, SessionBreakType, SessionProvider, Timeframe, find_session_breaks};
+use crate::model::{
+    ExchangeSessionProvider, Instrument, SessionBreak, SessionBreakType, SessionProvider,
+    Timeframe, TimezoneId,
+};
 use egui::{Color32, Pos2, Stroke};
 
 /// Pick the session provider whose boundaries are meaningful at `timeframe`.
@@ -25,23 +28,34 @@ use egui::{Color32, Pos2, Stroke};
 /// divider marks a genuine break in the series rather than appearing between
 /// every pair of bars:
 ///
-/// | Timeframe tier            | Boundary drawn            |
-/// |---------------------------|---------------------------|
-/// | Intraday (`< 1 day`)      | Day change (midnight UTC) |
-/// | Daily (`1D`)              | ISO-week change           |
-/// | Weekly / monthly (`≥ 1W`) | Calendar-month change     |
+/// | Timeframe tier            | Boundary drawn                  |
+/// |---------------------------|---------------------------------|
+/// | Intraday (`< 1 day`)      | Session open of the trading day |
+/// | Daily (`1D`)              | ISO-week change                 |
+/// | Weekly / monthly (`≥ 1W`) | Calendar-month change           |
 ///
-/// Intraday charts use a midnight-UTC day boundary by default; callers that
-/// know the exchange session can substitute a session-aware provider.
-pub fn provider_for_timeframe(timeframe: Timeframe) -> Box<dyn SessionProvider> {
+/// An intraday trading day starts at each session open of the `instrument`'s trading hours,
+/// in its time zone, or at midnight in that zone without hours. Without either it starts at
+/// midnight UTC.
+pub fn provider_for_timeframe(
+    timeframe: Timeframe,
+    instrument: Option<&Instrument>,
+) -> Box<dyn SessionProvider> {
     use crate::model::{DailySessionProvider, MonthlySessionProvider, WeeklySessionProvider};
 
     // Day1 has duration 86_400_000 ms; anything below that is intraday.
     let day_ms = Timeframe::Day1.duration_ms();
     let ms = timeframe.duration_ms();
 
+    let exchange = instrument.filter(|i| i.time_zone.is_some() || i.session.is_some());
     if ms < day_ms {
-        Box::new(DailySessionProvider::continuous())
+        match exchange {
+            Some(instrument) => Box::new(ExchangeSessionProvider::new(
+                instrument.time_zone.clone().unwrap_or_else(TimezoneId::utc),
+                instrument.session.clone(),
+            )),
+            None => Box::new(DailySessionProvider::continuous()),
+        }
     } else if ms == day_ms {
         Box::new(WeeklySessionProvider::default())
     } else {
@@ -99,24 +113,20 @@ impl SessionBreakRenderer {
         Self { config }
     }
 
-    /// Draw dividers for `visible_data`.
+    /// Draw dividers at `breaks`, the [`find_session_breaks`](crate::model::find_session_breaks)
+    /// of the visible bars.
     ///
-    /// `start_idx` is the global index of `visible_data[0]`; it is added to the
+    /// `start_idx` is the global index of the first visible bar; it is added to the
     /// local break index so the divider is placed at the bar's true x via the
     /// shared [`ChartMapping`]. Dividers outside the chart rect are skipped.
     pub fn render(
         &self,
         ctx: &RenderContext,
-        visible_data: &[Bar],
-        provider: &dyn SessionProvider,
+        breaks: &[(usize, SessionBreak)],
         mapping: &ChartMapping,
         start_idx: usize,
     ) {
-        if visible_data.len() < 2 {
-            return;
-        }
-
-        for (local_idx, session_break) in find_session_breaks(visible_data, provider) {
+        for (local_idx, session_break) in breaks {
             let x = mapping.idx_to_x(start_idx + local_idx);
             if !mapping.is_x_visible(x) {
                 continue;
@@ -181,13 +191,10 @@ impl SessionBackgroundRenderer {
     pub fn render(
         &self,
         ctx: &RenderContext,
-        visible_data: &[Bar],
-        provider: &dyn SessionProvider,
+        breaks: &[(usize, SessionBreak)],
         mapping: &ChartMapping,
         start_idx: usize,
     ) {
-        let breaks = find_session_breaks(visible_data, provider);
-
         let mut even = true;
         let mut prev_x = ctx.rect.min.x;
 
@@ -221,7 +228,7 @@ impl SessionBackgroundRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::DailySessionProvider;
+    use crate::model::{Bar, DailySessionProvider, find_session_breaks};
     use chrono::{TimeZone, Utc};
 
     fn bar_at(year: i32, month: u32, day: u32, hour: u32) -> Bar {
@@ -238,19 +245,19 @@ mod tests {
     #[test]
     fn provider_tier_is_one_step_coarser_than_bars() {
         // Intraday -> day boundary.
-        let p = provider_for_timeframe(Timeframe::Min1);
+        let p = provider_for_timeframe(Timeframe::Min1, None);
         assert_eq!(p.name(), "Daily Sessions");
-        let p = provider_for_timeframe(Timeframe::Hour4);
+        let p = provider_for_timeframe(Timeframe::Hour4, None);
         assert_eq!(p.name(), "Daily Sessions");
 
         // Daily -> week boundary.
-        let p = provider_for_timeframe(Timeframe::Day1);
+        let p = provider_for_timeframe(Timeframe::Day1, None);
         assert_eq!(p.name(), "Weekly Sessions");
 
         // Weekly / monthly -> month boundary.
-        let p = provider_for_timeframe(Timeframe::Week1);
+        let p = provider_for_timeframe(Timeframe::Week1, None);
         assert_eq!(p.name(), "Monthly Sessions");
-        let p = provider_for_timeframe(Timeframe::Month1);
+        let p = provider_for_timeframe(Timeframe::Month1, None);
         assert_eq!(p.name(), "Monthly Sessions");
     }
 

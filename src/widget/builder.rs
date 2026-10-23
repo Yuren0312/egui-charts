@@ -39,7 +39,7 @@ use crate::chart::selection::SelectionState;
 use crate::config::{ChartConfig, ChartOptions, RealtimeButtonPos};
 use crate::data::{Datafeed, FeedState};
 use crate::drawings::DrawingManager;
-use crate::model::{BarClock, BarData, ChartState, Timeframe};
+use crate::model::{BarClock, BarData, ChartState, SessionProvider, Timeframe};
 use crate::model::{ChartType, ChartTypeParams};
 use crate::scales::{PriceMap, PriceRange, PriceTransform};
 use crate::studies::IndicatorRegistry;
@@ -119,6 +119,7 @@ impl Chart {
             timeframe: None,
             feed_link: None,
             instrument: None,
+            session_provider: None,
             cursor_modes: CursorModeState::new(),
             last_price_map: PriceMap::new(
                 PriceTransform::default(),
@@ -341,6 +342,13 @@ impl Chart {
     /// Returns the parameters of the price-based chart types and of the baseline.
     pub fn chart_type_params(&self) -> &ChartTypeParams {
         &self.chart_type_params
+    }
+
+    /// Draws the session breaks of intraday bars where `provider` reports them, instead of at
+    /// each session open of the [`instrument`](Self::instrument)'s trading hours. Daily and
+    /// longer bars keep their week and month breaks.
+    pub fn set_session_provider(&mut self, provider: impl SessionProvider + 'static) {
+        self.session_provider = Some(Box::new(provider));
     }
 
     /// Calculates how many bars fit in the given pixel width at the current bar spacing.

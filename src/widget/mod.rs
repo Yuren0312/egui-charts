@@ -264,6 +264,8 @@ pub struct Chart {
     pub(crate) feed_link: Option<FeedLink>,
     /// The description of the symbol; see [`Chart::instrument`].
     pub(crate) instrument: Option<crate::model::Instrument>,
+    /// Session breaks of intraday bars; see [`Chart::set_session_provider`].
+    pub(crate) session_provider: Option<Box<dyn crate::model::SessionProvider>>,
     /// Cursor mode state (Demonstration, Magic, Eraser effects)
     pub(crate) cursor_modes: CursorModeState,
     /// Price mapping of the last rendered frame (includes zoom adjustments)

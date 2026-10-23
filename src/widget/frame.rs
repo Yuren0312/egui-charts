@@ -5,7 +5,7 @@ use super::{Chart, RightClickTarget};
 use crate::chart::renderers::{self, ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering;
 use crate::config::{BackgroundStyle, WatermarkPos};
-use crate::model::PriceLine;
+use crate::model::{PriceLine, Timeframe};
 use crate::scales::TimeFormatterBuilder;
 use crate::styles::{sizing, typography};
 use crate::tokens::DESIGN_TOKENS;
@@ -543,7 +543,15 @@ impl Chart {
         // are clipped to the price rect so neither bleeds onto the axes.
         if self.config.show_session_breaks {
             let session_tf = self.resolve_session_timeframe(visible_data);
-            let provider = renderers::provider_for_timeframe(session_tf);
+            let own = renderers::provider_for_timeframe(session_tf, self.instrument.as_ref());
+            let provider = match &self.session_provider {
+                Some(host) if session_tf.duration_ms() < Timeframe::Day1.duration_ms() => {
+                    host.as_ref()
+                }
+                _ => own.as_ref(),
+            };
+            // Found once for both layers.
+            let breaks = crate::model::find_session_breaks(visible_data, provider);
             let session_painter = painter.with_clip_rect(price_rect);
             let session_ctx = RenderContext::new(&session_painter, price_rect);
 
@@ -552,13 +560,7 @@ impl Chart {
             // faint banding rather than two competing fills).
             let background =
                 renderers::SessionBackgroundRenderer::from_background(self.config.background_color);
-            background.render(
-                &session_ctx,
-                visible_data,
-                provider.as_ref(),
-                &coords,
-                start_idx,
-            );
+            background.render(&session_ctx, &breaks, &coords, start_idx);
 
             let break_renderer =
                 renderers::SessionBreakRenderer::new(renderers::SessionBreakRenderConfig {
@@ -566,13 +568,7 @@ impl Chart {
                     line_width: 1.0,
                     style: self.config.session_break_style,
                 });
-            break_renderer.render(
-                &session_ctx,
-                visible_data,
-                provider.as_ref(),
-                &coords,
-                start_idx,
-            );
+            break_renderer.render(&session_ctx, &breaks, &coords, start_idx);
         }
 
         // Render chart type with clipping to prevent bars from overlapping axes

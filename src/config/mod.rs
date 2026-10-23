@@ -5,7 +5,7 @@
 //!
 //! | Sub-module     | Key types                        | Purpose                        |
 //! |----------------|----------------------------------|--------------------------------|
-//! | `chart`        | [`ChartConfig`], [`SessionConfig`] | Visual styling, session hours |
+//! | `chart`        | [`ChartConfig`]                  | Visual styling                 |
 //! | `crosshair`    | [`CrosshairOptions`]             | Crosshair mode and colors      |
 //! | `interaction`  | [`HandleScrollOptions`], [`HandleScaleOptions`] | Scroll/zoom behavior |
 //! | `keyboard`     | [`KeyboardOptions`], [`KeyboardAction`] | Keyboard shortcuts      |
@@ -26,7 +26,7 @@ mod tooltip;
 
 pub use chart::{
     BackgroundStyle, ChartConfig, NavigationButtons, RealtimeButtonPos, SessionBreakStyle,
-    SessionConfig, WatermarkPos,
+    WatermarkPos,
 };
 pub use crosshair::{CrosshairLineStyle, CrosshairMode, CrosshairOptions, CrosshairStyle};
 pub use interaction::{

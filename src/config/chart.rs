@@ -3,9 +3,6 @@
 //! [`ChartConfig`] controls everything about the chart's appearance: candle
 //! colors, grid lines, axis visibility, volume panel, session breaks,
 //! watermark, and the "Go to Realtime" button.
-//!
-//! [`SessionConfig`] describes trading session hours for a specific exchange,
-//! with presets for NYSE, LSE, TSE, crypto 24/7, and forex.
 
 use crate::model::PriceSource;
 use crate::scales::PriceScaleMode;
@@ -52,99 +49,6 @@ pub enum SessionBreakStyle {
     Dashed,
     /// Dotted line
     Dotted,
-}
-
-/// Trading session configuration
-#[derive(Debug, Clone, PartialEq)]
-pub struct SessionConfig {
-    /// Session start time in HH:MM format (24-hour)
-    pub session_start: String,
-    /// Session end time in HH:MM format (24-hour)
-    pub session_end: String,
-    /// Timezone for the session (e.g., "America/New_York")
-    pub timezone: String,
-    /// Whether to show pre-market session
-    pub show_premarket: bool,
-    /// Whether to show post-market session
-    pub show_postmarket: bool,
-    /// Pre-market start time (e.g., "04:00")
-    pub premarket_start: Option<String>,
-    /// Post-market end time (e.g., "20:00")
-    pub postmarket_end: Option<String>,
-}
-
-impl Default for SessionConfig {
-    fn default() -> Self {
-        // Default to NYSE trading hours
-        Self {
-            session_start: "09:30".to_string(),
-            session_end: "16:00".to_string(),
-            timezone: "America/New_York".to_string(),
-            show_premarket: false,
-            show_postmarket: false,
-            premarket_start: Some("04:00".to_string()),
-            postmarket_end: Some("20:00".to_string()),
-        }
-    }
-}
-
-impl SessionConfig {
-    /// Create NYSE session configuration
-    pub fn nyse() -> Self {
-        Self::default()
-    }
-
-    /// Create London Stock Exchange session configuration
-    pub fn lse() -> Self {
-        Self {
-            session_start: "08:00".to_string(),
-            session_end: "16:30".to_string(),
-            timezone: "Europe/London".to_string(),
-            show_premarket: false,
-            show_postmarket: false,
-            premarket_start: None,
-            postmarket_end: None,
-        }
-    }
-
-    /// Create Tokyo Stock Exchange session configuration
-    pub fn tse() -> Self {
-        Self {
-            session_start: "09:00".to_string(),
-            session_end: "15:00".to_string(),
-            timezone: "Asia/Tokyo".to_string(),
-            show_premarket: false,
-            show_postmarket: false,
-            premarket_start: None,
-            postmarket_end: None,
-        }
-    }
-
-    /// Create 24/7 crypto session (no breaks)
-    pub fn crypto_24_7() -> Self {
-        Self {
-            session_start: "00:00".to_string(),
-            session_end: "23:59".to_string(),
-            timezone: "UTC".to_string(),
-            show_premarket: false,
-            show_postmarket: false,
-            premarket_start: None,
-            postmarket_end: None,
-        }
-    }
-
-    /// Create forex session configuration (Sydney -> Tokyo -> London -> New York)
-    pub fn forex() -> Self {
-        Self {
-            session_start: "17:00".to_string(), // Sunday 5PM EST
-            session_end: "17:00".to_string(),   // Friday 5PM EST
-            timezone: "America/New_York".to_string(),
-            show_premarket: false,
-            show_postmarket: false,
-            premarket_start: None,
-            postmarket_end: None,
-        }
-    }
 }
 
 /// Configuration for chart visual appearance.
@@ -246,8 +150,6 @@ pub struct ChartConfig {
     pub session_break_color: Color32,
     /// Style for session break lines
     pub session_break_style: SessionBreakStyle,
-    /// Session configuration (market hours)
-    pub session_config: Option<SessionConfig>,
     /// Whether to show watermark (large symbol name overlay)
     pub show_watermark: bool,
     /// Watermark text (None = use symbol name)
@@ -357,7 +259,6 @@ impl Default for ChartConfig {
             show_session_breaks: false,
             session_break_color: DESIGN_TOKENS.semantic.chart.grid_line_major,
             session_break_style: SessionBreakStyle::Dashed,
-            session_config: None,
             // Watermark disabled by default
             show_watermark: false,
             watermark_text: None,

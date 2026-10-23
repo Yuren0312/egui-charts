@@ -190,7 +190,6 @@ impl TimezoneId {
         self.0.name()
     }
 
-    #[cfg(feature = "studies")]
     pub(crate) fn tz(&self) -> Tz {
         self.0
     }
