@@ -12,6 +12,9 @@
 //! volatility rows use decimal logarithms at 50-digit precision. Calendar-window rows are
 //! hand-calculated over an inclusive 364-day window.
 //!
+//! Mulloy 1994 defines DEMA and TEMA, whose averages are each seeded with the mean of the first
+//! values of their own input.
+//!
 //! Where a definition leaves a convention open, the expected series follows the one the study
 //! documents (EMA and MACD seed with the first close, PPO and the Percentage Volume Oscillator
 //! seed their EMAs with the mean of the first values and their signal with the mean of the first
@@ -26,11 +29,11 @@
 use crate::model::Bar;
 use crate::studies::{
     ADX, ATR, Aroon, BalanceOfPower, BollingerBands, CCI, ChaikinMoneyFlow,
-    CommoditySelectionIndex, DirectionalMovement, DonchianChannels, EMA, HMA, IchimokuCloud,
+    CommoditySelectionIndex, DEMA, DirectionalMovement, DonchianChannels, EMA, HMA, IchimokuCloud,
     Indicator, IndicatorValue, KeltnerChannels, LinearRegression, LinearRegressionSlope, MACD,
     MoneyFlowIndex, NetVolume, ParabolicSAR, ParkinsonVol, PercentageVolumeOscillator,
-    PriceOscillator, RSI, RateOfChange, SMA, StandardDeviation, Stochastic, SuperTrend, VWMA, WMA,
-    Week52HighLow, Week52HighLowLevels, WilliamsR, ZeroTrendVol,
+    PriceOscillator, RSI, RateOfChange, SMA, StandardDeviation, Stochastic, SuperTrend, TEMA, VWMA,
+    WMA, Week52HighLow, Week52HighLowLevels, WilliamsR, ZeroTrendVol,
 };
 use chrono::{TimeZone, Utc};
 
@@ -93,6 +96,8 @@ fn staple_studies_match_published_definitions() {
         ("NetVolume", Box::new(NetVolume::default())),
         ("SMA(20)", Box::new(SMA::default())),
         ("EMA(12)", Box::new(EMA::default())),
+        ("DEMA(20)", Box::new(DEMA::default())),
+        ("TEMA(20)", Box::new(TEMA::default())),
         ("WMA(20)", Box::new(WMA::default())),
         ("RSI(14)", Box::new(RSI::default())),
         ("MACD(12,26,9)", Box::new(MACD::default())),
