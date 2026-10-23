@@ -141,11 +141,17 @@ impl Chart {
     /// Overlay studies (moving averages, Bollinger Bands) are drawn on the main
     /// pane, any other visible study (RSI, MACD) in a pane below it with its
     /// x-axis aligned to the main pane; [`Chart::get_rendered_indicator_panes`]
-    /// returns their layout. Studies are brought up to date first.
+    /// returns their layout. A chart built with a feed first asks it for what it needs and
+    /// applies what it sent; studies are then brought up to date. While bars stream, a study
+    /// that does not update incrementally is refreshed at most four times a second.
     ///
     /// Returns an [`egui::Response`] for additional interaction handling.
     pub fn show(&mut self, ui: &mut Ui) -> Response {
-        self.refresh_studies();
+        self.pump(ui.ctx());
+        if let Some(wait) = self.refresh_studies(ui.input(|i| i.time)) {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs_f64(wait));
+        }
         self.last_rendered_indicator_panes.clear();
         // Only pane studies need the pane layout, which gives the main pane at
         // least 200 points; without one the chart keeps the space it is given.
@@ -163,20 +169,18 @@ impl Chart {
 
     /// Resolve the timeframe used to pick a session-break granularity.
     ///
-    /// The legend `timeframe` label is the primary source (it parses forms like
-    /// `"1H"`, `"15min"`, `"1D"`). When it is empty or unrecognized, the cadence
+    /// The chart's timeframe is the primary source. Without one, the cadence
     /// is inferred from the visible bars by taking the median gap between
     /// consecutive timestamps and snapping it to the nearest preset, so session
-    /// breaks work even when the host never set a label. Falls back to the
+    /// breaks work even when the host never set a timeframe. Falls back to the
     /// default (1-minute) when there are too few bars to measure.
     fn resolve_session_timeframe(
         &self,
         visible_data: &[crate::model::Bar],
     ) -> crate::model::Timeframe {
         use crate::model::Timeframe;
-        use std::str::FromStr;
 
-        if let Ok(tf) = Timeframe::from_str(self.timeframe.trim()) {
+        if let Some(tf) = self.timeframe {
             return tf;
         }
 
@@ -601,8 +605,8 @@ impl Chart {
         // left-click priority (drawing > overlay indicator > series), and
         // right-clicking an object also selects it so the menu and the
         // selection handles agree. The captured target is
-        // drained by the host via `take_right_click`, or consumed by the
-        // turnkey menu in `TradingChart`.
+        // drained by the host via `take_right_click`, or consumed by
+        // `ChartMenus`.
         if response.secondary_clicked()
             && let Some(click_pos) = response.interact_pointer_pos()
             && chart_rect.contains(click_pos)
@@ -711,7 +715,7 @@ impl Chart {
                     &painter,
                     rect,
                     &self.symbol,
-                    &self.timeframe,
+                    &self.timeframe.map(|tf| tf.as_str()).unwrap_or_default(),
                     visible_data,
                     prev_close,
                     &colors,
@@ -786,7 +790,10 @@ impl Chart {
             );
         }
 
-        // Draw crosshair with options from chart_options
+        // Draw crosshair with options from chart_options. The pointer still hovers the chart
+        // while a context menu is open, so the crosshair, its labels and the tooltip wait until
+        // the menu closes.
+        let menu_open = std::mem::take(&mut self.menu_open);
         let mut crosshair_tags = [None; 2];
         if let Some(hover_pos) = response.hover_pos()
             && price_rect.contains(hover_pos)
@@ -794,37 +801,39 @@ impl Chart {
             // Cache the hover bar index for multi-chart sync
             self.last_hover_bar_idx = Some(coords.x_to_idx_f32(hover_pos.x) as f64);
 
-            crosshair_tags = rendering::render_crosshair_with_options(
-                &price_ctx,
-                hover_pos,
-                visible_data,
-                &price_map,
-                &coords,
-                &self.chart_options.crosshair,
-                chart_rect.max.y,
-                rect.max.x,
-                last_price_tag,
-                formatter.as_ref(),
-            );
-
-            // Draw the OHLC/value readout for the bar under the cursor, matching
-            // the bar the crosshair snaps to. Resolve via the shared coordinate
-            // mapping so the readout and the crosshair never disagree, and skip
-            // it when the cursor is in the empty scroll margin past the data.
-            let tooltip_options = &self.chart_options.tooltip;
-            if tooltip_options.enabled
-                && let Some(local_idx) = coords.local_idx_at_x(hover_pos.x, visible_data.len())
-            {
-                let candle = &visible_data[local_idx];
-                rendering::render_tooltip_with_options(
+            if !menu_open {
+                crosshair_tags = rendering::render_crosshair_with_options(
                     &price_ctx,
                     hover_pos,
-                    candle,
-                    tooltip_options,
+                    visible_data,
                     &price_map,
                     &coords,
-                    visible_data,
+                    &self.chart_options.crosshair,
+                    chart_rect.max.y,
+                    rect.max.x,
+                    last_price_tag,
+                    formatter.as_ref(),
                 );
+
+                // Draw the OHLC/value readout for the bar under the cursor, matching
+                // the bar the crosshair snaps to. Resolve via the shared coordinate
+                // mapping so the readout and the crosshair never disagree, and skip
+                // it when the cursor is in the empty scroll margin past the data.
+                let tooltip_options = &self.chart_options.tooltip;
+                if tooltip_options.enabled
+                    && let Some(local_idx) = coords.local_idx_at_x(hover_pos.x, visible_data.len())
+                {
+                    let candle = &visible_data[local_idx];
+                    rendering::render_tooltip_with_options(
+                        &price_ctx,
+                        hover_pos,
+                        candle,
+                        tooltip_options,
+                        &price_map,
+                        &coords,
+                        visible_data,
+                    );
+                }
             }
         } else {
             // Clear hover bar index when not hovering locally
@@ -832,7 +841,7 @@ impl Chart {
 
             // Render synced crosshair from other charts (if available)
             {
-                if let Some(bar_idx) = self.synced_crosshair_bar_idx {
+                if !menu_open && let Some(bar_idx) = self.synced_crosshair_bar_idx {
                     // Convert bar index to screen x coordinate
                     let x = coords.idx_to_x(bar_idx.round() as usize);
                     if coords.is_x_visible(x) {

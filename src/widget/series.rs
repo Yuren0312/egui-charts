@@ -13,17 +13,18 @@ impl Chart {
     /// Replaces the bars of `series`, for history or a replay window. Invalid bars (a non-finite
     /// value, a high or low on the wrong side of the open and close, negative volume) are dropped
     /// and counted in [`feed_state`](Self::feed_state), the rest sorted by time, and of several
-    /// bars with one open time the last is kept. If the new bars still hold the former first bar,
-    /// the drawings move with it, so older history can be loaded in front of the bars. The
-    /// studies are updated from the first bar that changed on the next [`show`](Self::show), and
-    /// near the live edge the view follows a new last bar, as with [`update`](Self::update).
+    /// bars with one open time, or in one slot of the timeframe for a chart built with a feed, the
+    /// last is kept. If the new bars still hold the former first bar, the drawings move with it,
+    /// so older history can be loaded in front of the bars. The studies are updated from the
+    /// first bar that changed on the next [`show`](Self::show), and near the live edge the view
+    /// follows a new last bar, as with [`update`](Self::update).
     ///
     /// Only [`SeriesId::MAIN`] holds bars; a call with another id is ignored with a warning.
     pub fn set_data(&mut self, series: SeriesId, bars: Vec<Bar>) {
         if !holds_bars(series, "set_data") {
             return;
         }
-        let (bars, rejected) = clean(bars);
+        let (bars, rejected) = clean(bars, &self.clock());
         self.feed.rejected_bars += rejected;
         self.from_ticks.clear();
         let before = self.edge();
@@ -35,14 +36,16 @@ impl Chart {
         self.drawings
             .shift_bar_indices(f32::NEG_INFINITY, prepended as f32);
         self.bars_changed(before, first_changed);
+        // A replaced series is shown at once, however recently the studies were refreshed.
+        self.last_refresh.fill(f64::NEG_INFINITY);
     }
 
     /// Merges `bar` into the bars of `series` as [`Sink::push_bar`](crate::data::Sink::push_bar)
-    /// does, matched by exact open time: a bar with the open time of a stored bar replaces it, a
-    /// newer one is appended and an older one is inserted in order. An invalid bar is dropped and
-    /// counted in [`feed_state`](Self::feed_state). Drawings move with their bars, studies follow
-    /// them on the next [`show`](Self::show), and near the live edge the view follows a new last
-    /// bar.
+    /// does, matched by open time, or by the slot of the timeframe for a chart built with a feed:
+    /// a bar that matches a stored bar replaces it, a newer one is appended and an older one is
+    /// inserted in order. An invalid bar is dropped and counted in
+    /// [`feed_state`](Self::feed_state). Drawings move with their bars, studies follow them on the
+    /// next [`show`](Self::show), and near the live edge the view follows a new last bar.
     ///
     /// Only [`SeriesId::MAIN`] holds bars; a call with another id is ignored with a warning.
     pub fn update(&mut self, series: SeriesId, bar: Bar) {
@@ -79,11 +82,18 @@ impl Chart {
     /// Merges `incoming` into the main bars by the rules of each bar's origin and counts the
     /// invalid ones in the feed state.
     pub(crate) fn apply(&mut self, incoming: Vec<(Bar, Origin)>) -> Merged {
+        let clock = self.clock();
+        self.apply_by(&clock, incoming)
+    }
+
+    /// [`apply`](Self::apply) with the slots of `clock`, the chart's.
+    pub(super) fn apply_by(&mut self, clock: &BarClock, incoming: Vec<(Bar, Origin)>) -> Merged {
         let before = self.edge();
-        let (from_ticks, clock) = (&mut self.from_ticks, BarClock::exact());
+        let tail = before.tail.as_ref().map(|bar| bar.time);
+        let from_ticks = &mut self.from_ticks;
         let mut merged = Merged::default();
         self.state.edit_bars(|bars| {
-            merged = merge(bars, from_ticks, &clock, incoming);
+            merged = merge(bars, from_ticks, clock, incoming);
             merged.first_changed
         });
         self.feed.rejected_bars += merged.rejected;
@@ -97,7 +107,19 @@ impl Chart {
             };
             self.drawings.shift_bar_indices(from, run.len() as f32);
         }
-        self.bars_changed(before, merged.first_changed);
+        if !self.bars_changed(before, merged.first_changed)
+            && let Some(tail) = tail
+        {
+            // The right edge is the last bar plus the right offset: without this a view scrolled
+            // back would move one bar left per appended bar. A bar stamped later in the slot of
+            // the last bar replaces it and appends nothing.
+            let bars = &self.state.data().bars;
+            let tail = clock.bar_open(tail);
+            let appended =
+                bars.len() - bars.partition_point(|bar| clock.bar_open(bar.time) <= tail);
+            let time_scale = self.state.time_scale_mut();
+            time_scale.set_right_offset(time_scale.right_offset() - appended as f32);
+        }
         merged
     }
 
@@ -111,6 +133,7 @@ impl Chart {
         self.studies.add(indicator);
         self.study_ids.push(id);
         self.pending_from.push(None);
+        self.last_refresh.push(f64::NEG_INFINITY);
         id
     }
 
@@ -123,6 +146,7 @@ impl Chart {
         self.studies.remove_indicator(at);
         self.study_ids.remove(at);
         self.pending_from.remove(at);
+        self.last_refresh.remove(at);
         if self.selection.selected_id() == Some(ChartElementId::Indicator(id)) {
             self.selection.deselect();
         }
@@ -141,7 +165,8 @@ impl Chart {
 
     /// The chart's studies with their ids, in the order they were added. Their values reflect the
     /// bars as of the last [`show`](Self::show), or of the call to
-    /// [`add_indicator`](Self::add_indicator).
+    /// [`add_indicator`](Self::add_indicator). While bars stream, a study that does not update
+    /// incrementally can lag them by up to 0.25 s.
     pub fn indicators(&self) -> impl Iterator<Item = (SeriesId, &dyn Indicator)> {
         let studies = self.studies.indicators().iter().map(|study| study.as_ref());
         self.study_ids.iter().copied().zip(studies)
@@ -152,30 +177,46 @@ impl Chart {
     pub fn indicator_mut(&mut self, id: SeriesId) -> Option<&mut (dyn Indicator + 'static)> {
         let at = self.study_ids.iter().position(|study| *study == id)?;
         self.pending_from[at] = Some(0);
+        self.last_refresh[at] = f64::NEG_INFINITY;
         Some(self.studies.indicators_mut()[at].as_mut())
     }
 
-    /// Updates every study with a pending change from the first bar it must be updated from.
-    pub(super) fn refresh_studies(&mut self) {
+    /// Updates every study with a pending change from the first bar it must be updated from, as
+    /// of `now` in seconds. A study that does not update incrementally waits until
+    /// [`REFRESH_INTERVAL`] has passed since its last refresh, unless the series was replaced.
+    /// Returns how long the first waiting study still waits.
+    pub(super) fn refresh_studies(&mut self, now: f64) -> Option<f64> {
         let bars = &self.state.data().bars;
         let studies = self.studies.indicators_mut().iter_mut();
-        for (study, from) in studies.zip(&mut self.pending_from) {
-            if let Some(from) = from.take() {
-                study.update(bars, from);
+        let pending = self.pending_from.iter_mut().zip(&mut self.last_refresh);
+        let mut wait = None::<f64>;
+        for (study, (from, last)) in studies.zip(pending) {
+            let Some(start) = *from else {
+                continue;
+            };
+            let due = *last + REFRESH_INTERVAL;
+            if study.is_incremental() || now >= due {
+                study.update(bars, start);
+                *from = None;
+                *last = now;
+            } else {
+                wait = Some(wait.map_or(due - now, |wait| wait.min(due - now)));
             }
         }
+        wait
     }
 
     /// Keeps studies and the view in step after the main bars changed. `first_changed` is the
     /// index of the first bar inserted, changed or removed. The studies are updated once on the
-    /// next frame, for all changes since the previous one.
-    fn bars_changed(&mut self, before: Edge, first_changed: Option<usize>) {
+    /// next frame, for all changes since the previous one. Returns whether the view followed the
+    /// live edge.
+    fn bars_changed(&mut self, before: Edge, first_changed: Option<usize>) -> bool {
         if let Some(from) = first_changed {
             for pending in &mut self.pending_from {
                 *pending = Some(pending.map_or(from, |pending| pending.min(from)));
             }
         }
-        self.follow_live_edge(before);
+        self.follow_live_edge(before)
     }
 
     fn edge(&self) -> Edge {
@@ -191,8 +232,9 @@ impl Chart {
     }
 
     /// Scrolls to the live edge when the view was near it and a bar was appended, or the last
-    /// bar replaced while the options allow shifting on whitespace replacement.
-    fn follow_live_edge(&mut self, before: Edge) {
+    /// bar replaced while the options allow shifting on whitespace replacement. Returns whether
+    /// it did.
+    fn follow_live_edge(&mut self, before: Edge) -> bool {
         let bars = &self.state.data().bars;
         let tail = before.tail.as_ref().zip(bars.last());
         // Appended only if the last bar moved forward in time: older bars loaded in front make
@@ -206,16 +248,21 @@ impl Chart {
         let shift_for_whitespace = tail_changed
             && !appended
             && options.allow_shift_visible_range_on_whitespace_replacement;
-        if options.shift_visible_range_on_new_bar
+        let follow = options.shift_visible_range_on_new_bar
             && before.near_live
-            && (appended || shift_for_whitespace)
-        {
+            && (appended || shift_for_whitespace);
+        if follow {
             self.state.time_scale_mut().scroll_to_realtime();
             // A pending start index would move the view away from the edge again.
             self.pending_start_idx = None;
         }
+        follow
     }
 }
+
+/// Seconds a study that does not update incrementally waits between two refreshes while bars
+/// stream, so a full recompute costs at most four frames a second.
+const REFRESH_INTERVAL: f64 = 0.25;
 
 /// The bars and the view before the bars change, for [`Chart::bars_changed`].
 struct Edge {
@@ -225,21 +272,17 @@ struct Edge {
     tail: Option<Bar>,
 }
 
-/// `bars` without the invalid ones, sorted by time, with the last of several bars of one open
-/// time; and the number of invalid bars dropped.
-pub(super) fn clean(bars: Vec<Bar>) -> (Vec<Bar>, u64) {
+/// `bars` without the invalid ones, sorted by time, with the last of several bars of one slot of
+/// `clock`; and the number of invalid bars dropped.
+pub(super) fn clean(bars: Vec<Bar>, clock: &BarClock) -> (Vec<Bar>, u64) {
     // Bars already in order pass as they are, without the copy through the merge.
-    if bars.windows(2).all(|pair| pair[0].time < pair[1].time) && bars.iter().all(valid) {
+    let slot = |bar: &Bar| clock.bar_open(bar.time);
+    if bars.windows(2).all(|pair| slot(&pair[0]) < slot(&pair[1])) && bars.iter().all(valid) {
         return (bars, 0);
     }
     let mut clean = Vec::with_capacity(bars.len());
     let incoming = bars.into_iter().map(|bar| (bar, Origin::History)).collect();
-    let merged = merge(
-        &mut clean,
-        &mut BTreeSet::new(),
-        &BarClock::exact(),
-        incoming,
-    );
+    let merged = merge(&mut clean, &mut BTreeSet::new(), clock, incoming);
     (clean, merged.rejected)
 }
 
@@ -257,8 +300,10 @@ mod tests {
     use super::super::test_frames::frame;
     use super::*;
     use crate::drawings::{ChartPoint, Drawing, DrawingToolType};
-    use crate::studies::{IndicatorValue, SMA};
+    use crate::studies::{IndicatorValue, RSI, SMA};
     use chrono::TimeDelta;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A flat bar at `close`, stamped `seconds` after 10:00.
     fn bar(seconds: i64, close: f64) -> Bar {
@@ -389,6 +434,102 @@ mod tests {
             let feed = chart.feed_state(SeriesId::MAIN).unwrap();
             assert_eq!(feed.rejected_bars, rejected, "{name}: rejected");
         }
+    }
+
+    /// RSI, counting the calls that recompute it.
+    struct Counted(RSI, Arc<AtomicUsize>);
+
+    impl Indicator for Counted {
+        fn name(&self) -> &str {
+            self.0.name()
+        }
+        fn calculate(&mut self, data: &[Bar]) {
+            self.1.fetch_add(1, Ordering::Relaxed);
+            self.0.calculate(data);
+        }
+        fn update(&mut self, data: &[Bar], from: usize) {
+            self.1.fetch_add(1, Ordering::Relaxed);
+            self.0.update(data, from);
+        }
+        fn values(&self) -> &[IndicatorValue] {
+            self.0.values()
+        }
+        fn colors(&self) -> Vec<egui::Color32> {
+            self.0.colors()
+        }
+        fn set_colors(&mut self, colors: Vec<egui::Color32>) {
+            self.0.set_colors(colors);
+        }
+        fn is_overlay(&self) -> bool {
+            self.0.is_overlay()
+        }
+        fn set_visible(&mut self, visible: bool) {
+            self.0.set_visible(visible);
+        }
+        fn clone_box(&self) -> Box<dyn Indicator> {
+            Box::new(Counted(self.0.clone(), Arc::clone(&self.1)))
+        }
+    }
+
+    /// Guards the cost and the freshness of studies while bars stream: a study that does not
+    /// update incrementally is refreshed at most four times a second and once more after the
+    /// stream stops, an incremental one on every frame, and both end equal to a fresh
+    /// calculation. A refresh on every frame, a pending change lost after the last update, or
+    /// the wait applied to an incremental study fails it.
+    #[test]
+    fn slow_studies_refresh_four_times_a_second_and_end_current() {
+        let ctx = egui::Context::default();
+        let mut chart = Chart::new(BarData::from_bars(
+            (0..100).map(|i| bar(i * 60, i as f64)).collect(),
+        ));
+        let sma = chart.add_indicator(Box::new(SMA::new(5)));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let rsi = chart.add_indicator(Box::new(Counted(RSI::new(14), Arc::clone(&calls))));
+        let values = |chart: &Chart, id| {
+            let (_, study) = chart.indicators().find(|(study, _)| *study == id).unwrap();
+            format!("{:?}", study.values())
+        };
+        let fresh = |chart: &Chart, mut study: Box<dyn Indicator>| {
+            study.calculate(chart.bars(SeriesId::MAIN));
+            format!("{:?}", study.values())
+        };
+        frame(&ctx, &mut chart, 0.0, Vec::new());
+        calls.store(0, Ordering::Relaxed);
+        let mut time = 0.0;
+        for i in 0..60 {
+            time += 1.0 / 60.0;
+            // Alternately a new close of the last bar and a new bar.
+            chart.update(
+                SeriesId::MAIN,
+                bar((100 + i / 2) * 60, 50.0 + (i * 7 % 13) as f64),
+            );
+            frame(&ctx, &mut chart, time, Vec::new());
+            assert_eq!(
+                values(&chart, sma),
+                fresh(&chart, Box::new(SMA::new(5))),
+                "SMA at {i}"
+            );
+        }
+        assert!(
+            calls.load(Ordering::Relaxed) <= 4,
+            "{calls:?} refreshes while streaming"
+        );
+        let streamed = calls.load(Ordering::Relaxed);
+        let stop = time;
+        while time < stop + 0.25 {
+            time += 1.0 / 60.0;
+            frame(&ctx, &mut chart, time, Vec::new());
+        }
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            streamed + 1,
+            "one refresh after the stream"
+        );
+        assert_eq!(
+            values(&chart, rsi),
+            fresh(&chart, Box::new(RSI::new(14))),
+            "RSI"
+        );
     }
 
     /// Guards the drawing shift of a merge: a point moves by the number of bars inserted in front
