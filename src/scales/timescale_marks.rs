@@ -185,7 +185,16 @@ impl TickMarkGenerator {
         let time_span = end_time - start_time;
 
         // Calculate optimal mark interval based on time span and display width
-        let interval = self.calculate_optimal_interval(time_span, width_pixels);
+        let mut interval = self.calculate_optimal_interval(time_span, width_pixels);
+        if (1..30).contains(&interval.num_days()) {
+            // Space daily candidates before anchoring them, so thinning cannot shift their phase.
+            let min_seconds =
+                time_span.num_seconds() as f32 * self.config.min_spacing / width_pixels;
+            let steps = (min_seconds / interval.num_seconds() as f32)
+                .ceil()
+                .max(1.0);
+            interval = interval * steps as i32;
+        }
 
         // Determine mark type and weight threshold
         let (mark_type, weight_threshold) = self.determine_mark_type_and_weight(interval);
@@ -336,26 +345,48 @@ impl TickMarkGenerator {
         primary_type: TickMarkType,
     ) -> Vec<TickMark> {
         let mut marks = Vec::new();
-        // Multi-year intervals step by calendar years so every mark is a year boundary.
-        let years = interval.num_days() / 365;
-        if years > 1 {
-            let first = start_time.year() - start_time.year().rem_euclid(years as i32);
-            let mut current = Utc.with_ymd_and_hms(first, 1, 1, 0, 0, 0).single();
+        // Calendar months keep month, quarter and year marks on their boundaries.
+        let days = interval.num_days();
+        let months = if days >= 365 {
+            12 * (days / 365) as u32
+        } else {
+            (days / 30) as u32
+        };
+        if months > 0 {
+            let month = start_time.year() * 12 + start_time.month0() as i32;
+            let first = month - month.rem_euclid(months as i32);
+            let mut current = Utc
+                .with_ymd_and_hms(
+                    first.div_euclid(12),
+                    first.rem_euclid(12) as u32 + 1,
+                    1,
+                    0,
+                    0,
+                    0,
+                )
+                .single();
             while let Some(time) = current.filter(|time| *time <= end_time) {
                 if time >= start_time {
+                    let (mark_type, weight) = self.classify_time_boundary(time, primary_type);
                     marks.push(TickMark {
                         time,
-                        mark_type: TickMarkType::Year,
-                        weight: TickMarkWeight::YEAR,
+                        mark_type,
+                        weight,
                         label: String::new(),
                         index: 0, // Will be set later
                     });
                 }
-                current = time.checked_add_months(Months::new(12 * years as u32));
+                current = time.checked_add_months(Months::new(months));
             }
             return marks;
         }
         let mut current = self.round_time_to_boundary(start_time, interval);
+        if days >= 1 && current < start_time {
+            let Some(next) = current.checked_add_signed(interval) else {
+                return marks;
+            };
+            current = next;
+        }
 
         while current <= end_time {
             let (mark_type, weight) = self.classify_time_boundary(current, primary_type);
@@ -402,8 +433,9 @@ impl TickMarkGenerator {
                 .checked_add_signed(Duration::seconds(first))
                 .unwrap_or(time)
         } else {
-            // Days or more: round down to day boundary
-            time.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+            // Fixed day counts since the Unix epoch keep multi-day marks stable while panning.
+            let rounded = time.timestamp().div_euclid(seconds) * seconds;
+            DateTime::from_timestamp(rounded, 0).unwrap_or(time)
         }
     }
 
@@ -763,6 +795,105 @@ mod tests {
                 })
                 .collect();
             assert_eq!(actual, expected, "pan {pan}");
+        }
+        let start = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        // The 634 px chart fits 120 daily bars at 634 / 120 px each; surrounding days
+        // exercise its monthly interval at this density.
+        for (first, last, width, density, min_spacing, data_len, expected) in [
+            (
+                472,
+                603,
+                634.0,
+                634.0 / 960.0,
+                140.0,
+                600,
+                vec![486, 517, 547, 578],
+            ),
+            (
+                300,
+                339,
+                1000.0,
+                1.0,
+                50.0,
+                600,
+                vec![
+                    301, 303, 305, 307, 309, 311, 313, 315, 317, 319, 321, 323, 325, 327, 329, 331,
+                    333, 335, 337, 339,
+                ],
+            ),
+            (
+                300,
+                399,
+                1000.0,
+                1.0,
+                50.0,
+                600,
+                vec![
+                    304, 311, 318, 325, 332, 339, 346, 353, 360, 367, 374, 381, 388, 395,
+                ],
+            ),
+            (
+                290,
+                400,
+                794.0,
+                794.0 / 800.0,
+                80_000.0 / 794.0,
+                600,
+                vec![297, 311, 325, 339, 353, 367, 381, 395],
+            ),
+            (
+                20,
+                1120,
+                1000.0,
+                1.0,
+                50.0,
+                4022,
+                vec![91, 182, 274, 366, 456, 547, 639, 731, 821, 912, 1004, 1096],
+            ),
+            (
+                20,
+                2020,
+                1000.0,
+                1.0,
+                50.0,
+                4022,
+                vec![182, 366, 547, 731, 912, 1096, 1277, 1461, 1643, 1827, 2008],
+            ),
+            (
+                20,
+                4020,
+                1000.0,
+                1.0,
+                50.0,
+                4022,
+                vec![
+                    366, 731, 1096, 1461, 1827, 2192, 2557, 2922, 3288, 3653, 4018,
+                ],
+            ),
+        ] {
+            let bars: Vec<_> = (0..data_len)
+                .map(|i| (start + Duration::days(i), i as usize))
+                .collect();
+            let generator = TickMarkGenerator::with_config(TickMarkGeneratorConfig {
+                target_density: density,
+                min_spacing,
+                ..Default::default()
+            });
+            for pan in [0, 1] {
+                let marks = generator.generate_marks(
+                    start + Duration::days(first + pan),
+                    start + Duration::days(last + pan),
+                    width,
+                    &bars,
+                );
+                let actual: Vec<_> = marks.iter().map(|mark| (mark.time, mark.index)).collect();
+                let expected: Vec<_> = expected
+                    .iter()
+                    .filter(|&&i| i >= first + pan)
+                    .map(|&i| (start + Duration::days(i), i as usize))
+                    .collect();
+                assert_eq!(actual, expected, "range {first}..{last}, pan {pan}");
+            }
         }
     }
 
