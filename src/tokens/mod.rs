@@ -94,9 +94,6 @@ pub static DESIGN_TOKENS: DesignTokens = DesignTokens {
         },
         panel: PanelSizingTokens {
             bottom_default_height: 150.0,
-            trading_panel_row_height: 28.0,
-            trading_panel_row_icon_size: 16.0,
-            trading_panel_row_btn_size: 24.0,
         },
         dialog: DialogSizingTokens {
             submenu_width: 200.0,
@@ -178,7 +175,6 @@ pub static DESIGN_TOKENS: DesignTokens = DesignTokens {
             shortcut_width: 70.0,
             char_width: 7.5,
             screen_edge_padding: 4.0,
-            submenu_arrow_font_size: 8.0,
         },
         symbol_header: SymbolHeaderSizingTokens {
             height: 28.0,

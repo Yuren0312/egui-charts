@@ -3,12 +3,15 @@
 //! Right-click context menu for the chart area. Provides trading actions,
 //! clipboard operations, chart management, and navigation options.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::chart::selection::{ChartElementId, SeriesId};
 use crate::config::KeyboardAction;
 use crate::icons::{Icon, icons as embedded_icons};
 use crate::theme::{Theme, ThemeExt};
+use crate::ui::Control;
+use crate::ui::app_state::set_control_visible;
 use crate::ui::dialogs::{
     DrawingContextMenu, DrawingContextMenuAction, SeriesContextMenu, SeriesContextMenuAction,
 };
@@ -32,8 +35,6 @@ pub enum ContextMenuAction {
     None,
     /// Copy price value to clipboard
     CopyPrice(f64),
-    /// Paste from clipboard
-    Paste,
     /// Add a price alert on a symbol
     AddAlert { symbol: String, price: f64 },
     /// Place a sell limit order
@@ -48,12 +49,6 @@ pub enum ContextMenuAction {
         price: f64,
         quantity: u32,
     },
-    /// Add a generic order
-    AddOrder { symbol: String, price: f64 },
-    /// Lock the vertical cursor line at a time position
-    LockVerticalCursor,
-    /// Switch to table view
-    TableView,
     /// Open the object tree panel
     ObjectTree,
     /// Remove all indicators from the chart
@@ -64,28 +59,8 @@ pub enum ContextMenuAction {
     OpenSeriesSettings,
     /// Export chart data to CSV
     ExportCsv,
-    /// Navigate to a specific date
-    GoToDate,
     /// Reset the chart view to defaults
     ResetChart,
-    /// Open symbol change dialog
-    ChangeSymbol,
-    /// Open interval/timeframe change dialog
-    ChangeInterval,
-    /// Show symbol information
-    SymbolInfo,
-    /// Open indicator insertion dialog
-    InsertIndicator,
-    /// Compare or overlay another symbol
-    CompareOrAddSymbol,
-    /// Open drawing tools panel
-    DrawingTools,
-    /// Toggle mark visibility on bars
-    HideMarksOnBars,
-    /// Open price scale settings
-    PriceScale,
-    /// Open time scale settings
-    TimeScale,
 }
 
 // ============================================================================
@@ -105,7 +80,6 @@ pub struct MenuItem<A = ContextMenuAction> {
     pub enabled: bool,
     /// Destructive rows paint in the theme's danger colours.
     pub danger: bool,
-    pub is_submenu: bool,
 }
 
 impl<A> MenuItem<A> {
@@ -117,7 +91,6 @@ impl<A> MenuItem<A> {
             action,
             enabled: true,
             danger: false,
-            is_submenu: false,
         }
     }
 
@@ -139,11 +112,6 @@ impl<A> MenuItem<A> {
     /// Mark the row as destructive.
     pub fn danger(mut self) -> Self {
         self.danger = true;
-        self
-    }
-
-    pub fn submenu(mut self) -> Self {
-        self.is_submenu = true;
         self
     }
 }
@@ -247,22 +215,15 @@ pub(crate) fn show_menu<A: Clone>(
         job.wrap = TextWrapping::truncate_at_width(max_width);
         ctx.fonts_mut(|f| f.layout_job(job))
     };
-    // Each item's label and its trailing text: the shortcut, or the submenu arrow.
+    // Each item's label and its shortcut.
     let rows: Vec<_> = entries
         .iter()
         .map(|entry| match entry {
-            MenuEntry::Item(item) => {
-                let trailing = match item.shortcut {
-                    Some(s) => Some((ctx.format_shortcut(&s), t.shortcut_font_size)),
-                    None => item
-                        .is_submenu
-                        .then(|| (">".to_owned(), t.submenu_arrow_font_size)),
-                };
-                Some((
-                    layout(item.label.clone(), t.font_size, MAX_LABEL_WIDTH),
-                    trailing.map(|(text, size)| layout(text, size, f32::INFINITY)),
-                ))
-            }
+            MenuEntry::Item(item) => Some((
+                layout(item.label.clone(), t.font_size, MAX_LABEL_WIDTH),
+                item.shortcut
+                    .map(|s| layout(ctx.format_shortcut(&s), t.shortcut_font_size, f32::INFINITY)),
+            )),
             MenuEntry::Separator => None,
         })
         .collect();
@@ -409,7 +370,7 @@ fn draw_item<A>(
         ui.painter().galley(pos, trailing, trailing_color);
     }
 
-    response.clicked() && item.enabled && !item.is_submenu
+    response.clicked() && item.enabled
 }
 
 fn draw_separator(ui: &mut Ui, theme: &Theme, width: f32, pad: f32) {
@@ -443,6 +404,8 @@ pub struct ChartContextMenu {
     pub last_action: ContextMenuAction,
     /// Skip close detection on first frame after opening
     just_opened: bool,
+    /// Controls the host hid, set through [`ChartMenus::set_control_visible`].
+    pub(crate) hidden: HashSet<Control>,
 }
 
 impl Default for ChartContextMenu {
@@ -461,6 +424,7 @@ impl ChartContextMenu {
             indicator_cnt: 0,
             last_action: ContextMenuAction::None,
             just_opened: false,
+            hidden: HashSet::new(),
         }
     }
 
@@ -512,23 +476,25 @@ impl ChartContextMenu {
                 format!("Copy price {price_str}"),
                 ContextMenuAction::CopyPrice(self.click_price),
             )),
-            MenuEntry::Item(MenuItem::new("Paste", ContextMenuAction::Paste)),
             MenuEntry::Separator,
         ];
         // Trading items need an instrument, so they are offered only with a symbol.
-        if !symbol.is_empty() {
-            items.extend([
-                MenuEntry::Item(
-                    MenuItem::new(
-                        format!("Add alert on {symbol} at {price_str}…"),
-                        ContextMenuAction::AddAlert {
-                            symbol: symbol.clone(),
-                            price: self.click_price,
-                        },
-                    )
-                    .with_icon(&embedded_icons::ALERTS)
-                    .with_shortcut(KeyboardAction::CreateAlert.shortcut()),
-                ),
+        let mut trading = Vec::new();
+        if !symbol.is_empty() && !self.hidden.contains(&Control::Alerts) {
+            trading.push(MenuEntry::Item(
+                MenuItem::new(
+                    format!("Add alert on {symbol} at {price_str}…"),
+                    ContextMenuAction::AddAlert {
+                        symbol: symbol.clone(),
+                        price: self.click_price,
+                    },
+                )
+                .with_icon(&embedded_icons::ALERTS)
+                .with_shortcut(KeyboardAction::CreateAlert.shortcut()),
+            ));
+        }
+        if !symbol.is_empty() && !self.hidden.contains(&Control::Trading) {
+            trading.extend([
                 MenuEntry::Item(
                     MenuItem::new(
                         format!("Sell 1 {symbol} @ {price_str} limit"),
@@ -551,28 +517,14 @@ impl ChartContextMenu {
                     )
                     .with_icon(&embedded_icons::LONG_POS),
                 ),
-                MenuEntry::Item(
-                    MenuItem::new(
-                        format!("Add order on {symbol} at {price_str}…"),
-                        ContextMenuAction::AddOrder {
-                            symbol: symbol.clone(),
-                            price: self.click_price,
-                        },
-                    )
-                    .with_icon(&embedded_icons::PLUS),
-                ),
-                MenuEntry::Separator,
             ]);
         }
+        if !trading.is_empty() {
+            items.extend(trading);
+            items.push(MenuEntry::Separator);
+        }
         items.extend([
-            // Cursor section
-            MenuEntry::Item(MenuItem::new(
-                "Lock vertical cursor line by time",
-                ContextMenuAction::LockVerticalCursor,
-            )),
-            MenuEntry::Separator,
             // View section
-            MenuEntry::Item(MenuItem::new("Table view", ContextMenuAction::TableView)),
             MenuEntry::Item(MenuItem::new("Object Tree…", ContextMenuAction::ObjectTree)),
             MenuEntry::Separator,
             // Indicator management
@@ -674,6 +626,14 @@ pub struct ChartMenus {
 }
 
 impl ChartMenus {
+    /// Shows or hides `control`: Alerts (the add alert rows of the chart and series menus)
+    /// and Trading (the chart menu's sell limit and buy stop rows). The menus ignore the other
+    /// controls.
+    pub fn set_control_visible(&mut self, control: Control, visible: bool) {
+        set_control_visible(&mut self.chart.hidden, control, visible);
+        set_control_visible(&mut self.series.hidden, control, visible);
+    }
+
     /// Opens the menu for the chart's last right-click, shows the open one and returns the
     /// chosen action. While a menu is open the chart draws no crosshair or tooltip under it.
     pub fn show(&mut self, ctx: &Context, chart: &mut Chart) -> Option<ChartContextAction> {

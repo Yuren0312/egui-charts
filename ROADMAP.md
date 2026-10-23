@@ -359,11 +359,11 @@ All indicators use a **generic polyline renderer**. There is no indicator-specif
 ### Top Toolbar
 - [x] Symbol search pill (custom-drawn with icons)
 - [x] Compare/Add symbol button renders and emits OpenCompare (no compare overlay)
-- [x] Timeframe selector dropdown grouped by unit (only 9 of 25 presets map to a Timeframe)
+- [x] Timeframe selector dropdown grouped by unit (every preset and custom interval emits a `Timeframe`)
 - [x] Chart type selector dropdown (all 19 types with icons + descriptions)
 - [x] Indicators button
 - [x] Alert, Replay, Undo, Redo buttons
-- [x] Right rail buttons render: Quick Search, Publish, Trade, Camera, Fullscreen, Settings, Save, Layout (Publish, Trade and Layout have no backing feature)
+- [x] Right rail buttons render: Theme, Quick Search, Camera, Fullscreen, Settings, Save, Layout (Layout has no backing feature)
 - [ ] Quick settings menu (exists but not rendered by the toolbar; most fields it writes have no reader)
 - [ ] Settings "Scales Properties..." button closes menu but opens nothing
 - [ ] Save button has no dropdown/sub-options
@@ -418,7 +418,7 @@ All indicators use a **generic polyline renderer**. There is no indicator-specif
 - [x] **Drawing Properties**: 4 tabs (Style, Coordinates, Visibility, Text); only color, width, line style, extend and label are applied
 - [x] **Keyboard Shortcuts**: help dialog listing the KeyboardAction table; chart and drawing keys are hardcoded in widget/interaction.rs and widget/tool_interaction/
 - [x] **Drawing Context Menu**
-- [x] **Series Context Menu** (Settings, Add indicator and Add alert work; the other 12 entries do nothing)
+- [x] **Series Context Menu** (Settings, Add indicator and Add alert work; Copy price does nothing)
 
 ### Widget Bar (Right Sidebar)
 - [x] Vertical icon bar (Alerts, Object Tree, Help)
@@ -442,11 +442,11 @@ All indicators use a **generic polyline renderer**. There is no indicator-specif
 - [ ] Alert notification popup (defined, never shown)
 
 ### Export
-- [x] Export dialog UI (format selection, size options, path input)
-- [x] `Exportable` trait defined (`export`, `export_png`, `export_svg`)
+- [x] Export dialog UI (format selection, path input)
+- [x] `Exportable` trait defined (`export`, `export_png`)
 - [ ] No `Exportable` implementation in-crate (host must implement)
 - [ ] Save path is typed by hand (no native file dialog)
-- [ ] No actual PNG/SVG rendering logic
+- [ ] No PNG rendering logic in-crate (the host captures the chart)
 
 ### Other UI
 - [x] Context menu: entries with icons, shortcuts, disabled state, click-outside close
