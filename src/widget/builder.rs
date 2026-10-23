@@ -440,7 +440,8 @@ impl ChartBuilder {
         }
     }
 
-    /// Creates a line chart with the time axis labels and ticks hidden.
+    /// Creates a line chart with the time axis labels hidden and the date alone in the
+    /// crosshair label.
     ///
     /// The data is still a time series of bars, and pan and zoom work as on any
     /// chart.
@@ -461,12 +462,15 @@ impl ChartBuilder {
     /// For traditional OHLC price charts, use [`ChartBuilder::new()`] instead.
     pub fn options_chart() -> Self {
         let mut chart_options = ChartOptions::default();
-        // Disable time-based features
+        let config = ChartConfig {
+            show_time_labels: false,
+            ..ChartConfig::default()
+        };
         chart_options.time_scale.time_visible = false;
         chart_options.time_scale.seconds_visible = false;
-        chart_options.time_scale.ticks_visible = false;
 
         Self::new()
+            .with_config(config)
             .with_chart_options(chart_options)
             .with_chart_type(ChartType::Line)
     }

@@ -60,17 +60,13 @@ pub struct TimeScaleOptions {
     /// Default: false
     pub allow_shift_visible_range_on_whitespace_replacement: bool,
 
-    /// Show the time, not just the date, in the time scale and vertical crosshair label.
-    /// Default: false
+    /// Show the time of day in intraday time scale and vertical crosshair labels.
+    /// Default: true
     pub time_visible: bool,
 
-    /// Show seconds in the time scale and vertical crosshair label in hh:mm:ss format for intraday data.
+    /// Show seconds where intraday time scale and vertical crosshair labels use second precision.
     /// Default: true
     pub seconds_visible: bool,
-
-    /// Draw small vertical line on time axis labels.
-    /// Default: false
-    pub ticks_visible: bool,
 
     /// Changes horizontal scale marks generation.
     /// With this flag equal to true, marks of the same weight are either all drawn or none are drawn at all.
@@ -100,9 +96,8 @@ impl Default for TimeScaleOptions {
             right_bar_stays_on_scroll: false,
             shift_visible_range_on_new_bar: true,
             allow_shift_visible_range_on_whitespace_replacement: false,
-            time_visible: false,
+            time_visible: true,
             seconds_visible: true,
-            ticks_visible: false,
             uniform_distribution: false,
             allow_bold_labels: true,
             timezone: TimezoneMode::default(),

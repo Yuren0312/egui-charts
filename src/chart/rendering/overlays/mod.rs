@@ -10,7 +10,7 @@ pub use realtime_btn::render_realtime_btn;
 pub use crate::chart::renderers::{render_legend, render_ohlc_info};
 
 use crate::chart::renderers::{ChartMapping, RenderContext};
-use crate::config::CrosshairOptions;
+use crate::config::{CrosshairOptions, TimeScaleOptions};
 use crate::scales::{PriceMap, TimeFormatter};
 use egui::{Pos2, Rect};
 
@@ -31,6 +31,7 @@ pub fn render_crosshair_with_options(
     last_price_tag: Option<Rect>,
     formatter: &dyn TimeFormatter,
     bar_seconds: i64,
+    time_scale: &TimeScaleOptions,
 ) -> [Option<Rect>; 2] {
     let options = options.resolved(price_ctx.painter.ctx());
     crate::chart::renderers::render_crosshair_full(
@@ -51,5 +52,6 @@ pub fn render_crosshair_with_options(
         last_price_tag,
         formatter,
         bar_seconds,
+        time_scale,
     )
 }

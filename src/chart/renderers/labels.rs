@@ -238,7 +238,7 @@ pub fn render_time_labels(
     let mut last_label_x: Option<f32> = None;
     let mut labels = Vec::new();
 
-    for mark in marks {
+    for mark in marks.into_iter().filter(|mark| !mark.label.is_empty()) {
         // Use fractional index for smooth label movement during pan
         let index = time_to_idx(mark.time, &bars);
         // Calculate x using same formula as candle rendering

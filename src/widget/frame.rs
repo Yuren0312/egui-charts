@@ -6,7 +6,7 @@ use crate::chart::renderers::{self, ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering;
 use crate::config::{BackgroundStyle, WatermarkPos};
 use crate::model::PriceLine;
-use crate::scales::TimeFormatterBuilder;
+use crate::scales::{CustomTimeFormatter, TickMarkType, TimeFormatterBuilder};
 use crate::styles::{sizing, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Pos2, Rect, Response, Sense, Ui, Vec2};
@@ -525,7 +525,7 @@ impl Chart {
 
         let formatter = TimeFormatterBuilder::new()
             .with_24_hour(true)
-            .with_seconds(true)
+            .with_seconds(self.chart_options.time_scale.seconds_visible)
             .with_timezone(self.chart_options.time_scale.timezone.clone())
             .build();
 
@@ -931,6 +931,7 @@ impl Chart {
                     last_price_tag,
                     formatter.as_ref(),
                     bar_seconds,
+                    &self.chart_options.time_scale,
                 );
 
                 // Draw the OHLC/value readout for the bar under the cursor, matching
@@ -980,6 +981,7 @@ impl Chart {
                             last_price_tag,
                             formatter.as_ref(),
                             bar_seconds,
+                            &self.chart_options.time_scale,
                         );
                     }
                 }
@@ -993,12 +995,26 @@ impl Chart {
         }
         if self.config.show_time_labels {
             let chart_ctx = RenderContext::new(&painter, chart_rect);
+            let time_visible = self.chart_options.time_scale.time_visible;
+            // Without the time of day an intraday mark has nothing to show: its date would
+            // read as a day boundary.
+            let formatter = CustomTimeFormatter::new(move |time, mark_type| {
+                if !time_visible
+                    && matches!(
+                        mark_type,
+                        TickMarkType::Time | TickMarkType::TimeWithSeconds
+                    )
+                {
+                    return String::new();
+                }
+                formatter.format(time, mark_type)
+            });
             rendering::render_time_labels(
                 &chart_ctx,
                 visible_data,
                 &coords,
                 &colors,
-                formatter.as_ref(),
+                &formatter,
                 &tags,
                 time_labels,
             );
@@ -1058,51 +1074,65 @@ mod tests {
         );
     }
 
-    /// The crosshair's time label names the bar nearest the pointer, and a chart that follows
-    /// another one's index names the same bar. The bars are daily from 2023-11-14, so bar 50 is
-    /// 3 Jan 2024 and bar 51 is 4 Jan 2024; 0.7 of a bar past the centre of bar 50 is nearer to 51.
+    /// The crosshair's time label names the element nearest the pointer, for local and synced
+    /// pointers and for Renko bricks, and applies time visibility and seconds precision. Bar 51
+    /// opens at 2000-06-15 14:30:45.123 and 0.7 of a bar past the centre of bar 50 is nearer to
+    /// 51. All labels below are written by hand.
     #[test]
     fn crosshair_time_label_names_the_nearest_bar() {
-        use crate::model::{ChartType, ChartTypeParams};
-        let mut highs = vec![120.0; 100];
-        highs[99] = 3120.0;
-        // (type, highs, element index, pointer over chart, synced index, expected label)
+        use crate::model::Bar;
+        use crate::model::ChartType::{Candles, Renko};
+        use crate::model::ChartTypeParams;
+        use crate::widget::SeriesId;
+        use chrono::{Duration, TimeZone, Utc};
+
+        // (type, bar milliseconds, local pointer, time visible, seconds visible, expected label)
+        let mut failures = Vec::new();
         for case in [
-            (
-                ChartType::Candles,
-                &[200.0][..],
-                50,
-                true,
-                None,
-                "Jan 04, 2024",
-            ),
-            (
-                ChartType::Candles,
-                &[200.0][..],
-                50,
-                false,
-                Some(50.7),
-                "Jan 04, 2024",
-            ),
-            // Bar 99 alone completes 300 bricks, all dated 21 February 2024.
-            (
-                ChartType::Renko,
-                highs.as_slice(),
-                250,
-                true,
-                None,
-                "Feb 21, 2024",
-            ),
+            (Candles, 86_400_000, true, true, true, "Jun 15, 2000"),
+            (Candles, 86_400_000, false, false, false, "Jun 15, 2000"),
+            (Candles, 60_000, true, true, true, "Jun 15, 2000 14:30"),
+            (Candles, 60_000, false, true, false, "Jun 15, 2000 14:30"),
+            (Candles, 1_000, true, true, true, "Jun 15, 2000 14:30:45"),
+            (Candles, 1_000, false, true, false, "Jun 15, 2000 14:30"),
+            (Candles, 1_000, true, false, true, "Jun 15, 2000"),
+            (Candles, 1_000, false, false, false, "Jun 15, 2000"),
+            (Candles, 100, true, true, true, "Jun 15, 2000 14:30:45.123"),
+            (Candles, 100, false, true, false, "Jun 15, 2000 14:30"),
+            (Candles, 100, true, false, true, "Jun 15, 2000"),
+            // Bar 99 alone completes 300 bricks, all dated 2 August 2000.
+            (Renko, 86_400_000, true, true, true, "Aug 02, 2000"),
         ] {
-            let (kind, highs, index, pointer, synced, expected) = case;
+            let (kind, bar_ms, pointer, time_visible, seconds_visible, expected) = case;
+            let index = if kind == Renko { 250 } else { 50 };
             let ctx = egui::Context::default();
-            let mut chart = chart(&[100.0], highs);
+            let mut chart = chart(&[100.0], &[200.0]);
+            chart.config_mut().show_volume = false;
             chart.set_chart_type(kind);
             chart.set_chart_type_params(ChartTypeParams {
                 renko_brick_size: 10.0,
                 ..Default::default()
             });
-            chart.set_synced_crosshair_bar_idx(synced);
+            let target = Utc.with_ymd_and_hms(2000, 6, 15, 14, 30, 45).unwrap()
+                + Duration::milliseconds(123);
+            let bars = (0..100)
+                .map(|i| {
+                    let close = if i == 99 { 3120.0 } else { 120.0 };
+                    Bar::new(
+                        target + Duration::milliseconds((i - 51) * bar_ms),
+                        100.0,
+                        close,
+                        100.0,
+                        close,
+                        1.0,
+                    )
+                })
+                .collect();
+            chart.set_data(SeriesId::MAIN, bars);
+            let options = &mut chart.chart_options.time_scale;
+            options.time_visible = time_visible;
+            options.seconds_visible = seconds_visible;
+            chart.set_synced_crosshair_bar_idx((!pointer).then_some(50.7));
             frame(&ctx, &mut chart, 0.0, Vec::new());
             let map = chart.get_chart_mapping();
             let hover = Pos2::new(
@@ -1120,14 +1150,41 @@ mod tests {
             let labels: Vec<_> = painted
                 .iter()
                 .filter_map(|shape| match shape {
-                    Shape::Text(text) if text.galley.text().ends_with(", 2024") => {
+                    Shape::Text(text) if text.galley.text().contains(", 2000") => {
                         Some(text.galley.text().to_owned())
                     }
                     _ => None,
                 })
                 .collect();
-            assert_eq!(labels, [expected], "{case:?}");
+            if labels != [expected] {
+                failures.push(format!("{case:?}: {labels:?}"));
+            }
+            // These subsecond bars all fall in the same minute and date, so hiding seconds
+            // leaves 14:30 on every axis label, and hiding time leaves no label at all.
+            if bar_ms == 100 && (!time_visible || !seconds_visible) {
+                let expected_axis: &[_] = if time_visible { &["14:30"] } else { &[] };
+                let axis: Vec<_> = painted
+                    .iter()
+                    .filter_map(|shape| match shape {
+                        Shape::Text(text)
+                            if text.pos.y > map.rect.max.y
+                                && !text.galley.text().contains(", 2000") =>
+                        {
+                            Some(text.galley.text())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let mut distinct = axis.clone();
+                distinct.dedup();
+                if distinct != expected_axis {
+                    failures.push(format!(
+                        "{case:?}: axis {axis:?}, expected {expected_axis:?}"
+                    ));
+                }
+            }
         }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     fn navigation_pos(chart: &crate::widget::Chart, button: usize) -> Pos2 {

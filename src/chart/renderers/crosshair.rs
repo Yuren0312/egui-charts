@@ -2,7 +2,7 @@ use super::context::{ChartMapping, RenderContext};
 use super::labels::tick_decimals;
 use crate::chart::rendering::axes::{PRICE_LABEL_GAP, TIME_LABEL_GAP, paint_axis_tag};
 use crate::chart::rendering::draw_dashed_line;
-use crate::config::{CrosshairLineStyle, CrosshairMode, CrosshairStyle};
+use crate::config::{CrosshairLineStyle, CrosshairMode, CrosshairStyle, TimeScaleOptions};
 use crate::model::Bar;
 use crate::scales::{PriceMap, PriceScaleMode, TickMarkType, TimeFormatter};
 use crate::tokens::DESIGN_TOKENS;
@@ -33,6 +33,7 @@ pub fn render_crosshair_full(
     last_price_tag: Option<Rect>,
     formatter: &dyn TimeFormatter,
     bar_seconds: i64,
+    time_scale: &TimeScaleOptions,
 ) -> [Option<Rect>; 2] {
     // Arrow style = no crosshair at all (just standard mouse cursor)
     if style == CrosshairStyle::Arrow {
@@ -164,7 +165,7 @@ pub fn render_crosshair_full(
             Align2::CENTER_TOP,
             axis_right,
             None,
-            time_label(candle.time, bar_seconds, formatter),
+            time_label(candle.time, bar_seconds, formatter, time_scale),
             label_text,
             label_bg,
         )
@@ -174,16 +175,26 @@ pub fn render_crosshair_full(
 }
 
 /// The crosshair's time label for a bar `bar_seconds` long: its date as the time axis writes
-/// it, with the year unless it is the current one, then the time of day for intraday bars.
-fn time_label(time: DateTime<Utc>, bar_seconds: i64, formatter: &dyn TimeFormatter) -> String {
+/// it, with the year unless it is the current one, then the configured time of day for intraday bars.
+fn time_label(
+    time: DateTime<Utc>,
+    bar_seconds: i64,
+    formatter: &dyn TimeFormatter,
+    options: &TimeScaleOptions,
+) -> String {
     let mut label = formatter.format(time, TickMarkType::DayOfMonth);
     let year = formatter.format(time, TickMarkType::Year);
     if year != formatter.format(Utc::now(), TickMarkType::Year) {
         label = format!("{label}, {year}");
     }
+    if !options.time_visible {
+        return label;
+    }
     match bar_seconds {
         86_400.. => label,
-        60.. => format!("{label} {}", formatter.format(time, TickMarkType::Time)),
+        _ if bar_seconds >= 60 || !options.seconds_visible => {
+            format!("{label} {}", formatter.format(time, TickMarkType::Time))
+        }
         1.. => format!(
             "{label} {}",
             formatter.format(time, TickMarkType::TimeWithSeconds)
