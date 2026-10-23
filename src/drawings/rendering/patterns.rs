@@ -130,17 +130,11 @@ impl Drawing {
     /// Draw Fibonacci ratio labels for harmonic patterns
     fn draw_harmonic_ratios(&self, painter: &egui::Painter, color: Color32) {
         let ratio_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 180);
+        let [xab, bcd] = self.xabcd_ratios();
 
-        // Calculate XAB ratio (B retracement of XA)
-        if self.points.len() >= 3 {
-            let xa_range = (self.points[1].y - self.points[0].y).abs();
-            let xab_range = (self.points[2].y - self.points[0].y).abs();
-            let xab_ratio = if xa_range > 0.001 {
-                xab_range / xa_range
-            } else {
-                0.0
-            };
-
+        if self.points.len() >= 3
+            && let Some(xab_ratio) = xab
+        {
             // Position ratio label at midpoint of XB line
             let mid_xb = Pos2::new(
                 (self.points[0].x + self.points[2].x) / 2.0,
@@ -155,16 +149,9 @@ impl Drawing {
             );
         }
 
-        // Calculate BCD ratio for completed pattern
-        if self.points.len() >= 5 {
-            let bc_range = (self.points[3].y - self.points[2].y).abs();
-            let cd_range = (self.points[4].y - self.points[3].y).abs();
-            let bcd_ratio = if bc_range > 0.001 {
-                cd_range / bc_range
-            } else {
-                0.0
-            };
-
+        if self.points.len() >= 5
+            && let Some(bcd_ratio) = bcd
+        {
             let mid_bd = Pos2::new(
                 (self.points[2].x + self.points[4].x) / 2.0,
                 (self.points[2].y + self.points[4].y) / 2.0,
@@ -299,50 +286,22 @@ impl Drawing {
         }
 
         // Draw neckline and target projection for complete pattern
-        if self.points.len() >= 5 {
-            // Neckline connects the troughs (points 1 and len-2)
-            let neckline_start = self.points[1];
-            let neckline_end = self.points[self.points.len() - 2];
-
+        let extend =
+            DESIGN_TOKENS.sizing.technical_labels.fib_label_offset_x + DESIGN_TOKENS.spacing.xxxl;
+        if let Some((neckline, target_y)) = head_and_shoulders_neckline(&self.points, extend) {
             let neckline_color =
                 Color32::from_rgba_unmultiplied(self.color[0], self.color[1], self.color[2], 200);
+            let last_x = self.points[self.points.len() - 1].x;
 
-            // Extend neckline
-            let dx = neckline_end.x - neckline_start.x;
-            let dy = neckline_end.y - neckline_start.y;
-            let extend = DESIGN_TOKENS.sizing.technical_labels.fib_label_offset_x
-                + DESIGN_TOKENS.spacing.xxxl;
-            let extended_end = if dx.abs() > 0.001 {
-                Pos2::new(neckline_end.x + extend, neckline_end.y + dy / dx * extend)
-            } else {
-                Pos2::new(neckline_end.x, neckline_end.y + extend)
-            };
-
-            painter.line_segment(
-                [neckline_start, extended_end],
-                Stroke::new(stroke::MEDIUM, neckline_color),
-            );
-
-            // Calculate and draw target projection
-            let head_point = self.points[3]; // Assuming head is point 3
-            let neckline_y_at_head = neckline_start.y + dy / dx * (head_point.x - neckline_start.x);
-            let pattern_height = (head_point.y - neckline_y_at_head).abs();
-
-            // Target is same distance below neckline
-            let is_top = head_point.y < neckline_y_at_head;
-            let target_y = if is_top {
-                neckline_end.y + pattern_height
-            } else {
-                neckline_end.y - pattern_height
-            };
+            painter.line_segment(neckline, Stroke::new(stroke::MEDIUM, neckline_color));
 
             // Draw target line (dashed)
             let target_color = DESIGN_TOKENS.semantic.indicators.ma.gamma_multiply(0.7); // Orange
             super::utils::draw_dashed_line(
                 painter,
-                Pos2::new(neckline_end.x, target_y),
+                Pos2::new(last_x, target_y),
                 Pos2::new(
-                    neckline_end.x + DESIGN_TOKENS.sizing.technical_labels.fib_label_offset_x,
+                    last_x + DESIGN_TOKENS.sizing.technical_labels.fib_label_offset_x,
                     target_y,
                 ),
                 Stroke::new(stroke::HAIRLINE, target_color),
@@ -357,7 +316,7 @@ impl Drawing {
                 .chart_axis_bg
                 .gamma_multiply(0.86);
             let target_label_pos = Pos2::new(
-                neckline_end.x
+                last_x
                     + DESIGN_TOKENS.sizing.technical_labels.fib_label_offset_x
                     + DESIGN_TOKENS.spacing.lg,
                 target_y,
@@ -482,19 +441,9 @@ impl Drawing {
         }
 
         // Calculate and display AB=CD ratio
-        if self.points.len() >= 4 {
-            let ab_length = ((self.points[1].x - self.points[0].x).powi(2)
-                + (self.points[1].y - self.points[0].y).powi(2))
-            .sqrt();
-            let cd_length = ((self.points[3].x - self.points[2].x).powi(2)
-                + (self.points[3].y - self.points[2].y).powi(2))
-            .sqrt();
-            let ratio = if ab_length > 0.001 {
-                cd_length / ab_length
-            } else {
-                0.0
-            };
-
+        if self.points.len() >= 4
+            && let Some(ratio) = self.abcd_ratio()
+        {
             // Ratio label
             let ratio_pos = Pos2::new(
                 (self.points[0].x + self.points[3].x) / 2.0,
@@ -787,6 +736,134 @@ impl Drawing {
                 egui::FontId::proportional(typography::XS),
                 DESIGN_TOKENS.semantic.extended.bullish,
             );
+        }
+    }
+}
+
+/// Head and shoulders neckline and target from the anchors (start, left shoulder, trough, head,
+/// trough, right shoulder, end): the neckline runs through the two troughs, from the left trough to
+/// `extend` past the last anchor's x, and the target y lies at the last anchor's x, as far beyond
+/// the neckline as the head is from it at the head's x, on the side away from the head. `None`
+/// until both troughs are placed, or while they share an x.
+fn head_and_shoulders_neckline(points: &[Pos2], extend: f32) -> Option<([Pos2; 2], f32)> {
+    let &[_, _, left, head, right, ..] = points else {
+        return None;
+    };
+    let dx = right.x - left.x;
+    if dx == 0.0 {
+        return None;
+    }
+    let neckline_y = |x: f32| left.y + (right.y - left.y) / dx * (x - left.x);
+    let last_x = points[points.len() - 1].x;
+    let end_x = last_x + extend;
+    Some((
+        [left, Pos2::new(end_x, neckline_y(end_x))],
+        neckline_y(last_x) - (head.y - neckline_y(head.x)),
+    ))
+}
+
+impl Drawing {
+    /// Price ratios of an XABCD pattern: B's retracement of XA (`|B - A| / |A - X|`) and D's
+    /// extension of BC (`|D - C| / |C - B|`).
+    fn xabcd_ratios(&self) -> [Option<f64>; 2] {
+        [
+            self.leg_ratio([1, 2], [0, 1]),
+            self.leg_ratio([3, 4], [2, 3]),
+        ]
+    }
+
+    /// Price ratio of an ABCD pattern's CD leg to its AB leg.
+    fn abcd_ratio(&self) -> Option<f64> {
+        self.leg_ratio([2, 3], [0, 1])
+    }
+
+    /// Price height of the leg between two anchors over that of a base leg; `None` when an anchor
+    /// has no chart coordinates or the base leg is flat.
+    fn leg_ratio(&self, leg: [usize; 2], base: [usize; 2]) -> Option<f64> {
+        let height = |[from, to]: [usize; 2]| {
+            Some((self.chart_points.get(to)?.price - self.chart_points.get(from)?.price).abs())
+        };
+        let base = height(base)?;
+        if base == 0.0 {
+            return None;
+        }
+        Some(height(leg)? / base)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drawings::domain::{ChartPoint, DrawingToolType};
+
+    #[test]
+    fn head_and_shoulders_neckline_runs_through_the_troughs() {
+        let anchors = |ys: [f32; 7], last_trough_x: f32| {
+            let mut points = ys.map(|y| Pos2::new(0.0, y));
+            for (i, p) in points.iter_mut().enumerate() {
+                p.x = 10.0 * i as f32;
+            }
+            points[4].x = last_trough_x;
+            points
+        };
+        let top = anchors([300.0, 200.0, 250.0, 100.0, 260.0, 210.0, 320.0], 40.0);
+        let inverse = anchors([100.0, 200.0, 150.0, 300.0, 140.0, 190.0, 80.0], 40.0);
+        let vertical = anchors([300.0, 200.0, 250.0, 100.0, 260.0, 210.0, 320.0], 20.0);
+        // Neckline slope 0.5 from the left trough: 255 at the head's x (height 155), 270 at the
+        // last anchor and 275 at 10 past it, so the target is 270 + 155. The inverse pattern
+        // mirrors y about 200: slope -0.5, 130 at the last anchor, target 130 - 155.
+        let cases = [
+            (&top[..], Some(([top[2], Pos2::new(70.0, 275.0)], 425.0))),
+            (
+                &inverse[..],
+                Some(([inverse[2], Pos2::new(70.0, 125.0)], -25.0)),
+            ),
+            (&vertical[..], None),
+            (&top[..4], None),
+        ];
+        for (points, expected) in cases {
+            assert_eq!(
+                head_and_shoulders_neckline(points, 10.0),
+                expected,
+                "{points:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pattern_ratios_are_measured_in_price() {
+        // Screen y is 1000 / price, a non-linear scale on which screen ratios differ from price ratios.
+        let pattern = |prices: &[f64]| {
+            let mut drawing = Drawing::new(0, DrawingToolType::XABCDPattern);
+            for (i, &price) in prices.iter().enumerate() {
+                let x = 10.0 * i as f32;
+                drawing.chart_points.push(ChartPoint::new(x, price));
+                drawing.points.push(Pos2::new(x, (1000.0 / price) as f32));
+            }
+            drawing
+        };
+        // [XAB, BCD, ABCD]: |B - A| / |A - X|, |D - C| / |C - B| and |D - C| / |B - A|, with the
+        // first anchor as X for the harmonic ratios and as A for ABCD.
+        let cases: [(&[f64], [Option<f64>; 3]); 3] = [
+            (
+                &[100.0, 200.0, 138.2, 176.4, 78.6],
+                [Some(61.8 / 100.0), Some(97.8 / 38.2), Some(38.2 / 100.0)],
+            ),
+            (
+                &[100.0, 150.0, 125.0, 175.0],
+                [Some(25.0 / 50.0), None, Some(1.0)],
+            ),
+            (&[100.0, 100.0, 138.2, 176.4], [None, None, None]),
+        ];
+        for (prices, expected) in cases {
+            let drawing = pattern(prices);
+            let [xab, bcd] = drawing.xabcd_ratios();
+            for (actual, expected) in [xab, bcd, drawing.abcd_ratio()].into_iter().zip(expected) {
+                match (actual, expected) {
+                    (Some(a), Some(e)) => assert!((a - e).abs() < 1e-6, "{prices:?}: {a} != {e}"),
+                    _ => assert_eq!(actual, expected, "{prices:?}"),
+                }
+            }
         }
     }
 }

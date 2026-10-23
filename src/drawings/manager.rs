@@ -507,10 +507,11 @@ impl DrawingManager {
     }
 
     /// Manually completes the in-progress drawing (e.g., on double-click or Enter
-    /// for multi-point tools). Requires at least 2 points.
+    /// for multi-point tools). Requires at least 2 points, and as many as the tool draws
+    /// with, so that what it adds can be saved.
     pub fn complete_curr_drawing(&mut self) {
         if let Some(ref mut drawing) = self.curr_drawing
-            && drawing.points.len() >= 2
+            && drawing.points.len() >= drawing.tool_type.anchors_needed().max(2)
         {
             drawing.completed = true;
             self.history.push_add(drawing.clone());
@@ -748,6 +749,36 @@ mod tests {
         assert!(manager.active_tool.is_none());
     }
 
+    /// One click, a hover and Enter finish a multi-point tool with two anchors. Whatever the
+    /// manager finishes must save, and a tool that draws nothing with two anchors (the parallel
+    /// channel) must stay in progress, or the whole storage would refuse to save.
+    #[test]
+    fn a_drawing_finished_early_can_be_saved() {
+        use crate::drawings::persistence::{DrawingStorage, drawing_to_stored};
+        for (tool, finishes) in [
+            (DrawingToolType::Triangle, true),
+            (DrawingToolType::Pitchfork, true),
+            (DrawingToolType::FlatTopBottom, true),
+            (DrawingToolType::ParallelChannel, false),
+        ] {
+            let mut manager = DrawingManager::new();
+            let (x_to_bar, y_to_price) = (|x: f32| x, |y: f32| f64::from(y));
+            manager.start_drawing_with_coords(tool, Pos2::new(10.0, 10.0), x_to_bar, y_to_price);
+            manager.update_last_point_with_coords(Pos2::new(50.0, 40.0), x_to_bar, y_to_price);
+            manager.complete_curr_drawing();
+            assert_eq!(manager.drawings.len(), usize::from(finishes), "{tool:?}");
+            let mut storage = DrawingStorage::new("AAPL");
+            for drawing in &manager.drawings {
+                storage.add_drawing(drawing_to_stored(drawing, |bar| 60_000 * bar as i64));
+            }
+            assert!(
+                storage.to_json().is_ok(),
+                "{tool:?}: {:?}",
+                storage.to_json()
+            );
+        }
+    }
+
     #[test]
     fn test_selection() {
         let mut manager = DrawingManager::new();
@@ -766,7 +797,8 @@ mod tests {
         let mut manager = DrawingManager::new();
         let mut fib = Drawing::new(7, DrawingToolType::FibonacciRetracement);
         // Control points: Start (100,100), End (300,200), Middle (200,150).
-        fib.points = vec![Pos2::new(100.0, 100.0), Pos2::new(300.0, 200.0)];
+        fib.chart_points = vec![ChartPoint::new(100.0, 100.0), ChartPoint::new(300.0, 200.0)];
+        fib.update_screen_coords(|bar| bar, |price| price as f32);
         fib.completed = true;
         manager.drawings.push(fib);
 
