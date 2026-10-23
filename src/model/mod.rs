@@ -11,6 +11,19 @@
 //! - `markers`, `annotations` - Chart overlays
 //! - `strategy` - A strategy run's trades and equity, and its performance metrics
 
+/// The most price movement, in sizes, that a Renko or range bar build walks over. A smaller size
+/// on a longer history is built from a later bar; see `renko::work_start`.
+pub(crate) const MAX_WORK: f64 = 2_000_000.0;
+
+/// A price-based chart built one bar at a time, so a cached build can be extended by the newest
+/// bar instead of rebuilt. The first `push` seeds the state. `elements` returns the newest
+/// elements up to the type's limit, including the one still forming.
+pub(crate) trait PriceBuilder {
+    type Element: Clone;
+    fn push(&mut self, bar: &Bar);
+    fn elements(&self) -> Vec<Self::Element>;
+}
+
 mod alert;
 mod annotations;
 pub mod bar;
@@ -43,7 +56,7 @@ pub use annotations::{Annotation, MarkerType};
 pub(crate) use bar::SpanCache;
 pub(crate) use bar::percent_change;
 pub use bar::{Bar, BarData};
-pub use chart_type::{ChartType, ChartTypeCategory, ChartTypeParams};
+pub use chart_type::{BaselineLevel, ChartType, ChartTypeCategory, ChartTypeParams};
 pub use chartstate::{ChartState, ZoomState};
 pub use clock::BarClock;
 pub use color::ColorType;
@@ -145,6 +158,109 @@ mod tests {
                 })
             })
             .collect();
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    #[test]
+    fn price_based_charts_use_the_configured_size() {
+        // Prices and sizes are binary fractions, so scaling by 2^-20 is exact.
+        let u = 1.0 / 256.0;
+        let z = [
+            100.0,
+            110.0,
+            110.0 - 5.0 * u,
+            110.0,
+            110.0 - 13.0 * u,
+            110.0,
+            100.0,
+        ];
+        type Run = dyn Fn(&[Bar], f64) -> Vec<(f64, f64)>;
+        type Pair = (f64, f64);
+        // (name, size, build as (open, close) pairs, expected count, first, last)
+        let cases: [(&str, f64, &Run, usize, Pair, Pair); 4] = [
+            (
+                "renko",
+                1.0 / 32.0,
+                &|b, s| {
+                    to_renko_bricks(b, &RenkoConfig::new(s))
+                        .iter()
+                        .map(|e| (e.open, e.close))
+                        .collect()
+                },
+                639,
+                (100.0, 100.03125),
+                (100.03125, 100.0),
+            ),
+            (
+                "kagi",
+                1.0 / 64.0,
+                &|b, s| {
+                    to_kagi_lines(b, &KagiConfig::new(s))
+                        .iter()
+                        .map(|e| (e.start_price, e.end_price))
+                        .collect()
+                },
+                6,
+                (100.0, 110.0),
+                (110.0, 100.0),
+            ),
+            (
+                "point and figure",
+                1.0 / 64.0,
+                &|b, s| {
+                    to_pnf_columns(b, &PointFigureConfig::new(s, 3))
+                        .iter()
+                        .map(|e| (e.start_price, e.end_price))
+                        .collect()
+                },
+                4,
+                (100.0, 110.0),
+                (109.984375, 100.0),
+            ),
+            (
+                "range bars",
+                1.0 / 32.0,
+                &|b, s| {
+                    to_range_bars_from_ohlc(b, &RangeBarConfig::new(s))
+                        .iter()
+                        .map(|e| (e.open, e.close))
+                        .collect()
+                },
+                643,
+                (100.0, 100.03125),
+                (100.0, 100.0),
+            ),
+        ];
+        let mut failures = Vec::new();
+        for (name, size, run, count, first, last) in cases {
+            for scale in [1.0, 2f64.powi(-20)] {
+                let got = run(&flat_bars(z.iter().map(|p| p * scale)), size * scale);
+                let want = (
+                    count,
+                    (first.0 * scale, first.1 * scale),
+                    (last.0 * scale, last.1 * scale),
+                );
+                if (got.len(), got[0], got[got.len() - 1]) != want {
+                    failures.push(format!(
+                        "{name} at scale {scale}: {} elements, want {want:?}",
+                        got.len()
+                    ));
+                }
+            }
+            let none = run(&flat_bars(z.iter().copied()), 0.0);
+            if !none.is_empty() {
+                failures.push(format!("{name}: {} elements for size 0", none.len()));
+            }
+        }
+        // A step of 1.1e13 sizes is not built: the build starts at the bar after it.
+        let u40 = 2f64.powi(-40);
+        let bars = flat_bars([100.0, 110.0, 110.0 + 4.0 * u40].into_iter());
+        let v = to_renko_bricks(&bars, &RenkoConfig::new(u40));
+        if v.len() != 4
+            || v.last().map(|e| (e.open, e.close)) != Some((110.0 + 3.0 * u40, 110.0 + 4.0 * u40))
+        {
+            failures.push(format!("renko work bound: {} bricks", v.len()));
+        }
         assert!(failures.is_empty(), "{failures:#?}");
     }
 }

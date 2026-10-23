@@ -5,7 +5,7 @@
 //!
 //! - Standard: Candlestick, Bars, Hollow Candles, Volume Candles
 //! - Line-based: Line, Line with Markers, Step Line
-//! - Area-based: Area, HLC Area, Baseline
+//! - Area-based: Area, HLC Area, Baseline, Columns
 //! - Japanese: Renko, Kagi, Line Break, Heikin-Ashi
 //! - Range: High-Low, Range Bars, Point & Figure
 //! - Advanced: TPO
@@ -17,16 +17,20 @@ mod helpers;
 mod japanese;
 mod line;
 mod params;
+mod price_based;
 mod range;
 pub mod tpo;
 mod volume;
 
 pub use params::{
-    BarDimensions, CandleDataContext, ChartTypeParams, CoordMapping, JapaneseChartSettings,
-    TradingColors, VolumeSettings,
+    BarDimensions, CandleDataContext, ChartTypeParams, CoordMapping, TradingColors, VolumeSettings,
 };
 
-use crate::model::ChartType;
+use crate::model::{
+    ChartType, KagiConfig, LineBreakConfig, PointFigureConfig, RangeBarConfig, RenkoConfig,
+    to_kagi_lines, to_line_break_lines, to_pnf_columns, to_range_bars_from_ohlc, to_renko_bricks,
+};
+use crate::styles::typography;
 
 /// Renders all chart types
 ///
@@ -38,11 +42,28 @@ use crate::model::ChartType;
 pub fn render_chart_type(
     chart_type: ChartType,
     ctx: &CandleDataContext,
-    params: &ChartTypeParams,
+    params: &ChartTypeParams<'_>,
     idx_to_coord: impl Fn(usize, f32) -> f32,
 ) {
     let price_rect = ctx.price_ctx.rect;
     let painter = ctx.price_ctx.painter;
+
+    if let Some(message) = params.type_params.invalid(chart_type) {
+        painter.text(
+            price_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            message,
+            egui::FontId::proportional(typography::LG),
+            ctx.colors.text,
+        );
+        return;
+    }
+
+    // The first and last visible bar select the window of a price-based build.
+    let (Some(first), Some(last)) = (ctx.visible_data.first(), ctx.visible_data.last()) else {
+        return;
+    };
+    let visible_times = (first.time, last.time);
 
     match chart_type {
         // === Standard OHLC Types ===
@@ -105,6 +126,7 @@ pub fn render_chart_type(
                 ctx.price_scale,
                 ctx.colors,
                 ctx.visible_data,
+                ctx.full_data,
                 ctx.start_idx,
                 params.bar_width(),
                 params.wick_width(),
@@ -224,6 +246,24 @@ pub fn render_chart_type(
                 params.price_source(),
             );
         }
+        ChartType::Columns => {
+            candlestick::render_columns(
+                ctx.price_ctx,
+                ctx.volume_ctx,
+                ctx.price_scale,
+                ctx.colors,
+                ctx.visible_data,
+                ctx.full_data,
+                ctx.start_idx,
+                params.bar_width(),
+                params.show_volume(),
+                params.max_volume(),
+                params.chart_rect_min_x(),
+                &idx_to_coord,
+                params.bullish_color(),
+                params.bearish_color(),
+            );
+        }
         ChartType::Baseline => {
             area::render_baseline(
                 painter,
@@ -241,6 +281,7 @@ pub fn render_chart_type(
                 params.bullish_color(),
                 params.bearish_color(),
                 params.price_source(),
+                params.type_params.baseline,
             );
         }
 
@@ -263,15 +304,21 @@ pub fn render_chart_type(
             );
         }
         ChartType::Range => {
+            let built = price_based::range_bars(ctx.full_data, ctx.revision, params.type_params);
+            let (t0, t1) = visible_times;
+            let size = params.type_params.range_size;
+            let range_bars = built.window(
+                |b| b.end_time,
+                t0,
+                t1,
+                || to_range_bars_from_ohlc(ctx.visible_data, &RangeBarConfig::new(size)),
+            );
             range::render_range_bars(
                 painter,
-                ctx.visible_data,
-                ctx.start_idx,
+                price_rect,
+                &range_bars,
                 params.bar_width(),
-                params.renko_brick_size(),
                 ctx.price_scale,
-                params.chart_rect_min_x(),
-                &idx_to_coord,
                 params.bullish_color(),
                 params.bearish_color(),
             );
@@ -279,59 +326,87 @@ pub fn render_chart_type(
 
         // === Japanese Chart Types ===
         ChartType::Renko => {
+            let built = price_based::renko(ctx.full_data, ctx.revision, params.type_params);
+            let (t0, t1) = visible_times;
+            let size = params.type_params.renko_brick_size;
+            let bricks = built.window(
+                |b| b.ts,
+                t0,
+                t1,
+                || to_renko_bricks(ctx.visible_data, &RenkoConfig::new(size)),
+            );
             japanese::render_renko(
                 painter,
                 price_rect,
-                ctx.visible_data,
-                ctx.start_idx,
+                &bricks,
                 params.bar_width(),
-                params.renko_brick_size(),
                 ctx.price_scale,
-                params.chart_rect_min_x(),
-                &idx_to_coord,
                 params.bullish_color(),
                 params.bearish_color(),
             );
         }
         ChartType::Kagi => {
+            let built = price_based::kagi(ctx.full_data, ctx.revision, params.type_params);
+            let (t0, t1) = visible_times;
+            let reversal = params.type_params.kagi_reversal;
+            let lines = built.window(
+                |l| l.ts,
+                t0,
+                t1,
+                || to_kagi_lines(ctx.visible_data, &KagiConfig::new(reversal)),
+            );
             japanese::render_kagi(
                 painter,
                 price_rect,
-                ctx.visible_data,
-                ctx.start_idx,
-                params.kagi_reversal_amount(),
+                &lines,
                 ctx.price_scale,
-                params.chart_rect_min_x(),
-                &idx_to_coord,
                 params.bullish_color(),
                 params.bearish_color(),
             );
         }
         ChartType::LineBreak => {
+            let built = price_based::line_break(ctx.full_data, ctx.revision, params.type_params);
+            let (t0, t1) = visible_times;
+            let count = params.type_params.line_break_count;
+            let lines = built.window(
+                |l| l.ts,
+                t0,
+                t1,
+                || to_line_break_lines(ctx.visible_data, &LineBreakConfig::new(count)),
+            );
             japanese::render_line_break(
                 painter,
                 price_rect,
-                ctx.visible_data,
-                ctx.start_idx,
+                &lines,
                 params.bar_width(),
                 ctx.price_scale,
-                params.chart_rect_min_x(),
-                &idx_to_coord,
                 params.bullish_color(),
                 params.bearish_color(),
             );
         }
         ChartType::PointAndFigure => {
+            let built =
+                price_based::point_and_figure(ctx.full_data, ctx.revision, params.type_params);
+            let (t0, t1) = visible_times;
+            let (box_size, reversal) = (
+                params.type_params.pnf_box_size,
+                params.type_params.pnf_reversal,
+            );
+            let columns = built.window(
+                |c| c.end_time,
+                t0,
+                t1,
+                || {
+                    let config = PointFigureConfig::new(box_size, reversal as usize);
+                    to_pnf_columns(ctx.visible_data, &config)
+                },
+            );
             japanese::render_point_and_figure(
                 painter,
                 price_rect,
-                ctx.visible_data,
-                ctx.start_idx,
+                &columns,
                 params.bar_width(),
-                params.renko_brick_size(),
                 ctx.price_scale,
-                params.chart_rect_min_x(),
-                &idx_to_coord,
                 params.bullish_color(),
                 params.bearish_color(),
             );

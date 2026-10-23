@@ -3,31 +3,25 @@
 //! Includes: Renko, Kagi, Line Break, Point & Figure
 
 use super::helpers::{draw_brick, draw_o_symbol, draw_x_symbol};
-use crate::model::{
-    Bar, ColumnDirection, KagiConfig, LineBreakConfig, PointFigureConfig, RenkoConfig,
-    to_kagi_lines, to_line_break_lines, to_pnf_columns, to_renko_bricks,
-};
+use crate::model::kagi::KagiLine;
+use crate::model::line_break::LineBreakLine;
+use crate::model::point_figure::PnfColumn;
+use crate::model::{Bar, ColumnDirection, RenkoBrick};
 use crate::scales::PriceMap;
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke};
 
-const MAX_ELEMENTS: usize = 2000;
-const MAX_BOXES_PER_COLUMN: usize = 500;
+pub(super) const MAX_ELEMENTS: usize = 2000;
 
 pub(super) fn render_renko(
     painter: &Painter,
     price_rect: Rect,
-    visible_data: &[Bar],
-    _start_idx: usize,
+    bricks: &[RenkoBrick],
     bar_width: f32,
-    renko_brick_size: f64,
     price_scale: &PriceMap,
-    _chart_rect_min_x: f32,
-    _idx_to_coord: impl Fn(usize, f32) -> f32,
     bullish_color: Color32,
     bearish_color: Color32,
 ) {
     let coords = *price_scale;
-    let bricks = to_renko_bricks(visible_data, &RenkoConfig::new(renko_brick_size));
     let brick_count = bricks.len().min(MAX_ELEMENTS);
     let spacing = calc_spacing(price_rect.width(), brick_count, bar_width);
 
@@ -55,17 +49,12 @@ pub(super) fn render_renko(
 pub(super) fn render_kagi(
     painter: &Painter,
     price_rect: Rect,
-    visible_data: &[Bar],
-    _start_idx: usize,
-    kagi_reversal_amount: f64,
+    lines: &[KagiLine],
     price_scale: &PriceMap,
-    _chart_rect_min_x: f32,
-    _idx_to_coord: impl Fn(usize, f32) -> f32,
     bullish_color: Color32,
     bearish_color: Color32,
 ) {
     let coords = *price_scale;
-    let lines = to_kagi_lines(visible_data, &KagiConfig::new(kagi_reversal_amount));
     if lines.is_empty() {
         return;
     }
@@ -73,7 +62,7 @@ pub(super) fn render_kagi(
     let line_count = lines.len().min(MAX_ELEMENTS);
     let spacing = (price_rect.width() / line_count as f32).max(2.0);
 
-    let points = collect_kagi_points(&lines, &coords, price_rect, spacing);
+    let points = collect_kagi_points(lines, &coords, price_rect, spacing);
     draw_kagi_segments(painter, &points, bullish_color, bearish_color);
 }
 
@@ -81,17 +70,13 @@ pub(super) fn render_kagi(
 pub(super) fn render_line_break(
     painter: &Painter,
     price_rect: Rect,
-    visible_data: &[Bar],
-    _start_idx: usize,
+    lines: &[LineBreakLine],
     bar_width: f32,
     price_scale: &PriceMap,
-    _chart_rect_min_x: f32,
-    _idx_to_coord: impl Fn(usize, f32) -> f32,
     bullish_color: Color32,
     bearish_color: Color32,
 ) {
     let coords = *price_scale;
-    let lines = to_line_break_lines(visible_data, &LineBreakConfig::new(3));
     if lines.is_empty() {
         return;
     }
@@ -124,25 +109,13 @@ pub(super) fn render_line_break(
 pub(super) fn render_point_and_figure(
     painter: &Painter,
     price_rect: Rect,
-    visible_data: &[Bar],
-    _start_idx: usize,
+    columns: &[PnfColumn],
     bar_width: f32,
-    box_size: f64,
     price_scale: &PriceMap,
-    _chart_rect_min_x: f32,
-    _idx_to_coord: impl Fn(usize, f32) -> f32,
     bullish_color: Color32,
     bearish_color: Color32,
 ) {
     let coords = *price_scale;
-    let config = PointFigureConfig {
-        box_size,
-        reversal_boxes: 3,
-        use_atr: false,
-        atr_period: 14,
-        use_close: false,
-    };
-    let columns = to_pnf_columns(visible_data, &config);
     if columns.is_empty() {
         return;
     }
@@ -165,7 +138,6 @@ pub(super) fn render_point_and_figure(
             painter,
             x,
             column,
-            box_size,
             &coords,
             price_rect,
             symbol_size,
@@ -177,7 +149,7 @@ pub(super) fn render_point_and_figure(
 
 // === Helper Functions ===
 
-fn calc_spacing(width: f32, count: usize, bar_width: f32) -> f32 {
+pub(super) fn calc_spacing(width: f32, count: usize, bar_width: f32) -> f32 {
     if count > 1 {
         (width / count as f32).min(bar_width)
     } else {
@@ -189,7 +161,7 @@ fn in_range(x: f32, rect: Rect) -> bool {
     x >= rect.min.x && x <= rect.max.x
 }
 
-fn calc_brick_rect(x: f32, bar: &Bar, coords: &PriceMap, spacing: f32) -> Rect {
+pub(super) fn calc_brick_rect(x: f32, bar: &Bar, coords: &PriceMap, spacing: f32) -> Rect {
     let y_open = coords.price_to_y(bar.open);
     let y_close = coords.price_to_y(bar.close);
     let top = y_open.min(y_close);
@@ -279,38 +251,53 @@ fn draw_pnf_column(
     painter: &Painter,
     x: f32,
     column: &crate::model::point_figure::PnfColumn,
-    box_size: f64,
     coords: &PriceMap,
     price_rect: Rect,
     symbol_size: f32,
     bullish_color: Color32,
     bearish_color: Color32,
 ) {
-    let mut price = column.start_price;
-    let end_price = column.end_price;
-    let half = (symbol_size / 2.0).max(2.0);
-    let mut box_count = 0;
+    let up = column.direction == ColumnDirection::Up;
+    let color = if up { bullish_color } else { bearish_color };
+    let step = column.box_size;
+    let start = column.start_price;
 
-    match column.direction {
-        ColumnDirection::Up => {
-            while price <= end_price && box_count < MAX_BOXES_PER_COLUMN {
-                let y = coords.price_to_y(price);
-                if y >= price_rect.min.y && y <= price_rect.max.y {
-                    draw_x_symbol(painter, Pos2::new(x, y), half, bullish_color);
-                }
-                price += box_size;
-                box_count += 1;
-            }
-        }
-        ColumnDirection::Down => {
-            while price >= end_price && box_count < MAX_BOXES_PER_COLUMN {
-                let y = coords.price_to_y(price);
-                if y >= price_rect.min.y && y <= price_rect.max.y {
-                    draw_o_symbol(painter, Pos2::new(x, y), half, bearish_color);
-                }
-                price -= box_size;
-                box_count += 1;
-            }
+    // A box under 2 px tall is not drawable as a symbol: draw the column as a line.
+    if (coords.price_to_y(start) - coords.price_to_y(start + step)).abs() < 2.0 {
+        painter.add(Shape::line_segment(
+            [
+                Pos2::new(x, coords.price_to_y(start)),
+                Pos2::new(x, coords.price_to_y(column.end_price)),
+            ],
+            Stroke::new(1.5, color),
+        ));
+        return;
+    }
+
+    // Box `k` is at `start +- k * step`; only the boxes inside the pane are visited.
+    let (p_a, p_b) = (
+        coords.y_to_price(price_rect.max.y),
+        coords.y_to_price(price_rect.min.y),
+    );
+    let (low, high) = (p_a.min(p_b), p_a.max(p_b));
+    let (k_a, k_b) = if up {
+        ((low - start) / step, (high - start) / step)
+    } else {
+        ((start - high) / step, (start - low) / step)
+    };
+    let first = k_a.ceil().max(0.0) as usize;
+    let last = k_b.floor().min(column.box_cnt as f64 - 1.0);
+    if last < 0.0 {
+        return;
+    }
+    let half = (symbol_size / 2.0).max(2.0);
+    for k in first..=last as usize {
+        let offset = k as f64 * step;
+        let y = coords.price_to_y(if up { start + offset } else { start - offset });
+        if up {
+            draw_x_symbol(painter, Pos2::new(x, y), half, color);
+        } else {
+            draw_o_symbol(painter, Pos2::new(x, y), half, color);
         }
     }
 }

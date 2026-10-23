@@ -435,16 +435,12 @@ impl Chart {
             return response;
         }
 
-        // Calculate volume range
-        let max_volume = if self.config.show_volume {
-            visible_data
-                .iter()
-                .map(|c| c.volume)
-                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .unwrap_or(1.0)
-        } else {
-            1.0
-        };
+        // Largest visible volume: the volume pane and volume candles scale by it
+        let max_volume = visible_data
+            .iter()
+            .map(|c| c.volume)
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or(1.0);
 
         // Draw grid
         if self.config.show_horizontal_grid {
@@ -555,7 +551,7 @@ impl Chart {
         let render_params = rendering::ChartTypeParams::new(
             rendering::BarDimensions::new(bar_width, self.config.wick_width),
             rendering::VolumeSettings::new(self.config.show_volume, max_volume),
-            rendering::JapaneseChartSettings::new(self.renko_brick_size, self.kagi_reversal_amount),
+            &self.chart_type_params,
             rendering::TradingColors::new(self.config.bullish_color, self.config.bearish_color),
             rendering::CoordMapping::new(chart_rect.min.x),
             self.config.price_source,
