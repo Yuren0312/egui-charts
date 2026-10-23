@@ -6,6 +6,16 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Chart settings now retain and apply title format, quote controls and independent study title/input/value visibility. `Chart::set_indicator_inputs` supplies study input captions, retained through host templates; status-line volume no longer hides the histogram. The settings dialog keeps one top edge across tabs through `Modal::top`.
+- Price scale placement and independent current/previous close labels and lines now reach rendering on either axis. Countdown visibility is honoured, with its default enabled to retain the existing displayed countdown. Migration: add `..Default::default()` to `ChartConfig`, `settings_menu::data::StatusLineOptions`, `ScalesAndLinesSettings` and `IndicatorPaneConfig` literals, or set the new visibility fields explicitly. Construct `Legend` with `Legend::new` and set its public fields; it has no `Default` implementation. Previous close is the last bar before the latest UTC date.
+
+- `TopToolbar::indicator_templates` accepts host-owned saved study names and ids. Its anchored menu emits save/apply intents; the demo keeps cloned study sets in memory for the session. Migration: replace `TopToolbarAction::OpenIndicatorTemplates` matches with `SaveIndicatorTemplate` and `ApplyIndicatorTemplate(id)` handlers. Opening the popup emits no action.
+
+- `Symbol::with_market` supplies an exchange and optional instrument kind for symbol search. Empty queries list the host catalog, with host-supplied recents first, category chips for available kinds and kind/exchange metadata in each row. Migration: `Symbol` struct literals need `exchange` and `symbol_type`, or use `Symbol::new`.
+
+- `TabBar::pills` renders rounded tab chips through the shared tab component; the indicator browser uses them.
+
+- `top_toolbar::buttons::toolbar_tooltip` attaches compact toolbar tips with optional platform shortcut chips. `Modal::rounding` and `Modal::fill` preserve per-dialog styling, and an empty modal title lets a search row serve as the header.
 - `Chart::set_instrument`, `set_legend_badge`, `set_legend_statuses` and `set_quote` connect host metadata and current bid/ask to the responsive legend. Historical OHLC and study values follow the pointer independently of quotes, including over the axis add cell. `take_quote_action` retains buy/sell intents until taken; changing symbols clears supplied metadata and quotes. The demo labels generated data with SIM and records quote intents without submitting orders.
 - `Chart::set_session_quote` and `set_events` connect independent session prices and event badges. `take_event_click` and `take_scale_settings_request` route clicks to the host; the price-tag add cell opens the existing context menu at the displayed price, including in Magnet mode. Current close tags include a countdown when a supplied quote belongs to that bar, and volume has a separate tag at the pane bottom.
 - `CrosshairStyle::Demonstration` and `CursorType::Demonstration` draw a fading pointer trail that expires while stationary. `TooltipOptions::on_long_press` restricts values to a held pointer, waiting half a second for touch; the floating panel shows OHLC, absolute and percentage change from the previous close, and volume, with one snapped guide and hollow series points. `Chart::set_tooltip_enabled` connects the values switch. Migration: exhaustive cursor matches need a Demonstration arm; tooltip struct literals need `on_long_press` or `..Default::default()`.
@@ -79,6 +89,26 @@ All notable changes to this project are documented in this file. The format is b
 - `ToolbarState::lock_all` and `ToolbarState::hide_drawings`, `hide_indicators`, `hide_positions` and `hide_orders` hold what the Lock button and the Hide menu show: the lock button is filled with a closed padlock while `lock_all` is set, and the Hide menu checks each hidden group. The bar sets them from the clicks it reports; a host that changes the chart's state elsewhere sets them too. Migration: struct literals of `ToolbarState` set the five fields or use `..ToolbarState::default()`.
 
 ### Fixed
+
+- Chart settings read back current status and scale controls before opening. Choosing log or percentage scale clears the other mode; legend volume remains independent of the histogram. Custom price-line tags and axis gestures follow left placement, and long session tags stay inside the chart.
+- Enlarged modals fit narrow windows, with scrollable settings content and tabs. Indicator results use a 32 px row pitch.
+- Symbol search gives its category strip and results separate scroll identities, keeps keyboard selection under a stationary pointer and scrolls the selected result into view. ([#597](https://github.com/userFRM/egui-charts/issues/597))
+- Opening chart settings now reads the chart's current candle, background and grid colours, so applying display controls preserves its appearance in every preset. ([#577](https://github.com/userFRM/egui-charts/issues/577))
+
+- The host Trade and Publish controls now explain their trading-account and chart-export actions on hover, using the shared toolbar tooltip.
+
+- The interval menu reserves a compact 200 px outer width until the custom form is expanded; the form retains its full input and unit controls.
+
+- Chart settings opens on Symbol in the shared modal, with a 752 px surface, tab-specific heights, neutral sidebar selection and aligned value columns. Existing tabs retain their controls and template actions; dropdown selection remains readable.
+- The indicator dialog uses an 840 px surface, a 40 px search field, a wider category column and single-line study names. Categories with no provider are omitted from the sidebar; favourite and study configuration actions are retained. Filter fields respect the host interaction height.
+- Quick search uses the shared 480 px modal with a search header and close button. The demo connects its quick-search button and Ctrl/Cmd+K to the existing command palette for symbol search, indicators, settings and export. Shared dialog titles use 20 px text.
+- The compare dialog uses the shared modal frame, a wide search header, a close control and a single list of 56 px symbol rows. Its configured fill remains supported through `Modal::fill`.
+- Symbol search uses the shared modal frame, a full-width search row with a close button and 56 px result rows. Escape and backdrop dismissal follow the modal; symbol filtering and keyboard selection are preserved. Empty modal titles allow a search row to serve as the header.
+- The Save arrow opens a compact export menu while the label keeps its existing action. Entries requiring hosted layout storage are omitted.
+- Snapshot offers image download in a compact menu beneath its trigger. Opening the menu leaves capture to an explicit download choice.
+- Chart-type menu rows use a single 14 px name beside each icon, neutral selection and separators between type families.
+- The interval menu groups full interval names in 32 px rows with trailing favourite marks and neutral selection, retaining custom interval entry and model selection.
+- Top toolbar tooltips use compact dark surfaces below their controls, with platform-specific shortcut chips for alerts. Symbol, interval and chart-type triggers now identify their actions on hover.
 
 - The demo opens at one minute in Arrow mode with axis readouts. Synthetic sessions stay continuous, with shorter wicks, varying low ordinary volumes and occasional peaks. Volume peaks use a quarter of the plot height with a flush baseline, and candle bodies use 75% of the bar pitch. Hourly data remains available; session timestamps and adjustment inputs are unchanged.
 - The in-pane legend and held values keep the chart's configured candle colours. The legend title exposes a flag and copy actions on hover. The Data Window computes change from the preceding displayed element, matching the legend on both time-based and price-based charts. `ChartState::shown` exposes the series indexed by hover and selection.
