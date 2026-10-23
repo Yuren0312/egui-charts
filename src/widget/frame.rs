@@ -5,7 +5,7 @@ use super::{Chart, RightClickTarget};
 use crate::chart::renderers::{self, ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering;
 use crate::config::{BackgroundStyle, WatermarkPos};
-use crate::model::PriceLine;
+use crate::model::{PriceLine, TimeIndex};
 use crate::scales::TimeFormatterBuilder;
 use crate::styles::{sizing, typography};
 use crate::tokens::DESIGN_TOKENS;
@@ -177,14 +177,13 @@ impl Chart {
     /// Resolve the timeframe used to pick a session-break granularity.
     ///
     /// The chart's timeframe is the primary source. Without one, the cadence
-    /// is inferred from the visible bars by taking the median gap between
+    /// is inferred from `bars` (the visible bars for session breaks, the
+    /// latest bars for the time index) by taking the median gap between
     /// consecutive timestamps and snapping it to the nearest preset, so session
-    /// breaks work even when the host never set a timeframe. Falls back to the
-    /// default (1-minute) when there are too few bars to measure.
-    fn resolve_session_timeframe(
-        &self,
-        visible_data: &[crate::model::Bar],
-    ) -> crate::model::Timeframe {
+    /// breaks and the time index work even when the host never set a timeframe.
+    /// Falls back to the default (1-minute) when there are too few bars to
+    /// measure.
+    fn resolve_session_timeframe(&self, bars: &[crate::model::Bar]) -> crate::model::Timeframe {
         use crate::model::Timeframe;
 
         if let Some(tf) = self.timeframe {
@@ -192,10 +191,10 @@ impl Chart {
         }
 
         // Infer from the median inter-bar gap (robust to session-edge jumps).
-        if visible_data.len() < 2 {
+        if bars.len() < 2 {
             return Timeframe::default();
         }
-        let mut gaps_ms: Vec<i64> = visible_data
+        let mut gaps_ms: Vec<i64> = bars
             .windows(2)
             .map(|w| (w[1].time - w[0].time).num_milliseconds())
             .filter(|&g| g > 0)
@@ -211,6 +210,16 @@ impl Chart {
             .into_iter()
             .min_by_key(|tf| (tf.duration_ms() - median).abs())
             .unwrap_or_default()
+    }
+
+    /// The shown series (the bars, or the elements of a price-based type) as a [`TimeIndex`] at
+    /// the timeframe the chart resolves from its latest items; `None` without bars.
+    pub(super) fn time_index(&self) -> Option<TimeIndex<'_>> {
+        let shown = self.state.shown();
+        TimeIndex::new(
+            shown,
+            self.resolve_session_timeframe(&shown[shown.len().saturating_sub(64)..]),
+        )
     }
 
     /// Internal rendering method that orchestrates all modules
@@ -736,11 +745,15 @@ impl Chart {
         self.render_main_chart_selection(&painter, &coords, visible_data, main_visible_range);
 
         // Render bar marks (Widget API annotations)
-        if time_based && !self.marks.is_empty() {
+        if time_based
+            && !self.marks.is_empty()
+            && let Some(index) = self.time_index()
+        {
             renderers::render_markers(
                 &clipped_price_ctx,
                 &self.marks,
                 visible_data,
+                &index,
                 &price_map,
                 &coords,
             );

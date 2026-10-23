@@ -63,7 +63,8 @@ impl Chart {
         }
     }
 
-    /// Replaces the markers drawn on the bars of `series` (trade signals, events).
+    /// Replaces the markers drawn on the bars of `series` (trade signals, events), each on the
+    /// bar whose slot holds its time.
     ///
     /// Only [`SeriesId::MAIN`] holds bars; a call with another id is ignored with a warning.
     pub fn set_markers(&mut self, series: SeriesId, markers: Vec<Marker>) {

@@ -1,6 +1,6 @@
 use super::context::{ChartMapping, RenderContext};
 /// Marker renderer for chart annotations
-use crate::model::{Bar, Marker, MarkerPos, MarkerShape};
+use crate::model::{Bar, Marker, MarkerPos, MarkerShape, TimeIndex};
 use crate::scales::PriceMap;
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2, epaint::StrokeKind};
@@ -10,64 +10,67 @@ pub fn render_markers(
     context: &RenderContext,
     markers: &[Marker],
     visible_data: &[Bar],
+    index: &TimeIndex,
     price_scale: &PriceMap,
     coords: &ChartMapping,
 ) {
     for marker in markers {
-        // Find the corresponding bar for this marker
-        if let Some(bar_idx) = visible_data.iter().position(|bar| bar.time == marker.time) {
-            let global_idx = coords.start_idx + bar_idx;
-            let bar = &visible_data[bar_idx];
+        let Some(local) = index
+            .bar_containing(marker.time)
+            .and_then(|i| i.checked_sub(coords.start_idx))
+        else {
+            continue;
+        };
+        let Some(bar) = visible_data.get(local) else {
+            continue;
+        };
+        let x = coords.idx_to_x(coords.start_idx + local);
 
-            // Calculate marker position using ChartCoords helper
-            let x = coords.idx_to_x(global_idx);
+        // The bar's ends on screen; the high is the lower end on an inverted scale.
+        let (high_y, low_y) = (
+            price_scale.price_to_y(bar.high),
+            price_scale.price_to_y(bar.low),
+        );
+        let (top, bottom) = (high_y.min(low_y), high_y.max(low_y));
 
-            // The bar's ends on screen; the high is the lower end on an inverted scale.
-            let (high_y, low_y) = (
-                price_scale.price_to_y(bar.high),
-                price_scale.price_to_y(bar.low),
-            );
-            let (top, bottom) = (high_y.min(low_y), high_y.max(low_y));
-
-            // Calculate Y position based on marker position setting
-            let y = match marker.position {
-                MarkerPos::AboveBar => top - 20.0 * marker.size,
-                MarkerPos::BelowBar => bottom + 20.0 * marker.size,
-                MarkerPos::InBar => price_scale.price_to_y(bar.close),
-                MarkerPos::Top => context.rect.top() + 20.0 * marker.size,
-                MarkerPos::Bottom => context.rect.bottom() - 20.0 * marker.size,
-                MarkerPos::Left | MarkerPos::Right | MarkerPos::Absolute => {
-                    price_scale.price_to_y(bar.close)
-                }
-                MarkerPos::AbsoluteUp => top - 10.0 * marker.size,
-                MarkerPos::AbsoluteDown => bottom + 10.0 * marker.size,
-            };
-
-            let pos = Pos2::new(x, y);
-
-            // Render the marker shape
-            render_marker_shape(
-                context.painter,
-                pos,
-                marker.shape,
-                marker.color,
-                marker.size,
-            );
-
-            // Render text label if present
-            if let Some(text) = &marker.text {
-                let text_pos = Pos2::new(pos.x, pos.y + 12.0 * marker.size);
-                context.painter.text(
-                    text_pos,
-                    egui::Align2::CENTER_TOP,
-                    text,
-                    FontId::proportional(10.0 * marker.size),
-                    marker.color,
-                );
+        // Calculate Y position based on marker position setting
+        let y = match marker.position {
+            MarkerPos::AboveBar => top - 20.0 * marker.size,
+            MarkerPos::BelowBar => bottom + 20.0 * marker.size,
+            MarkerPos::InBar => price_scale.price_to_y(bar.close),
+            MarkerPos::Top => context.rect.top() + 20.0 * marker.size,
+            MarkerPos::Bottom => context.rect.bottom() - 20.0 * marker.size,
+            MarkerPos::Left | MarkerPos::Right | MarkerPos::Absolute => {
+                price_scale.price_to_y(bar.close)
             }
+            MarkerPos::AbsoluteUp => top - 10.0 * marker.size,
+            MarkerPos::AbsoluteDown => bottom + 10.0 * marker.size,
+        };
 
-            // TODO: Add tooltip on hover (requires hover detection in chart widget)
+        let pos = Pos2::new(x, y);
+
+        // Render the marker shape
+        render_marker_shape(
+            context.painter,
+            pos,
+            marker.shape,
+            marker.color,
+            marker.size,
+        );
+
+        // Render text label if present
+        if let Some(text) = &marker.text {
+            let text_pos = Pos2::new(pos.x, pos.y + 12.0 * marker.size);
+            context.painter.text(
+                text_pos,
+                egui::Align2::CENTER_TOP,
+                text,
+                FontId::proportional(10.0 * marker.size),
+                marker.color,
+            );
         }
+
+        // TODO: Add tooltip on hover (requires hover detection in chart widget)
     }
 }
 
@@ -248,6 +251,58 @@ mod tests {
     use crate::scales::{PriceRange, PriceTransform};
     use chrono::{TimeZone, Utc};
 
+    /// Bar i is at x = 799 - (2.5 - i) * 10; markers use the slot containing their time.
+    #[test]
+    fn a_marker_is_drawn_on_the_bar_that_holds_its_time() {
+        let rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(800.0, 500.0));
+        let start = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let bars = [0, 60, 120].map(|seconds| {
+            Bar::new(
+                start + chrono::TimeDelta::seconds(seconds),
+                100.0,
+                105.0,
+                95.0,
+                100.0,
+                1.0,
+            )
+        });
+        let map = PriceMap::new(
+            PriceTransform::default(),
+            PriceRange::new(90.0, 110.0),
+            0.0,
+            500.0,
+            false,
+        );
+        let coords = ChartMapping::new(rect, 10.0, 0, 2, 0.0, map);
+        for (seconds, want) in [
+            (90, Some(784.0)),
+            (120, Some(794.0)),
+            (150, Some(794.0)),
+            (180, None),
+            (-1, None),
+        ] {
+            let marker = Marker::new(start + chrono::TimeDelta::seconds(seconds))
+                .with_shape(MarkerShape::Circle);
+            let output = egui::Context::default().run_ui(egui::RawInput::default(), |ui| {
+                let painter = Painter::new(ui.ctx().clone(), egui::LayerId::background(), rect);
+                render_markers(
+                    &RenderContext::new(&painter, rect),
+                    std::slice::from_ref(&marker),
+                    &bars,
+                    &TimeIndex::new(&bars, crate::model::Timeframe::Min1).unwrap(),
+                    &map,
+                    &coords,
+                );
+            });
+            let x = output.shapes.iter().find_map(|c| match &c.shape {
+                Shape::Circle(circle) => Some(circle.center.x),
+                _ => None,
+            });
+            output.drop_without_applying_deltas();
+            assert_eq!(x, want, "{seconds} s");
+        }
+    }
+
     /// A bar from 95 to 105 on a 90..110 scale over 500 px spans y 125..375 in
     /// either orientation, so each marker lands at the same y: above positions
     /// offset up from 125, below positions down from 375.
@@ -280,6 +335,7 @@ mod tests {
                         &RenderContext::new(&painter, rect),
                         std::slice::from_ref(&marker),
                         &bars,
+                        &TimeIndex::new(&bars, crate::model::Timeframe::Min1).unwrap(),
                         &map,
                         &coords,
                     );
