@@ -291,7 +291,9 @@ impl DemoApp {
     // --- replay ------------------------------------------------------------
 
     fn toggle_replay(&mut self) {
-        if self.replay.is_some() {
+        if self.replay.is_some() && self.replay_control.is_user_dismissed() {
+            self.replay_control.show_control();
+        } else if self.replay.is_some() {
             self.stop_replay();
         } else {
             self.start_replay();
@@ -1080,11 +1082,12 @@ impl DemoApp {
     }
 
     fn show_chart(&mut self, ui: &mut egui::Ui, bg: egui::Color32) {
-        egui::CentralPanel::default()
+        let chart = egui::CentralPanel::default()
             .frame(panel_frame(bg))
             .show(ui, |ui| {
                 self.trading_chart.show(ui);
             });
+        self.replay_control.set_dock_rect(chart.response.rect);
         // Right-click context actions resolve after the chart is shown.
         while let Some(action) = self.trading_chart.take_context_action() {
             self.handle_context_action(action);
