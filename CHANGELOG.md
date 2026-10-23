@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- `widget::Legend` composes an in-pane instrument title, host badge and status marks, current outlined sell/buy quotes with spread, and collapsible volume and visible overlay study rows. Its bar and previous close are supplied independently of current quotes; quote clicks return `QuoteSide` for the host to handle.
 - `TextSizes` has separate `chart_title`, `toolbar`, `ohlc`, `axis`, `price_tag` and `bottom_bar` roles, defaulting to 16, 14, 13, 12, 12 and 14 points, with matching constants in `styles::typography`. `scaled` scales them with the general size scale; missing serialised fields use their defaults. Migration: add the roles to `TextSizes` struct literals or use `..Default::default()`. Component call sites choose the roles independently.
 - `WidgetBar::widgets` accepts host widget icons, names, ids and top or bottom grouping. Clicks return `WidgetBarAction::WidgetClicked(id)` and switch the active entry independently of the built-in panels. The bar scrolls when its entries do not fit. Migration: an exhaustive match on `WidgetBarAction` needs a `WidgetClicked` arm.
 - `Chart::set_price_lines(series, lines)` draws horizontal lines at prices on a series, such as an entry, a stop or a target. A `model::PriceLine` has a price, a colour, a width, a line style, an optional title and a price axis label that can be turned off. The lines follow the series' price scale in every mode, are hidden while their price is off the scale or not finite, and label the axis in the scale's units. Only `SeriesId::MAIN` has price lines; another id is ignored with a warning. `model::LineStyle` is the line style of drawings and price lines; `drawings::LineStyle` remains a re-export of the same type.
@@ -72,6 +73,7 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- The series legend wraps between whole OHLC fields within its supplied plot bounds, truncates long titles and paints the chart background behind text. The title uses 16 px text and the readout 13 px, with financial colours and 8 px field gaps; wide readouts stay inline.
 - Price and study panes share the available height at a 3 to 1 weight per study, with one 28 point time axis below the lowest pane. A study that would be under 40 points collapses to a 24 point legend row; clicking its title expands or collapses it. Pane plots and selection handles use the main plot's horizontal bounds and clip to the allocated pane, including after a resize. ([#736](https://github.com/userFRM/egui-charts/issues/736))
 - The bottom clock converts UTC instants to the named time zone, including daylight-saving offsets, and falls back to UTC digits and a UTC label for unknown names.
 - The bottom bar uses 14 px primary text, measures its labels to align the clock and session controls at the right edge, and keeps range buttons unfilled at rest. Clicking the remembered range requests it again after panning; narrow bars keep all ranges in a menu. The date button has a 24 px icon grid beside a 22 px rule.
