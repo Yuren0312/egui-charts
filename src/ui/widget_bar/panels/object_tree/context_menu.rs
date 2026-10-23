@@ -5,6 +5,7 @@
 use egui::{Area, Frame, Id, Key, Order, Ui};
 
 use super::actions::ObjectTreeAction;
+use super::config::ObjectTreeConfig;
 use super::state::ObjectTreeState;
 use super::types::{SourceItem, SourceType};
 
@@ -13,6 +14,7 @@ pub fn render_context_menu(
     ui: &mut Ui,
     sources: &[SourceItem],
     state: &mut ObjectTreeState,
+    config: &ObjectTreeConfig,
 ) -> ObjectTreeAction {
     let mut action = ObjectTreeAction::None;
 
@@ -31,12 +33,16 @@ pub fn render_context_menu(
 
                 if let Some(target_id) = state.context_menu_target {
                     // Context menu for specific item
-                    if let Some(item) = sources.iter().find(|s| s.id == target_id) {
-                        action = render_item_menu(ui, item, state);
+                    if let Some(item) = sources.iter().find(|s| {
+                        s.id == target_id
+                            && (config.enable_data_source_actions
+                                || s.source_type != SourceType::DataSource)
+                    }) {
+                        action = render_item_menu(ui, item, state, config);
                     }
                 } else {
                     // General context menu (no specific item)
-                    action = render_general_menu(ui, state);
+                    action = render_general_menu(ui, state, config);
                 }
             });
         });
@@ -54,12 +60,15 @@ fn render_item_menu(
     ui: &mut Ui,
     item: &SourceItem,
     state: &mut ObjectTreeState,
+    config: &ObjectTreeConfig,
 ) -> ObjectTreeAction {
     let mut action = ObjectTreeAction::None;
     let id = item.id;
 
     // Properties/Settings
-    if ui.button("Properties...").clicked() {
+    if (item.source_type == SourceType::Drawing || config.enable_indicator_settings)
+        && ui.button("Properties...").clicked()
+    {
         action = if item.source_type == SourceType::Indicator {
             ObjectTreeAction::OpenIndicatorSettings(id)
         } else {
@@ -69,7 +78,7 @@ fn render_item_menu(
     }
 
     // Rename
-    if ui.button("Rename...").clicked() {
+    if config.enable_inline_edit && ui.button("Rename...").clicked() {
         state.start_rename(id, item.display_name());
         state.close_context_menu();
     }
@@ -77,7 +86,7 @@ fn render_item_menu(
     ui.separator();
 
     // Duplicate (drawings and indicators)
-    if item.source_type != SourceType::Template && ui.button("Duplicate").clicked() {
+    if item.source_type == SourceType::Drawing && ui.button("Duplicate").clicked() {
         action = ObjectTreeAction::Duplicate(id);
         state.close_context_menu();
     }
@@ -125,7 +134,7 @@ fn render_item_menu(
     ui.separator();
 
     // Zoom to
-    if ui.button("Zoom to Object").clicked() {
+    if item.source_type == SourceType::Drawing && ui.button("Zoom to Object").clicked() {
         action = ObjectTreeAction::ZoomTo(id);
         state.close_context_menu();
     }
@@ -151,7 +160,11 @@ fn render_item_menu(
 }
 
 /// Render general context menu (no specific item)
-fn render_general_menu(ui: &mut Ui, state: &mut ObjectTreeState) -> ObjectTreeAction {
+fn render_general_menu(
+    ui: &mut Ui,
+    state: &mut ObjectTreeState,
+    config: &ObjectTreeConfig,
+) -> ObjectTreeAction {
     let mut action = ObjectTreeAction::None;
 
     // Show/Hide all
@@ -179,13 +192,13 @@ fn render_general_menu(ui: &mut Ui, state: &mut ObjectTreeState) -> ObjectTreeAc
     ui.separator();
 
     // Selection operations
-    if ui.button("Select All").clicked() {
+    if config.enable_multi_select && ui.button("Select All").clicked() {
         action = ObjectTreeAction::SelectAll;
         state.close_context_menu();
     }
 
     // Delete selected (if any selected)
-    if state.selection_count() > 0 {
+    if config.enable_multi_select && state.selection_count() > 0 {
         ui.separator();
 
         if ui.button("Delete Selected").clicked() {

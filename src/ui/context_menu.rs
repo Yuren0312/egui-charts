@@ -626,6 +626,13 @@ pub struct ChartMenus {
 }
 
 impl ChartMenus {
+    pub(crate) fn series_context(&self) -> (SeriesId, f64) {
+        (
+            self.series.series_id.unwrap_or(SeriesId::MAIN),
+            self.series.click_price,
+        )
+    }
+
     /// Shows or hides `control`: Alerts (the add alert rows of the chart and series menus)
     /// and Trading (the chart menu's sell limit and buy stop rows). The menus ignore the other
     /// controls.

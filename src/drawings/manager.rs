@@ -766,30 +766,45 @@ impl DrawingManager {
 
     // === Visibility ===
 
-    /// Toggles the visibility of all drawings. If all are visible, hides them
-    /// all; otherwise shows them all.
-    pub fn toggle_visibility_all(&mut self) {
-        let all_visible = self.drawings.iter().all(|d| d.visible);
-        for drawing in self
-            .drawings
-            .iter_mut()
-            .filter(|d| d.visible == all_visible)
-        {
-            drawing.visible = !all_visible;
+    /// Sets the visibility of every drawing.
+    pub fn set_all_visible(&mut self, visible: bool) {
+        for drawing in self.drawings.iter_mut().filter(|d| d.visible != visible) {
+            drawing.visible = visible;
             if let Ok(mut sync) = self.pending_sync.lock() {
                 sync.push(DrawingSyncAction::UpdateDrawing(drawing.id));
             }
         }
     }
 
-    /// Toggles the lock state of all drawings. If all are locked, unlocks them
-    /// all; otherwise locks them all.
-    pub fn toggle_lock_all(&mut self) {
-        let all_locked = self.drawings.iter().all(|d| d.locked);
-        for drawing in self.drawings.iter_mut().filter(|d| d.locked == all_locked) {
-            drawing.locked = !all_locked;
+    /// Sets the lock state of every drawing.
+    pub fn set_all_locked(&mut self, locked: bool) {
+        for drawing in self.drawings.iter_mut().filter(|d| d.locked != locked) {
+            drawing.locked = locked;
             if let Ok(mut sync) = self.pending_sync.lock() {
                 sync.push(DrawingSyncAction::UpdateDrawing(drawing.id));
+            }
+        }
+    }
+
+    /// Moves a drawing one step forward in z-order, swapping it with the drawing above.
+    pub fn bring_forward(&mut self, id: usize) {
+        let before: Vec<i32> = self.drawings.iter().map(Drawing::z_order).collect();
+        ZOrderService::bring_forward(&mut self.drawings, id);
+        self.queue_reordered(&before);
+    }
+
+    /// Moves a drawing one step backward in z-order, swapping it with the drawing below.
+    pub fn send_backward(&mut self, id: usize) {
+        let before: Vec<i32> = self.drawings.iter().map(Drawing::z_order).collect();
+        ZOrderService::send_backward(&mut self.drawings, id);
+        self.queue_reordered(&before);
+    }
+
+    /// Queues an update of each drawing whose z-order differs from `before`.
+    fn queue_reordered(&self, before: &[i32]) {
+        for (drawing, z) in self.drawings.iter().zip(before) {
+            if drawing.z_order() != *z {
+                self.queue(DrawingSyncAction::UpdateDrawing(drawing.id));
             }
         }
     }
@@ -1047,12 +1062,29 @@ mod tests {
     #[test]
     fn every_edit_queues_one_sync_action() {
         type Edit = fn(&mut DrawingManager);
-        let cases: [(Edit, &[&str]); 11] = [
+        let cases: [(Edit, &[&str]); 13] = [
             (|m| m.clear_all(), &["Delete(a1b2)"]),
-            (|m| m.toggle_visibility_all(), &["Update(0)"]),
-            (|m| m.toggle_lock_all(), &["Update(0)"]),
+            (|m| m.set_all_visible(false), &["Update(0)"]),
+            (|m| m.set_all_locked(true), &["Update(0)"]),
             (|m| m.bring_to_front(0), &["Update(0)"]),
             (|m| m.send_to_back(0), &["Update(0)"]),
+            (
+                // A step swaps places with the next drawing, so both are saved.
+                |m| {
+                    m.add_synced_drawing(Drawing::new(7, DrawingToolType::HorizontalLine));
+                    m.bring_to_front(1);
+                    m.bring_forward(0);
+                },
+                &["Save(1)", "Update(1)", "Update(0)", "Update(1)"],
+            ),
+            (
+                |m| {
+                    m.add_synced_drawing(Drawing::new(7, DrawingToolType::HorizontalLine));
+                    m.send_to_back(1);
+                    m.send_backward(0);
+                },
+                &["Save(1)", "Update(1)", "Update(0)", "Update(1)"],
+            ),
             (
                 |m| {
                     m.delete_drawing(0);

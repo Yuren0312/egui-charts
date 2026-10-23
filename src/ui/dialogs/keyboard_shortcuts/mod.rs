@@ -55,6 +55,14 @@ impl KeyboardShortcutsDialog {
 
     /// Show the dialog. Returns the action taken.
     pub fn show(&mut self, ctx: &Context) -> KeyboardShortcutsAction {
+        self.show_with_history(ctx, false)
+    }
+
+    pub(crate) fn show_with_history(
+        &mut self,
+        ctx: &Context,
+        history: bool,
+    ) -> KeyboardShortcutsAction {
         if !self.is_open {
             return KeyboardShortcutsAction::None;
         }
@@ -66,7 +74,7 @@ impl KeyboardShortcutsDialog {
             DESIGN_TOKENS.sizing.dialog.default_width,
         )
         .show(ctx, |ui| {
-            action = self.render_contents(ui);
+            action = self.render_contents(ui, history);
         });
 
         // Escape belongs to an open popup or a focused text field first. egui closes both on
@@ -86,7 +94,7 @@ impl KeyboardShortcutsDialog {
         action
     }
 
-    fn render_contents(&mut self, ui: &mut Ui) -> KeyboardShortcutsAction {
+    fn render_contents(&mut self, ui: &mut Ui, history: bool) -> KeyboardShortcutsAction {
         let mut action = KeyboardShortcutsAction::None;
         let theme = ui.active_theme();
 
@@ -102,7 +110,12 @@ impl KeyboardShortcutsDialog {
         );
         ui.add_space(theme.spacing.lg);
 
-        let categories = KeyboardAction::all_by_category();
+        let mut categories = KeyboardAction::all_by_category();
+        if !history {
+            for (_, actions) in &mut categories {
+                actions.retain(|a| !matches!(a, KeyboardAction::Undo | KeyboardAction::Redo));
+            }
+        }
         let font = FontId::proportional(theme.text.body);
         let widest = ui.fonts_mut(|f| {
             categories

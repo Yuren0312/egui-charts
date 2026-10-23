@@ -312,9 +312,16 @@ impl SymbolSearchDialog {
                             self.sel_idx - 1
                         };
                     }
-                    if i.key_pressed(egui::Key::Enter) && !self.filtered_symbols.is_empty() {
-                        sel_symbol = Some(self.filtered_symbols[self.sel_idx].clone());
-                        should_close = true;
+                    if i.key_pressed(egui::Key::Enter) {
+                        sel_symbol =
+                            self.filtered_symbols
+                                .get(self.sel_idx)
+                                .cloned()
+                                .or_else(|| {
+                                    let text = self.search_query.trim();
+                                    (!text.is_empty()).then(|| Symbol::new(text, text))
+                                });
+                        should_close = sel_symbol.is_some();
                     }
                 });
 

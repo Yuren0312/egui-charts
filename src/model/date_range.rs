@@ -117,7 +117,7 @@ impl DateRange {
     }
 
     /// Calculate approximate number of bars needed for this range at a given timeframe
-    pub fn estimated_bars(&self, bar_duration_seconds: u64) -> usize {
+    pub fn estimated_bars(&self, timeframe: crate::model::Timeframe) -> usize {
         let duration_seconds = match self {
             DateRange::Day1 => 24 * 3600,
             DateRange::Day5 => 5 * 24 * 3600,
@@ -134,12 +134,56 @@ impl DateRange {
             DateRange::All => 10 * 365 * 24 * 3600,
         };
 
-        (duration_seconds / bar_duration_seconds.max(1)) as usize
+        (duration_seconds * 1000 / timeframe.duration_ms().max(1) as u64) as usize
     }
 }
 
 impl std::fmt::Display for DateRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.label())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_date_range_labels() {
+        assert_eq!(DateRange::Day1.label(), "1D");
+        assert_eq!(DateRange::YTD.label(), "YTD");
+        assert_eq!(DateRange::All.label(), "All");
+    }
+
+    #[test]
+    fn test_standard_presets() {
+        let presets = DateRange::default_presets();
+        assert_eq!(presets.len(), 9);
+        assert_eq!(presets[0], DateRange::Day1);
+        assert_eq!(presets[8], DateRange::All);
+    }
+
+    #[test]
+    fn test_estimated_bars() {
+        use crate::model::Timeframe;
+        // A day is 86,400 seconds, or 864,000 intervals of 100 milliseconds.
+        for (range, timeframe, expected) in [
+            (DateRange::Day1, Timeframe::Min1, 1440),
+            (DateRange::Month1, Timeframe::Hour1, 720),
+            (DateRange::Day1, Timeframe::Ms100, 864_000),
+            (DateRange::Day1, Timeframe::Sec1, 86_400),
+        ] {
+            assert_eq!(range.estimated_bars(timeframe), expected);
+        }
+    }
+
+    #[test]
+    fn test_start_timestamp() {
+        // All should return None
+        assert!(DateRange::All.start_timestamp().is_none());
+
+        // Others should return Some
+        assert!(DateRange::Day1.start_timestamp().is_some());
+        assert!(DateRange::Year1.start_timestamp().is_some());
     }
 }

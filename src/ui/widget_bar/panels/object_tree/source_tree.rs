@@ -52,6 +52,15 @@ fn render_grouped_tree(
 ) -> ObjectTreeAction {
     let mut action = ObjectTreeAction::None;
 
+    if !config.enable_data_source_actions {
+        for source in sources.iter_mut() {
+            if source.source_type == SourceType::DataSource && matches_filter(source, filter, state)
+            {
+                render_item_row(ui, source, config, state, 0);
+            }
+        }
+    }
+
     // Count items per type
     let indicator_count = sources
         .iter()

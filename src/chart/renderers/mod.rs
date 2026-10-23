@@ -23,6 +23,8 @@ pub use candle::render_candle;
 pub use context::{BarRenderParams, ChartMapping, RenderContext, StyleColors};
 
 pub use crosshair::render_crosshair_full;
+#[cfg(feature = "ui")]
+pub(crate) use crosshair::time_label;
 pub use indicator::IndicatorRenderer;
 pub(crate) use labels::price_decimals;
 pub use labels::{render_legend, render_ohlc_info, render_price_labels, render_time_labels};

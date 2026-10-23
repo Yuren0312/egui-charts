@@ -31,7 +31,7 @@ impl DrawingLineStyle {
 }
 
 /// Drawing properties that can be edited
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DrawingProps {
     /// Primary color
     pub color: Color32,

@@ -327,6 +327,7 @@ pub struct TimeframeSelector {
     pub current: Timeframe,
     /// Is dropdown open
     is_open: bool,
+    model_label: Option<String>,
     /// Favorite timeframes
     pub favorites: HashSet<Timeframe>,
     /// Custom timeframes
@@ -359,6 +360,7 @@ impl TimeframeSelector {
         Self {
             current: initial,
             is_open: false,
+            model_label: None,
             favorites,
             custom_timeframes: Vec::new(),
             config: TimeframeSelectorConfig::default(),
@@ -370,6 +372,15 @@ impl TimeframeSelector {
     pub fn with_config(mut self, config: TimeframeSelectorConfig) -> Self {
         self.config = config;
         self
+    }
+
+    pub(crate) fn set_model(&mut self, timeframe: crate::model::Timeframe) {
+        self.current = Timeframe::all_presets()
+            .into_iter()
+            .chain(self.custom_timeframes.iter().copied())
+            .find(|tf| tf.to_model() == Some(timeframe))
+            .unwrap_or(Timeframe::new(0, TimeframeUnit::Second));
+        self.model_label = Some(timeframe.as_str().into());
     }
 
     /// Show the timeframe selector
@@ -393,7 +404,10 @@ impl TimeframeSelector {
 
     /// The button that opens the dropdown, showing the current timeframe.
     pub(crate) fn trigger(&self) -> Trigger<'static> {
-        let label = self.current.display();
+        let label = self
+            .model_label
+            .clone()
+            .unwrap_or_else(|| self.current.display());
         Trigger {
             icon: None,
             name: format!("Interval: {label}"),

@@ -809,8 +809,12 @@ impl DemoApp {
             DrawingToolbarAction::ClearAllDrawings | DrawingToolbarAction::RemoveAllDrawings => {
                 dm.clear_all()
             }
-            DrawingToolbarAction::HideAllDrawings => dm.toggle_visibility_all(),
-            DrawingToolbarAction::LockAllDrawings => dm.toggle_lock_all(),
+            DrawingToolbarAction::HideAllDrawings => {
+                dm.set_all_visible(!dm.drawings.iter().all(|d| d.visible))
+            }
+            DrawingToolbarAction::LockAllDrawings => {
+                dm.set_all_locked(!dm.drawings.iter().all(|d| d.locked))
+            }
             DrawingToolbarAction::ZoomIn => {
                 let _ = dm.redo();
             }

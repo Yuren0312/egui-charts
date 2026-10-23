@@ -56,6 +56,7 @@
 //! | **Widget** | [`widget`] | `Chart` egui widget and `ChartBuilder`: pan and zoom, kinetic scrolling, keyboard and drawing input, indicator panes, loading from a feed |
 //! | **Extensions** | `ext` | *(feature `ui`)* `UiExt`, `ResponseExt`, `ButtonWidgetExt`, `TextEditWidgetExt`, `RoundingExt` |
 //! | **Icons** | [`icons`] | Compile-time embedded SVG icons |
+//! | **Terminal** | `ui::terminal` | *(feature `ui`)* Assembled chart, toolbars, dialogs, object tree, commands and host export |
 //! | **App UI** | `ui`, `ui_kit` | *(feature `ui`)* Toolbars, panels, dialogs, reusable form/button primitives |
 //!
 //! ## Feature flags

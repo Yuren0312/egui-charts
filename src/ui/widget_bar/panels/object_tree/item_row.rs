@@ -24,6 +24,16 @@ pub fn render_item_row(
     state: &mut ObjectTreeState,
     indent_level: usize,
 ) -> ObjectTreeAction {
+    if item.source_type == SourceType::DataSource && !config.enable_data_source_actions {
+        // An informational source row never enters the drawing selection id space.
+        ui.push_id((SourceType::DataSource, item.id), |ui| {
+            ui.add_sized(
+                [ui.available_width(), config.row_height],
+                egui::Label::new(item.full_display_name()).selectable(false),
+            );
+        });
+        return ObjectTreeAction::None;
+    }
     let id = item.id;
 
     // Calculate indentation
@@ -308,18 +318,20 @@ fn render_row_content(
     del_response.on_hover_text("Remove");
     right_x -= 20.0;
 
-    // Settings/Properties button
-    let settings_rect =
-        Rect::from_center_size(egui::pos2(right_x - 8.0, center_y), vec2(16.0, 16.0));
-    let settings_response = ui.put(settings_rect, egui::Label::new("S").sense(Sense::click()));
-    if settings_response.clicked() {
-        *action = if item.source_type == SourceType::Indicator {
-            ObjectTreeAction::OpenIndicatorSettings(item.id)
-        } else {
-            ObjectTreeAction::OpenProperties(item.id)
-        };
+    if item.source_type == SourceType::Drawing || config.enable_indicator_settings {
+        // Settings/Properties button
+        let settings_rect =
+            Rect::from_center_size(egui::pos2(right_x - 8.0, center_y), vec2(16.0, 16.0));
+        let settings_response = ui.put(settings_rect, egui::Label::new("S").sense(Sense::click()));
+        if settings_response.clicked() {
+            *action = if item.source_type == SourceType::Indicator {
+                ObjectTreeAction::OpenIndicatorSettings(item.id)
+            } else {
+                ObjectTreeAction::OpenProperties(item.id)
+            };
+        }
+        settings_response.on_hover_text("Settings");
     }
-    settings_response.on_hover_text("Settings");
 }
 
 /// Render expandable properties for a drawing

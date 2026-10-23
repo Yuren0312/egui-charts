@@ -1,6 +1,7 @@
 //! Data structures for settings state - Canvas style
 
 use super::types::{BackgroundType, ButtonVisibility, GridLinesMode, PrecisionMode, WatermarkMode};
+use crate::config::NavigationButtons;
 use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
@@ -370,5 +371,38 @@ impl ChartSettingsState {
     pub fn sync_legacy_fields(&mut self) {
         self.background_color = self.chart_basic_styles.background_color;
         self.grid_color = self.grid_lines.horizontal_color;
+    }
+}
+
+impl ChartSettingsState {
+    /// Applies the candle colours, canvas, grid, navigation buttons and status line settings to the chart.
+    pub fn apply_to(&self, config: &mut crate::config::ChartConfig) {
+        config.bullish_color = self.candle_colors.body_up;
+        config.bearish_color = self.candle_colors.body_down;
+        config.bullish_border_color = Some(self.candle_colors.border_up);
+        config.bearish_border_color = Some(self.candle_colors.border_down);
+        config.bullish_wick_color = Some(self.candle_colors.wick_up);
+        config.bearish_wick_color = Some(self.candle_colors.wick_down);
+
+        config.background_color = self.chart_basic_styles.background_color;
+        config.grid_color = self.grid_lines.horizontal_color;
+
+        let (h, v) = match self.grid_lines.mode {
+            GridLinesMode::None => (false, false),
+            GridLinesMode::Horizontal => (true, false),
+            GridLinesMode::Vertical => (false, true),
+            GridLinesMode::Both => (true, true),
+        };
+        config.show_horizontal_grid = h;
+        config.show_vertical_grid = v;
+        config.show_grid = h || v;
+
+        config.navigation_buttons = match self.btns.navigation {
+            ButtonVisibility::AlwaysVisible => NavigationButtons::Always,
+            ButtonVisibility::VisibleOnMouseOver => NavigationButtons::OnHover,
+            ButtonVisibility::Hidden => NavigationButtons::Never,
+        };
+        config.show_ohlc_info = self.status_line.show_ohlc;
+        config.show_volume = self.status_line.show_volume;
     }
 }

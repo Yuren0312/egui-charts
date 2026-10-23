@@ -180,7 +180,11 @@ pub fn render_crosshair_full(
 
 /// The crosshair's time label for a bar `bar_seconds` long: its date as the time axis writes
 /// it, with the year unless it is the current one, then the time of day for intraday bars.
-fn time_label(time: DateTime<Utc>, bar_seconds: i64, formatter: &dyn TimeFormatter) -> String {
+pub(crate) fn time_label(
+    time: DateTime<Utc>,
+    bar_seconds: i64,
+    formatter: &dyn TimeFormatter,
+) -> String {
     let mut label = formatter.format(time, TickMarkType::DayOfMonth);
     let year = formatter.format(time, TickMarkType::Year);
     if year != formatter.format(Utc::now(), TickMarkType::Year) {

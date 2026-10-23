@@ -145,7 +145,7 @@ impl ObjectTreePanel {
 
         // Context menu (rendered on top)
         if self.state.context_menu_open {
-            let menu_action = render_context_menu(ui, sources, &mut self.state);
+            let menu_action = render_context_menu(ui, sources, &mut self.state, &self.config);
             if !menu_action.is_none() {
                 action = menu_action;
             }
@@ -203,7 +203,8 @@ impl ObjectTreePanel {
                             ui.close();
                         }
                         ui.separator();
-                        if self.state.selection_count() > 0
+                        if self.config.enable_multi_select
+                            && self.state.selection_count() > 0
                             && ui.button("Delete Selected").clicked()
                         {
                             *action = ObjectTreeAction::DeleteSelected;

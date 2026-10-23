@@ -52,6 +52,11 @@ path = "examples/live_feed.rs"
 required-features = ["widget"]
 
 [[example]]
+name = "terminal"
+path = "examples/terminal.rs"
+required-features = ["ui"]
+
+[[example]]
 name = "bare_chart"
 path = "examples/bare_chart.rs"
 required-features = ["widget"]
@@ -95,7 +100,7 @@ serde = []
 # are required because `default-features = false` otherwise leaves `winit`
 # without a Linux backend.  `clipboard` gives text fields copy and paste.
 eframe = { version = "0.37.0", default-features = false, features = ["clipboard", "default_fonts", "glow", "x11", "wayland"] }
-egui = "0.37.0"
+egui = { version = "0.37.0", features = ["monochrome_emoji_fonts"] }
 rand = "0.10.0"
 
 [dependencies]

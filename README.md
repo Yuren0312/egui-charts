@@ -52,7 +52,7 @@ The chart pans, zooms and shows a crosshair out of the box. `set_chart_type` pic
 
 ## A terminal around it
 
-In the default build, the toolbars, panels and dialogs are components you place in your layout; each returns an action that your app applies to the chart. This one puts the drawing toolbar next to a chart that loads its bars from your `Datafeed`:
+In the default build, `ui::terminal::Terminal` assembles the chart with the top, drawing and timeframe toolbars, the object tree, the context menus and the dialogs, and performs every action they emit. Your app supplies the market data through a `Datafeed`:
 
 ```sh
 cargo add egui-charts
@@ -62,11 +62,8 @@ cargo add eframe@0.37
 ```rust,no_run
 use std::sync::Arc;
 
-use eframe::egui;
 use egui_charts::data::{Datafeed, HistoryPage, HistoryRequest, Reply, Subscription};
-use egui_charts::model::Timeframe;
-use egui_charts::ui::drawing_toolbar::DrawingToolbar;
-use egui_charts::{Chart, ChartBuilder};
+use egui_charts::ui::terminal::Terminal;
 
 /// Your market data: history on request, then live updates.
 struct MyFeed;
@@ -86,38 +83,17 @@ impl Datafeed for MyFeed {
     }
 }
 
-struct Terminal {
-    chart: Chart,
-    tools: DrawingToolbar,
-}
-
-impl eframe::App for Terminal {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::Panel::left("tools").show(ui, |ui| {
-            if let Some(tool) = self.tools.show(ui) {
-                self.chart.drawings_mut().set_active_tool(Some(tool));
-            }
-        });
-        egui::CentralPanel::default().show(ui, |ui| self.chart.show(ui));
-    }
-}
-
 fn main() -> eframe::Result {
-    let chart = ChartBuilder::new()
-        .with_symbol("SAMPLE")
-        .with_timeframe(Timeframe::Min1)
-        .with_feed(Arc::new(MyFeed))
-        .build();
-    let tools = DrawingToolbar::default();
-    eframe::run_native(
-        "My terminal",
-        eframe::NativeOptions::default(),
-        Box::new(|_cc| Ok(Box::new(Terminal { chart, tools }))),
-    )
+    let mut terminal = Terminal::new(Arc::new(MyFeed)).with_symbol("SAMPLE");
+    eframe::run_ui_native("My terminal", Default::default(), move |ui, _| {
+        terminal.show(ui);
+    })
 }
 ```
 
-The [demo](examples/demo) connects the top, drawing and timeframe toolbars, the dialogs, the side panels and the context menus this way. Controls that need a backend the demo does not have show a notice, and some context menu entries do nothing yet. An assembled terminal that handles these actions itself, so an app only supplies its services, is planned ([#205](https://github.com/userFRM/egui-charts/issues/205)).
+`with_intercept` hands the commands it matches back from `show` for your app to perform instead, `run` performs a command, `chart_mut` reaches the chart, and `with_file_export` receives the images and text an export produces. [`examples/terminal.rs`](examples/terminal.rs) runs the terminal on a synthetic feed and saves CSV exports to files.
+
+The toolbars, panels and dialogs are also components you can place in your own layout, each returning an action that your app applies to the chart, as the [demo](examples/demo) does. Controls that need a backend the demo does not have show a notice.
 
 ## Chart types
 
@@ -242,7 +218,7 @@ With the `serde` feature, `Theme` implements `Serialize` and `Deserialize`, so a
 | Studies | The built-in studies and `IndicatorFactory`, also without egui | `studies` |
 | Chart widget | `Chart` and `ChartBuilder`: rendering, pan and zoom, crosshair, chart types, drawings, studies on the chart, theme | `widget` |
 | Icons | Embedded SVG icons, drawn through `egui_extras` | `icons` |
-| Terminal UI | Top, drawing and timeframe toolbars, replay controls, side panels, dialogs, and the `ui_kit` widgets they are built from | `ui` |
+| Terminal UI | Top, drawing and timeframe toolbars, replay controls, side panels, dialogs, the `ui_kit` widgets they are built from, and `ui::terminal::Terminal`, which assembles them | `ui` |
 
 The default feature is `ui`, which enables `icons`, `widget` and `studies`.
 

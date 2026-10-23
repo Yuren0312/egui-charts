@@ -30,6 +30,10 @@ pub struct ObjectTreeConfig {
     pub enable_multi_select: bool,
     /// Enable inline property editing
     pub enable_inline_edit: bool,
+    /// Enable selection and controls on the main data source row.
+    pub enable_data_source_actions: bool,
+    /// Offer settings for indicators.
+    pub enable_indicator_settings: bool,
     /// Enable context menu on right-click
     pub enable_context_menu: bool,
     /// Enable keyboard shortcuts
@@ -70,6 +74,8 @@ impl Default for ObjectTreeConfig {
             enable_drag_drop: true,
             enable_multi_select: true,
             enable_inline_edit: false, // Uses dialogs instead
+            enable_indicator_settings: true,
+            enable_data_source_actions: true,
             enable_context_menu: true,
             enable_keyboard_shortcuts: true,
 

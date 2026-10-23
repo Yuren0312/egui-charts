@@ -87,6 +87,11 @@ pub enum KeyboardAction {
     /// Cycle through chart types (T)
     CycleChartType,
 
+    /// Undo a drawing edit (Ctrl+Z).
+    Undo,
+    /// Redo a drawing edit (Ctrl+Y).
+    Redo,
+
     // Drawing tools
     /// Enable/disable drawing mode (D)
     ToggleDrawingMode,
@@ -193,6 +198,9 @@ impl KeyboardAction {
             // Chart type
             (Key::T, false, _, false) => Some(Self::CycleChartType),
 
+            (Key::Z, true, false, false) => Some(Self::Undo),
+            (Key::Y, true, false, false) => Some(Self::Redo),
+
             // Drawing tools
             (Key::D, false, _, false) => Some(Self::ToggleDrawingMode),
             (Key::Delete, false, _, false) | (Key::Backspace, false, _, false) => {
@@ -229,6 +237,8 @@ impl KeyboardAction {
     /// Get a human-readable desc of the keyboard shortcut
     pub fn desc(&self) -> &'static str {
         match self {
+            Self::Undo => "Undo drawing (Ctrl+Z)",
+            Self::Redo => "Redo drawing (Ctrl+Y)",
             Self::PanLeft => "Pan left (Left)",
             Self::PanRight => "Pan right (Right)",
             Self::PanUp => "Pan up (Up)",
@@ -273,6 +283,8 @@ impl KeyboardAction {
     /// Human-readable label for the action (used in shortcuts dialog)
     pub fn label(&self) -> &'static str {
         match self {
+            Self::Undo => "Undo",
+            Self::Redo => "Redo",
             Self::PanLeft => "Pan left",
             Self::PanRight => "Pan right",
             Self::PanUp => "Pan up",
@@ -322,6 +334,8 @@ impl KeyboardAction {
             KeyboardShortcut::new(Modifiers::NONE, key)
         }
         match self {
+            Self::Undo => const { &[KeyboardShortcut::new(Modifiers::COMMAND, Key::Z)] },
+            Self::Redo => const { &[KeyboardShortcut::new(Modifiers::COMMAND, Key::Y)] },
             Self::PanLeft => const { &[key(Key::ArrowLeft)] },
             Self::PanRight => const { &[key(Key::ArrowRight)] },
             Self::ZoomIn => const { &[key(Key::Plus), key(Key::Equals)] },
@@ -349,6 +363,8 @@ impl KeyboardAction {
     /// [`shortcuts`](Self::shortcuts).
     pub fn shortcut_key(&self) -> &'static str {
         match self {
+            Self::Undo => "Ctrl+Z",
+            Self::Redo => "Ctrl+Y",
             Self::PanLeft => "←",
             Self::PanRight => "→",
             Self::PanUp => "↑",
@@ -401,7 +417,12 @@ impl KeyboardAction {
             ("View", vec![Self::ScrollToRealTime, Self::FitContent]),
             (
                 "Drawing tools",
-                vec![Self::DeleteSelectedDrawing, Self::Cancel],
+                vec![
+                    Self::Undo,
+                    Self::Redo,
+                    Self::DeleteSelectedDrawing,
+                    Self::Cancel,
+                ],
             ),
             ("App", vec![Self::ShowKeyboardHelp]),
         ]

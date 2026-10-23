@@ -18,11 +18,11 @@ use egui_charts::data::{Datafeed, HistoryPage, HistoryRequest, Reply, Subscripti
 use egui_charts::model::{Bar, Tick, Timeframe, TradeSide};
 use egui_charts::theme::Theme;
 use egui_charts::widget::Chart;
-use rand::RngExt;
+use rand::{RngExt, SeedableRng};
 use std::sync::Arc;
 use std::time::Duration;
 
-fn main() -> eframe::Result {
+pub fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 720.0]),
         ..Default::default()
@@ -69,14 +69,28 @@ impl eframe::App for LiveFeedApp {
 }
 
 /// One-minute bars of a random walk up to the current minute, oldest first.
-struct SyntheticFeed {
+pub struct SyntheticFeed {
     bars: Vec<Bar>,
+    live: bool,
 }
 
 impl SyntheticFeed {
-    fn new(count: usize) -> Self {
-        let mut rng = rand::rng();
-        let now = Utc::now().duration_trunc(TimeDelta::minutes(1)).unwrap();
+    pub fn new(count: usize) -> Self {
+        Self::with_stream(count, true)
+    }
+
+    /// Static mode uses repeatable history and starts no stream.
+    pub fn with_stream(count: usize, live: bool) -> Self {
+        let mut rng = if live {
+            rand::rngs::StdRng::from_rng(&mut rand::rng())
+        } else {
+            rand::rngs::StdRng::seed_from_u64(42)
+        };
+        let now = if live {
+            Utc::now().duration_trunc(TimeDelta::minutes(1)).unwrap()
+        } else {
+            chrono::DateTime::from_timestamp(1_735_689_600, 0).unwrap()
+        };
         let mut price = 100.0_f64;
         let bars = (0..count)
             .map(|i| {
@@ -88,7 +102,7 @@ impl SyntheticFeed {
                 Bar::new(time, open, high, low, price, rng.random_range(10.0..500.0))
             })
             .collect();
-        Self { bars }
+        Self { bars, live }
     }
 }
 
@@ -106,6 +120,9 @@ impl Datafeed for SyntheticFeed {
     }
 
     fn subscribe(&self, subscription: Subscription) {
+        if !self.live {
+            return;
+        }
         let sink = subscription.sink;
         let mut price = self.bars.last().map_or(100.0, |bar| bar.close);
         std::thread::spawn(move || {

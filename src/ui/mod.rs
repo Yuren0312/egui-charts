@@ -38,3 +38,4 @@ pub mod floating_replay_control;
 pub mod multi_chart;
 pub mod replay_status;
 pub mod symbol_header;
+pub mod terminal;
