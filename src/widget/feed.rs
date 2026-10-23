@@ -8,13 +8,13 @@
 use super::{Chart, SeriesId};
 use crate::chart::overlays::{VolumeBubbles, VolumeBubblesConfig};
 use crate::data::inbox::{Answer, Inbox};
-use crate::data::merge::Origin;
+use crate::data::merge::{Merged, Origin};
 use crate::data::trades::Trades;
 use crate::data::{
     Datafeed, FeedError, FeedState, HistoryPage, HistoryRequest, Reply, Subscription,
     SubscriptionId, TradePage, TradeRequest,
 };
-use crate::model::{BarClock, Instrument, OrderBook, Tick, Timeframe};
+use crate::model::{Bar, BarClock, Instrument, OrderBook, Tick, Timeframe};
 use egui::ViewportId;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -38,21 +38,44 @@ pub(crate) struct FeedLink {
     /// which installs the waker, and cleared by `Drop` before it unsubscribes, so the waker does
     /// nothing then.
     wake: Arc<Mutex<Option<ViewportId>>>,
-    /// The symbol or timeframe changed: the next `pump` reloads.
-    reload_pending: bool,
     next_key: u64,
     /// Requests not answered yet; an answer under any other key is stale and dropped.
-    pending: Vec<(u64, Request)>,
-    subscription: Option<SubscriptionId>,
+    pending: Vec<(u64, SeriesId, Request)>,
+    links: Vec<SeriesLink>,
+    dropped: Vec<SubscriptionId>,
     instrument: Option<Instrument>,
     trades: Trades,
     /// The held trades as volume bubbles, when the host turned them on.
     pub(super) bubbles: Option<VolumeBubbles>,
     order_book: Option<OrderBook>,
-    /// A history or resolve request failed: no automatic request until the next reload.
-    pub(super) paging_stopped: bool,
 }
 
+/// The requests and subscription of one series, independent of the other symbols.
+struct SeriesLink {
+    id: SeriesId,
+    reload_pending: bool,
+    subscription: Option<SubscriptionId>,
+    paging_stopped: bool,
+    retry: Vec<Request>,
+    retry_at: f64,
+    failures: u32,
+}
+
+impl SeriesLink {
+    fn new(id: SeriesId) -> Self {
+        Self {
+            id,
+            reload_pending: true,
+            subscription: None,
+            paging_stopped: false,
+            retry: Vec::new(),
+            retry_at: 0.0,
+            failures: 0,
+        }
+    }
+}
+
+#[derive(PartialEq)]
 enum Request {
     Resolve,
     History { scroll_back: bool },
@@ -61,10 +84,28 @@ enum Request {
 
 impl FeedLink {
     /// A reply for `request`, under a new key.
-    fn reply<T: Send + 'static>(&mut self, request: Request) -> Reply<T> {
+    fn reply<T: Send + 'static>(&mut self, series: SeriesId, request: Request) -> Reply<T> {
         self.next_key += 1;
-        self.pending.push((self.next_key, request));
+        self.pending.push((self.next_key, series, request));
         self.inbox.reply(self.next_key)
+    }
+
+    pub(super) fn add(&mut self, id: SeriesId) {
+        self.links.push(SeriesLink::new(id));
+    }
+
+    pub(super) fn remove(&mut self, id: SeriesId) {
+        if let Some(at) = self.links.iter().position(|s| s.id == id) {
+            if let Some(subscription) = self.links.remove(at).subscription {
+                self.inbox.unsubscribe(subscription);
+                self.dropped.push(subscription);
+            }
+            self.pending.retain(|(_, series, _)| *series != id);
+        }
+    }
+
+    pub(super) fn paging_stopped(&self) -> bool {
+        self.links[0].paging_stopped
     }
 
     /// Sums the held trades again, after the clock, the instrument or the trades changed.
@@ -83,7 +124,12 @@ impl FeedLink {
 impl Drop for FeedLink {
     fn drop(&mut self) {
         *lock(&self.wake) = None;
-        if let Some(id) = self.subscription.take() {
+        for id in self
+            .links
+            .iter_mut()
+            .filter_map(|s| s.subscription.take())
+            .chain(self.dropped.drain(..))
+        {
             self.inbox.unsubscribe(id);
             self.feed.unsubscribe(id);
         }
@@ -101,15 +147,17 @@ impl Chart {
             clock: BarClock::new(timeframe),
             initial_bars,
             wake: Arc::default(),
-            reload_pending: true,
             next_key: 0,
             pending: Vec::new(),
-            subscription: None,
+            links: std::iter::once(SeriesId::MAIN)
+                .chain(self.series.iter().map(|s| s.id))
+                .map(SeriesLink::new)
+                .collect(),
+            dropped: Vec::new(),
             instrument: None,
             trades: Trades::new(TRADE_CAPACITY),
             bubbles: None,
             order_book: None,
-            paging_stopped: false,
         });
     }
 
@@ -123,7 +171,7 @@ impl Chart {
         if symbol != self.symbol
             && let Some(link) = &mut self.feed_link
         {
-            link.reload_pending = true;
+            link.links[0].reload_pending = true;
         }
         if symbol != self.symbol {
             self.pending_scroll_time = None;
@@ -139,7 +187,9 @@ impl Chart {
         if self.timeframe != Some(timeframe)
             && let Some(link) = &mut self.feed_link
         {
-            link.reload_pending = true;
+            for series in &mut link.links {
+                series.reload_pending = true;
+            }
         }
         if self.timeframe != Some(timeframe) {
             self.pending_scroll_time = None;
@@ -204,9 +254,15 @@ impl Chart {
         let Some(mut link) = self.feed_link.take() else {
             return;
         };
-        if link.reload_pending {
-            self.reload(&mut link);
+        for id in link.dropped.drain(..) {
+            link.feed.unsubscribe(id);
         }
+        for i in 0..link.links.len() {
+            if link.links[i].reload_pending {
+                self.reload(&mut link, i);
+            }
+        }
+        let now = ctx.input(|i| i.time);
         // The chart's own viewport, also after it moved to another: off the UI thread
         // `request_repaint` wakes the root one.
         if lock(&link.wake).replace(ctx.viewport_id()).is_none() {
@@ -221,17 +277,33 @@ impl Chart {
 
         let drained = link.inbox.drain();
         for (key, answer) in drained.answers {
-            let Some(at) = link.pending.iter().position(|(pending, _)| *pending == key) else {
+            let Some(at) = link
+                .pending
+                .iter()
+                .position(|(pending, _, _)| *pending == key)
+            else {
                 continue;
             };
-            match link.pending.swap_remove(at).1 {
+            let (_, series, request) = link.pending.swap_remove(at);
+            let Some(i) = link.links.iter().position(|s| s.id == series) else {
+                continue;
+            };
+            match request {
                 Request::Resolve => match result::<Instrument>(answer) {
-                    Ok(instrument) => self.subscribe(&mut link, instrument),
-                    Err(error) => self.stop(&mut link, error),
+                    Ok(instrument) => {
+                        link.links[i].failures = 0;
+                        self.subscribe(&mut link, i, instrument);
+                    }
+                    Err(error) => self.fail(&mut link, i, Request::Resolve, error, now),
                 },
                 Request::History { scroll_back } => match result::<HistoryPage>(answer) {
-                    Ok(page) => self.apply_page(&link, page, scroll_back),
-                    Err(error) => self.stop(&mut link, error),
+                    Ok(page) => {
+                        link.links[i].failures = 0;
+                        self.apply_page(&link, series, page, scroll_back);
+                    }
+                    Err(error) => {
+                        self.fail(&mut link, i, Request::History { scroll_back }, error, now)
+                    }
                 },
                 Request::Trades => match result::<TradePage>(answer) {
                     Ok(page) => {
@@ -246,145 +318,298 @@ impl Chart {
             }
         }
 
-        let mut resnapshot = false;
         for (id, updates) in drained.updates {
-            if link.subscription != Some(id) {
+            let Some(series) = link
+                .links
+                .iter()
+                .find(|s| s.subscription == Some(id))
+                .map(|s| s.id)
+            else {
                 continue;
-            }
+            };
             if !updates.bars.is_empty() {
                 let incoming = updates.bars.into_values().collect();
-                let merged = self.apply_by(&link.clock, incoming);
-                self.feed.late_ticks += merged.late_ticks;
+                let merged = self.apply_series_by(series, &link.clock, incoming);
+                self.feed_state_mut(series).late_ticks += merged.late_ticks;
             }
-            let feed = &mut self.feed;
+            let feed = self.feed_state_mut(series);
             feed.status = updates.status.or(feed.status);
             feed.last_error = updates.error.or(feed.last_error.take());
             feed.late_ticks += updates.late_ticks;
             feed.repeated_ticks += updates.repeated_ticks;
             feed.rejected_bars += updates.rejected;
             feed.rejected_depth += updates.rejected_depth;
-            let bubbles = &mut link.bubbles;
-            let fold = &mut |trade: &Tick, added| {
-                bubbles.iter_mut().for_each(|b| b.fold(trade, added));
-            };
-            link.trades.append(updates.trades, fold);
-            link.order_book = updates.depth.or(link.order_book.take());
-            resnapshot |= updates.resnapshot;
+            if series == SeriesId::MAIN {
+                let bubbles = &mut link.bubbles;
+                let fold = &mut |trade: &Tick, added| {
+                    bubbles.iter_mut().for_each(|b| b.fold(trade, added));
+                };
+                link.trades.append(updates.trades, fold);
+                link.order_book = updates.depth.or(link.order_book.take());
+                if updates.resnapshot {
+                    link.feed.request_depth_snapshot(id);
+                }
+            }
         }
-        if resnapshot && let Some(id) = link.subscription {
-            link.feed.request_depth_snapshot(id);
+        for i in 0..link.links.len() {
+            if !link.links[i].retry.is_empty() {
+                if now >= link.links[i].retry_at {
+                    self.retry(&mut link, i);
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f64(
+                        link.links[i].retry_at - now,
+                    ));
+                }
+            }
+            self.scroll_back(&mut link, i);
         }
-
-        self.scroll_back(&mut link);
         self.feed_link = Some(link);
     }
 
-    /// Drops what the chart held for the old symbol or timeframe and asks for the new one.
-    fn reload(&mut self, link: &mut FeedLink) {
-        link.reload_pending = false;
-        if let Some(id) = link.subscription.take() {
+    /// The caller holds a live link, so its series still belongs to the chart.
+    fn feed_state_mut(&mut self, series: SeriesId) -> &mut FeedState {
+        if series == SeriesId::MAIN {
+            &mut self.feed
+        } else {
+            &mut self
+                .series
+                .iter_mut()
+                .find(|s| s.id == series)
+                .expect("linked series")
+                .feed
+        }
+    }
+
+    fn apply_series_by(
+        &mut self,
+        series: SeriesId,
+        clock: &BarClock,
+        incoming: Vec<(Bar, Origin)>,
+    ) -> Merged {
+        if series == SeriesId::MAIN {
+            self.apply_by(clock, incoming)
+        } else {
+            self.series
+                .iter_mut()
+                .find(|s| s.id == series)
+                .expect("linked series")
+                .apply(clock, incoming)
+        }
+    }
+
+    /// Drops only this series' old key; a main symbol change keeps comparisons subscribed.
+    fn reload(&mut self, link: &mut FeedLink, i: usize) {
+        let series = link.links[i].id;
+        if let Some(id) = link.links[i].subscription.take() {
             link.inbox.unsubscribe(id);
             link.feed.unsubscribe(id);
         }
-        link.pending.clear();
-        link.instrument = None;
-        link.trades = Trades::new(TRADE_CAPACITY);
-        link.order_book = None;
-        link.paging_stopped = false;
-        let timeframe = self.timeframe.unwrap_or_default();
-        link.clock = BarClock::new(timeframe);
-        link.rebuild_bubbles();
-        // Drawings stay: they belong to the chart, not to the bars of one symbol.
-        self.set_data(SeriesId::MAIN, Vec::new());
-        self.feed = FeedState::default();
-        if self.symbol.is_empty() {
+        link.links[i] = SeriesLink::new(series);
+        link.links[i].reload_pending = false;
+        link.pending.retain(|(_, id, _)| *id != series);
+        if series == SeriesId::MAIN {
+            link.instrument = None;
+            link.trades = Trades::new(TRADE_CAPACITY);
+            link.order_book = None;
+            link.clock = BarClock::new(self.timeframe.unwrap_or_default());
+            link.rebuild_bubbles();
+        } else {
+            self.series
+                .iter_mut()
+                .find(|s| s.id == series)
+                .expect("linked series")
+                .instrument = None;
+        }
+        self.set_data(series, Vec::new());
+        *self.feed_state_mut(series) = FeedState::default();
+        let symbol = self.series_symbol(series).expect("linked series");
+        if symbol.is_empty() {
             return;
         }
-        self.feed.loading_history = true;
-        let reply = link.reply(Request::Resolve);
-        link.feed.resolve(&self.symbol, reply);
+        let reply = link.reply(series, Request::Resolve);
+        link.feed.resolve(symbol, reply);
+        self.first_page(link, series);
+    }
+
+    fn first_page(&mut self, link: &mut FeedLink, series: SeriesId) {
+        self.feed_state_mut(series).loading_history = true;
         let request = HistoryRequest {
-            symbol: self.symbol.clone(),
-            timeframe,
+            symbol: self
+                .series_symbol(series)
+                .expect("linked series")
+                .to_owned(),
+            timeframe: self.timeframe.unwrap_or_default(),
             before: None,
             count: link.initial_bars,
         };
-        let reply = link.reply(Request::History { scroll_back: false });
+        let reply = link.reply(series, Request::History { scroll_back: false });
         link.feed.history(request, reply);
     }
 
-    /// Subscribes to live updates once the symbol resolved, and asks for the recent trades.
-    fn subscribe(&mut self, link: &mut FeedLink, instrument: Instrument) {
-        link.instrument = Some(instrument);
-        link.rebuild_bubbles();
+    /// Scroll-back retries are issued only if the view still needs the older page.
+    fn retry(&mut self, link: &mut FeedLink, i: usize) {
+        let series = link.links[i].id;
+        for request in std::mem::take(&mut link.links[i].retry) {
+            match request {
+                Request::Resolve => {
+                    let reply = link.reply(series, Request::Resolve);
+                    link.feed
+                        .resolve(self.series_symbol(series).expect("linked series"), reply);
+                }
+                Request::History { scroll_back: false } => self.first_page(link, series),
+                Request::History { scroll_back: true } | Request::Trades => {}
+            }
+        }
+    }
+
+    /// Every symbol subscribes to bars; only the main asks for order flow history.
+    fn subscribe(&mut self, link: &mut FeedLink, i: usize, instrument: Instrument) {
+        let series = link.links[i].id;
+        if series == SeriesId::MAIN {
+            link.instrument = Some(instrument);
+            link.rebuild_bubbles();
+        } else {
+            self.series
+                .iter_mut()
+                .find(|s| s.id == series)
+                .expect("linked series")
+                .instrument = Some(instrument);
+        }
         let sink = link.inbox.subscribe(link.clock.clone(), TRADE_CAPACITY);
-        link.subscription = Some(sink.id);
+        link.links[i].subscription = Some(sink.id);
+        let symbol = self.series_symbol(series).expect("linked series");
         let subscription = Subscription {
             id: sink.id,
-            symbol: self.symbol.clone(),
+            symbol: symbol.to_owned(),
             timeframe: self.timeframe.unwrap_or_default(),
             sink,
         };
         link.feed.subscribe(subscription);
-        let request = TradeRequest {
-            symbol: self.symbol.clone(),
-            before: None,
-            count: TRADE_CAPACITY,
-        };
-        let reply = link.reply(Request::Trades);
-        link.feed.trades(request, reply);
+        if series == SeriesId::MAIN {
+            let request = TradeRequest {
+                symbol: symbol.to_owned(),
+                before: None,
+                count: TRADE_CAPACITY,
+            };
+            let reply = link.reply(series, Request::Trades);
+            link.feed.trades(request, reply);
+        }
     }
 
-    /// Merges a page of history and ends scroll-back when the feed has nothing older.
-    fn apply_page(&mut self, link: &FeedLink, page: HistoryPage, scroll_back: bool) {
-        let oldest = self.bars(SeriesId::MAIN).first().map(|bar| bar.time);
+    /// Merges a page and ends paging on an empty, exhausted or repeated page.
+    fn apply_page(
+        &mut self,
+        link: &FeedLink,
+        series: SeriesId,
+        page: HistoryPage,
+        scroll_back: bool,
+    ) {
+        let oldest = self.bars(series).first().map(|bar| bar.time);
         let empty = page.bars.is_empty();
         let incoming = page.bars.into_iter().map(|bar| (bar, Origin::History));
-        self.apply_by(&link.clock, incoming.collect());
-        let older = self.bars(SeriesId::MAIN).first().map(|bar| bar.time) < oldest;
-        // A feed that ignores `before` answers the newest bars again, and would be asked again
-        // on every frame.
+        self.apply_series_by(series, &link.clock, incoming.collect());
+        let older = self.bars(series).first().map(|bar| bar.time) < oldest;
         let stale = scroll_back && !empty && !older;
         if stale {
             log::warn!(
                 "the feed of {} sent no bar older than the oldest one held; scroll-back ended",
-                self.symbol
+                self.series_symbol(series).expect("linked series")
             );
         }
-        self.feed.loading_history = false;
-        self.feed.history_complete |= page.end_of_history || empty || stale;
+        let feed = self.feed_state_mut(series);
+        feed.loading_history = false;
+        feed.history_complete |= page.end_of_history || empty || stale;
     }
 
-    /// Reports `error` and stops automatic requests until the symbol or timeframe changes.
-    fn stop(&mut self, link: &mut FeedLink, error: FeedError) {
-        log::warn!("feed request for {} failed: {error}", self.symbol);
-        self.feed.last_error = Some(error);
-        self.feed.loading_history = false;
-        link.paging_stopped = true;
+    /// Added symbols retry recoverable failures independently. The main keeps its current
+    /// stop-on-error contract until its feed retry policy changes.
+    fn fail(
+        &mut self,
+        link: &mut FeedLink,
+        i: usize,
+        request: Request,
+        error: FeedError,
+        now: f64,
+    ) {
+        let series = link.links[i].id;
+        log::warn!(
+            "feed request for {} failed: {error}",
+            self.series_symbol(series).expect("linked series")
+        );
+        let state = &mut link.links[i];
+        let recoverable = matches!(
+            error,
+            FeedError::Network(_) | FeedError::RateLimited { .. } | FeedError::Unanswered
+        );
+        if series != SeriesId::MAIN && recoverable && !state.paging_stopped {
+            if state.retry.is_empty() {
+                let delay = 2.0_f64.powi(state.failures.min(6) as i32).min(60.0);
+                state.failures = state.failures.saturating_add(1);
+                state.retry_at = now + delay;
+            }
+            if let FeedError::RateLimited {
+                retry_after: Some(after),
+            } = &error
+            {
+                state.retry_at = state.retry_at.max(now + after.as_secs_f64().min(60.0));
+            }
+            if !state.retry.contains(&request) {
+                state.retry.push(request);
+            }
+        } else {
+            state.paging_stopped = true;
+            state.retry.clear();
+        }
+        let feed = self.feed_state_mut(series);
+        feed.last_error = Some(error);
+        feed.loading_history = false;
     }
 
-    /// Asks for the page before the oldest bar once the view nears it.
-    fn scroll_back(&mut self, link: &mut FeedLink) {
-        let feed = &self.feed;
-        if feed.loading_history || feed.history_complete || link.paging_stopped {
+    /// Added symbols page towards the oldest main time needed by the visible window.
+    fn scroll_back(&mut self, link: &mut FeedLink, i: usize) {
+        let series = link.links[i].id;
+        let feed = self.feed_state(series).expect("linked series");
+        let state = &link.links[i];
+        if feed.loading_history
+            || feed.history_complete
+            || state.paging_stopped
+            || !state.retry.is_empty()
+        {
             return;
         }
-        let Some(oldest) = self.bars(SeriesId::MAIN).first() else {
+        let Some(oldest) = self.bars(series).first() else {
             return;
         };
-        if self.symbol.is_empty() || self.state.visible_range().0 >= SCROLL_BACK_MARGIN {
+        let symbol = self.series_symbol(series).expect("linked series");
+        let start = self.state.visible_range().0;
+        if symbol.is_empty() {
             return;
         }
-        // Stored bars keep the feed's stamp, any instant inside the slot.
-        let before = link.clock.bar_open(oldest.time);
+        if series == SeriesId::MAIN {
+            if start >= SCROLL_BACK_MARGIN {
+                return;
+            }
+        } else {
+            let Some(main) = self
+                .state
+                .data()
+                .bars
+                .get(start.saturating_sub(SCROLL_BACK_MARGIN))
+            else {
+                return;
+            };
+            if oldest.time <= main.time {
+                return;
+            }
+        }
         let request = HistoryRequest {
-            symbol: self.symbol.clone(),
+            symbol: symbol.to_owned(),
             timeframe: self.timeframe.unwrap_or_default(),
-            before: Some(before),
+            before: Some(link.clock.bar_open(oldest.time)),
             count: link.initial_bars.max(MIN_SCROLL_BACK_PAGE),
         };
-        self.feed.loading_history = true;
-        let reply = link.reply(Request::History { scroll_back: true });
+        self.feed_state_mut(series).loading_history = true;
+        let reply = link.reply(series, Request::History { scroll_back: true });
         link.feed.history(request, reply);
     }
 }
@@ -541,6 +766,157 @@ mod tests {
         match symbol {
             Some(symbol) => builder.with_symbol(symbol).build(),
             None => builder.build(),
+        }
+    }
+
+    /// Added symbols load and stream separately, reload only with the timeframe, and release
+    /// their subscriptions without calling the feed from a setter or accepting a late page.
+    #[test]
+    fn added_series_follow_their_own_symbol() {
+        use crate::widget::SeriesOptions;
+        let feed = Arc::new(Script::default());
+        let mut chart = fed(&feed, Some("AAA"));
+        let mut frames = Frames::new();
+        frames.run(&mut chart);
+        feed.resolve().send(Ok(Instrument::new("AAA")));
+        feed.page().send(page(bars(3), true));
+        frames.run(&mut chart);
+        feed.calls();
+        let b = chart.add_series("BBB", SeriesOptions::default());
+        assert!(feed.calls().is_empty());
+        frames.run(&mut chart);
+        assert_eq!(
+            feed.calls(),
+            [
+                Call::Resolve("BBB".into()),
+                history("BBB", Timeframe::Min1, None)
+            ]
+        );
+        feed.resolve()
+            .send(Ok(Instrument::new("BBB").with_price_decimals(3)));
+        frames.run(&mut chart);
+        let sink = feed.sink();
+        assert_eq!(
+            feed.calls(),
+            [Call::Subscribe(sink.id, "BBB".into(), Timeframe::Min1)]
+        );
+        feed.page().send(page(bars(3), true));
+        frames.run(&mut chart);
+        assert_eq!(chart.bars(b), bars(3));
+        assert_eq!(chart.bars(SeriesId::MAIN), bars(3));
+        let time = bars(4)[3].time;
+        sink.push_bar(Bar::new(time, 500.0, 500.0, 500.0, 500.0, 1.0));
+        frames.run(&mut chart);
+        assert_eq!(chart.bars(b).len(), 4);
+        assert_eq!(chart.bars(b)[3].close, 500.0);
+        assert_eq!(chart.bars(SeriesId::MAIN), bars(3));
+        assert_eq!(chart.trades(b).count(), 0);
+        chart.set_symbol("CCC");
+        frames.run(&mut chart);
+        assert!(feed.calls().iter().all(|c| match c {
+            Call::Resolve(s) | Call::Subscribe(_, s, _) => s != "BBB",
+            Call::History(r) => r.symbol != "BBB",
+            Call::Unsubscribe(id) => *id != sink.id,
+            _ => true,
+        }));
+        feed.resolve().send(Ok(Instrument::new("CCC")));
+        feed.page().send(page(bars(3), true));
+        frames.run(&mut chart);
+        feed.calls();
+        chart.set_timeframe(Timeframe::Hour1);
+        frames.run(&mut chart);
+        let calls = feed.calls();
+        assert_eq!(
+            &calls[calls.len() - 3..],
+            &[
+                Call::Unsubscribe(sink.id),
+                Call::Resolve("BBB".into()),
+                history("BBB", Timeframe::Hour1, None)
+            ]
+        );
+        feed.resolve().send(Ok(Instrument::new("CCC")));
+        feed.resolve().send(Ok(Instrument::new("BBB")));
+        feed.page().send(page(Vec::new(), true));
+        let late = feed.page();
+        frames.run(&mut chart);
+        let s2 = feed.sink();
+        feed.calls();
+        frames.ctx.input(|_| assert!(chart.remove_series(b)));
+        assert!(!s2.is_active());
+        assert!(feed.calls().is_empty());
+        frames.run(&mut chart);
+        assert_eq!(feed.calls(), [Call::Unsubscribe(s2.id)]);
+        late.send(page(bars(10), false));
+        frames.run(&mut chart);
+        assert!(chart.feed_state(b).is_none());
+        assert!(chart.bars(b).is_empty());
+        chart.add_series("DDD", SeriesOptions::default());
+        frames.run(&mut chart);
+        feed.resolve().send(Ok(Instrument::new("DDD")));
+        frames.run(&mut chart);
+        let s3 = feed.sink();
+        feed.calls();
+        frames.ctx.input(move |_| drop(chart));
+        assert!(feed.calls().contains(&Call::Unsubscribe(s3.id)));
+        assert!(!s3.is_active());
+
+        // Failed added requests retry independently; permanent errors stop only their symbol.
+        for (error, retries) in [
+            (FeedError::Network("offline".into()), true),
+            (
+                FeedError::RateLimited {
+                    retry_after: Some(std::time::Duration::from_secs(2)),
+                },
+                true,
+            ),
+            (FeedError::SymbolNotFound("BBB".into()), false),
+        ] {
+            let feed = Arc::new(Script::default());
+            let mut chart = fed(&feed, Some("AAA"));
+            let mut frames = Frames::new();
+            frames.run(&mut chart);
+            feed.resolve().send(Ok(Instrument::new("AAA")));
+            feed.page().send(page(bars(1000), true));
+            frames.run(&mut chart);
+            feed.calls();
+            let b = chart.add_series("BBB", SeriesOptions::default());
+            frames.run(&mut chart);
+            feed.calls();
+            feed.resolve().send(Err(error.clone()));
+            feed.page().send(Err(error));
+            frames.run(&mut chart);
+            frames.time += 0.5;
+            frames.run(&mut chart);
+            assert!(feed.calls().is_empty());
+            frames.time += 2.0;
+            frames.run(&mut chart);
+            let expected = if retries {
+                vec![
+                    Call::Resolve("BBB".into()),
+                    history("BBB", Timeframe::Min1, None),
+                ]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(feed.calls(), expected);
+            assert_eq!(chart.bars(SeriesId::MAIN), bars(1000));
+            if retries {
+                feed.resolve().send(Ok(Instrument::new("BBB")));
+                feed.page().send(page(bars(1000)[500..].to_vec(), false));
+                frames.run(&mut chart);
+                feed.calls();
+                chart.set_start_idx(100);
+                frames.run(&mut chart);
+                frames.run(&mut chart);
+                assert_eq!(
+                    feed.calls(),
+                    [history("BBB", Timeframe::Min1, Some(bars(501)[500].time))]
+                );
+                feed.page().send(page(bars(500), true));
+                frames.run(&mut chart);
+                assert_eq!(chart.bars(b), bars(1000));
+                assert!(chart.feed_state(b).unwrap().history_complete);
+            }
         }
     }
 

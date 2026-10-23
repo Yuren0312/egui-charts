@@ -188,6 +188,9 @@ impl Chart {
         let id = SeriesId(self.next_series);
         self.next_series += 1;
         self.series.push(Series::new(id, symbol.into(), options));
+        if let Some(link) = &mut self.feed_link {
+            link.add(id);
+        }
         id
     }
 
@@ -253,6 +256,9 @@ impl Chart {
         if let Some(at) = self.series.iter().position(|s| s.id == id) {
             self.set_series_visible(id, false);
             self.series.remove(at);
+            if let Some(link) = &mut self.feed_link {
+                link.remove(id);
+            }
             return true;
         }
         let Some(at) = self.study_ids.iter().position(|study| *study == id) else {

@@ -623,7 +623,7 @@ impl Chart {
                 && self
                     .feed_link
                     .as_ref()
-                    .is_some_and(|link| !link.paging_stopped);
+                    .is_some_and(|link| !link.paging_stopped());
             let scale = self.state.time_scale_mut();
             let half_window = (chart_width / scale.bar_spacing() - 1.0) / 2.0;
             scale.set_right_offset(index as f32 + half_window - scale.base_idx() as f32);

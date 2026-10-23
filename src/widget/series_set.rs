@@ -49,6 +49,7 @@ pub(super) struct Series {
     pub revision: u64,
     pub from_ticks: BTreeSet<DateTime<Utc>>,
     pub feed: FeedState,
+    pub instrument: Option<crate::model::Instrument>,
     pub scale: PriceScale,
     pub transform: PriceTransform,
     pub map: PriceMap,
@@ -69,6 +70,7 @@ impl Series {
             revision: next_revision(),
             from_ticks: BTreeSet::new(),
             feed: FeedState::default(),
+            instrument: None,
             scale,
             transform,
             map,
@@ -118,7 +120,14 @@ impl Chart {
                 .checked_sub(1)
                 .map(|i| {
                     let close = s.bars[i].close;
-                    let decimals = crate::chart::renderers::price_decimals(close);
+                    let decimals = s
+                        .instrument
+                        .as_ref()
+                        .and_then(|i| i.price_decimals)
+                        .map_or_else(
+                            || crate::chart::renderers::price_decimals(close),
+                            usize::from,
+                        );
                     format!("{close:.decimals$}")
                 });
             crate::chart::renderers::render_legend_row(
