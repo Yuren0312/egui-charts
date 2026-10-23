@@ -17,6 +17,7 @@ use crate::data::{
 use crate::model::{BarClock, Instrument, OrderBook, Tick, Timeframe};
 use egui::ViewportId;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 /// Trades kept per series for order flow.
 pub(crate) const TRADE_CAPACITY: usize = 100_000;
@@ -26,6 +27,13 @@ const SCROLL_BACK_MARGIN: usize = 150;
 
 /// The smallest scroll-back page asked for.
 const MIN_SCROLL_BACK_PAGE: usize = 600;
+
+/// Wait before asking again after the first recoverable failure; it doubles with each retry that
+/// fails, up to [`MAX_RETRY_DELAY`].
+const RETRY_DELAY: f64 = 1.0;
+
+/// The longest wait before asking again.
+const MAX_RETRY_DELAY: f64 = 60.0;
 
 /// A chart's link to its feed.
 pub(crate) struct FeedLink {
@@ -49,10 +57,18 @@ pub(crate) struct FeedLink {
     /// The held trades as volume bubbles, when the host turned them on.
     pub(super) bubbles: Option<VolumeBubbles>,
     order_book: Option<OrderBook>,
-    /// A history or resolve request failed: no automatic request until the next reload.
+    /// A history or resolve request failed for good: no automatic request until the next reload.
     pub(super) paging_stopped: bool,
+    /// Requests that failed with a recoverable error, asked again at `retry_at`, in seconds of
+    /// egui's input time.
+    retry: Vec<Request>,
+    retry_at: f64,
+    /// Retries scheduled since the last answer that succeeded; each waits twice as long as the
+    /// one before.
+    failures: u32,
 }
 
+#[derive(PartialEq)]
 enum Request {
     Resolve,
     History { scroll_back: bool },
@@ -110,6 +126,9 @@ impl Chart {
             bubbles: None,
             order_book: None,
             paging_stopped: false,
+            retry: Vec::new(),
+            retry_at: 0.0,
+            failures: 0,
         });
     }
 
@@ -219,6 +238,7 @@ impl Chart {
             });
         }
 
+        let now = ctx.input(|input| input.time);
         let drained = link.inbox.drain();
         for (key, answer) in drained.answers {
             let Some(at) = link.pending.iter().position(|(pending, _)| *pending == key) else {
@@ -226,12 +246,20 @@ impl Chart {
             };
             match link.pending.swap_remove(at).1 {
                 Request::Resolve => match result::<Instrument>(answer) {
-                    Ok(instrument) => self.subscribe(&mut link, instrument),
-                    Err(error) => self.stop(&mut link, error),
+                    Ok(instrument) => {
+                        link.failures = 0;
+                        self.subscribe(&mut link, instrument);
+                    }
+                    Err(error) => self.fail(&mut link, Request::Resolve, error, now),
                 },
                 Request::History { scroll_back } => match result::<HistoryPage>(answer) {
-                    Ok(page) => self.apply_page(&link, page, scroll_back),
-                    Err(error) => self.stop(&mut link, error),
+                    Ok(page) => {
+                        link.failures = 0;
+                        self.apply_page(&link, page, scroll_back);
+                    }
+                    Err(error) => {
+                        self.fail(&mut link, Request::History { scroll_back }, error, now);
+                    }
                 },
                 Request::Trades => match result::<TradePage>(answer) {
                     Ok(page) => {
@@ -275,6 +303,13 @@ impl Chart {
             link.feed.request_depth_snapshot(id);
         }
 
+        if !link.retry.is_empty() {
+            if now >= link.retry_at {
+                self.retry(&mut link);
+            } else {
+                ctx.request_repaint_after(Duration::from_secs_f64(link.retry_at - now));
+            }
+        }
         self.scroll_back(&mut link);
         self.feed_link = Some(link);
     }
@@ -291,6 +326,8 @@ impl Chart {
         link.trades = Trades::new(TRADE_CAPACITY);
         link.order_book = None;
         link.paging_stopped = false;
+        link.retry.clear();
+        link.failures = 0;
         let timeframe = self.timeframe.unwrap_or_default();
         link.clock = BarClock::new(timeframe);
         link.rebuild_bubbles();
@@ -300,17 +337,37 @@ impl Chart {
         if self.symbol.is_empty() {
             return;
         }
-        self.feed.loading_history = true;
         let reply = link.reply(Request::Resolve);
         link.feed.resolve(&self.symbol, reply);
+        self.first_page(link);
+    }
+
+    /// Asks for the latest bars.
+    fn first_page(&mut self, link: &mut FeedLink) {
+        self.feed.loading_history = true;
         let request = HistoryRequest {
             symbol: self.symbol.clone(),
-            timeframe,
+            timeframe: self.timeframe.unwrap_or_default(),
             before: None,
             count: link.initial_bars,
         };
         let reply = link.reply(Request::History { scroll_back: false });
         link.feed.history(request, reply);
+    }
+
+    /// Asks again what failed with a recoverable error. A failed scroll-back page is asked again
+    /// by [`scroll_back`](Self::scroll_back) if the view still needs it.
+    fn retry(&mut self, link: &mut FeedLink) {
+        for request in std::mem::take(&mut link.retry) {
+            match request {
+                Request::Resolve => {
+                    let reply = link.reply(Request::Resolve);
+                    link.feed.resolve(&self.symbol, reply);
+                }
+                Request::History { scroll_back: false } => self.first_page(link),
+                Request::History { scroll_back: true } | Request::Trades => {}
+            }
+        }
     }
 
     /// Subscribes to live updates once the symbol resolved, and asks for the recent trades.
@@ -355,22 +412,45 @@ impl Chart {
         self.feed.history_complete |= page.end_of_history || empty || stale;
     }
 
-    /// Reports `error` and stops automatic requests until the symbol or timeframe changes.
-    fn stop(&mut self, link: &mut FeedLink, error: FeedError) {
+    /// Reports `error`. A recoverable one asks for `request` again after a delay that doubles
+    /// with each retry that fails, and no sooner than a rate limit asks up to
+    /// [`MAX_RETRY_DELAY`]; any other stops
+    /// automatic requests until the symbol or timeframe changes.
+    fn fail(&mut self, link: &mut FeedLink, request: Request, error: FeedError, now: f64) {
         log::warn!("feed request for {} failed: {error}", self.symbol);
+        if matches!(request, Request::History { .. }) {
+            self.feed.loading_history = false;
+        }
+        if error.is_recoverable() && !link.paging_stopped {
+            // Failures answered before the retry share it.
+            if link.retry.is_empty() {
+                let backoff = RETRY_DELAY * 2f64.powi(link.failures.min(16) as i32);
+                link.retry_at = now + backoff.min(MAX_RETRY_DELAY);
+                link.failures += 1;
+            }
+            if let FeedError::RateLimited {
+                retry_after: Some(after),
+            } = error
+            {
+                link.retry_at = link
+                    .retry_at
+                    .max(now + after.as_secs_f64().min(MAX_RETRY_DELAY));
+            }
+            if !link.retry.contains(&request) {
+                link.retry.push(request);
+            }
+        } else {
+            link.paging_stopped = true;
+            link.retry.clear();
+        }
         self.feed.last_error = Some(error);
-        self.feed.loading_history = false;
-        link.paging_stopped = true;
     }
 
     /// Asks for the page before the oldest bar once the view nears it.
     fn scroll_back(&mut self, link: &mut FeedLink) {
         let feed = &self.feed;
-        if feed.loading_history
-            || feed.history_complete
-            || link.paging_stopped
-            || !self.older_bars_drawn
-        {
+        let waiting = link.paging_stopped || !link.retry.is_empty();
+        if feed.loading_history || feed.history_complete || waiting || !self.older_bars_drawn {
             return;
         }
         let Some(oldest) = self.bars(SeriesId::MAIN).first() else {
@@ -535,7 +615,11 @@ mod tests {
             }
         }
         fn run(&mut self, chart: &mut Chart) {
-            self.time += 1.0 / 60.0;
+            self.at(chart, self.time + 1.0 / 60.0);
+        }
+        /// One frame at `time` seconds.
+        fn at(&mut self, chart: &mut Chart, time: f64) {
+            self.time = time;
             frame(&self.ctx, chart, self.time, Vec::new());
         }
     }
@@ -691,9 +775,10 @@ mod tests {
     /// Guards the feed contract of the chart: nothing blocks or calls the feed outside `show`,
     /// each request is issued once, answers and pushes reach the bars, a push from another thread
     /// wakes the UI once per burst, order flow is asked for and reaches the volume bubbles,
-    /// scroll-back ends on every end signal, an error stops automatic requests until the symbol
-    /// or timeframe changes, a change releases the old subscription and ignores whatever comes
-    /// for it, and a dropped chart unsubscribes without waking itself.
+    /// scroll-back ends on every end signal, a recoverable error is asked again after a growing
+    /// delay and any other stops automatic requests until the symbol or timeframe changes, a
+    /// change releases the old subscription and ignores whatever comes for it, and a dropped
+    /// chart unsubscribes without waking itself.
     #[test]
     fn feed_lifecycle() {
         let main = SeriesId::MAIN;
@@ -818,8 +903,9 @@ mod tests {
         }
         assert_eq!(feed.calls().len(), 2, "d: end of history");
 
-        // e. A failed page stops scroll-back, also through a setter called every frame with the
-        // value it has; a live error does not.
+        // e. A failed page is asked again 1 s later, then 2 s, then no sooner than a rate limit
+        // asks, up to a minute; a page that fails for good stops scroll-back, also through a setter called every
+        // frame with the value it has; a live error stops nothing.
         let feed = Arc::new(Script::default());
         let mut chart = fed(&feed, Some("A"));
         frames.run(&mut chart);
@@ -828,10 +914,36 @@ mod tests {
         chart.set_start_idx(0);
         frames.run(&mut chart);
         frames.run(&mut chart);
-        feed.calls();
-        feed.page().send(Err(FeedError::Network("reset".into())));
+        let older = || history("A", Timeframe::Min1, Some(bars(1)[0].time));
+        assert_eq!(feed.calls().last(), Some(&older()), "e");
+        let rate_limited = FeedError::RateLimited {
+            retry_after: Some(std::time::Duration::from_secs(5)),
+        };
+        let failures = [
+            (FeedError::Network("reset".into()), 1.0),
+            (FeedError::Unanswered, 2.0),
+            (rate_limited, 5.0),
+            (
+                FeedError::RateLimited {
+                    retry_after: Some(std::time::Duration::MAX),
+                },
+                60.0,
+            ),
+        ];
+        for (error, delay) in failures {
+            feed.page().send(Err(error.clone()));
+            frames.run(&mut chart);
+            let failed = frames.time;
+            assert_eq!(chart.feed_state(main).unwrap().last_error, Some(error), "e");
+            frames.at(&mut chart, failed + delay - 0.01);
+            assert_eq!(feed.calls(), [], "e: {delay} s");
+            frames.at(&mut chart, failed + delay);
+            assert_eq!(feed.calls(), [older()], "e: {delay} s");
+        }
+        feed.page().send(Err(FeedError::NotSupported));
         frames.run(&mut chart);
-        let error = Some(FeedError::Network("reset".into()));
+        frames.at(&mut chart, frames.time + 3600.0);
+        let error = Some(FeedError::NotSupported);
         assert_eq!(chart.feed_state(main).unwrap().last_error, error, "e");
         for _ in 0..10 {
             chart.set_timeframe(Timeframe::Min1);
@@ -839,6 +951,21 @@ mod tests {
         }
         assert_eq!(feed.calls(), [], "e: no retry");
         assert_eq!(chart.bars(main), bars(1000), "e: bars kept");
+
+        // A failed instrument and first page are asked again together.
+        let feed = Arc::new(Script::default());
+        let mut chart = fed(&feed, Some("A"));
+        frames.run(&mut chart);
+        feed.calls();
+        feed.resolve().send(Err(FeedError::Network("reset".into())));
+        feed.page().send(Err(FeedError::Network("reset".into())));
+        frames.run(&mut chart);
+        frames.at(&mut chart, frames.time + 1.0);
+        let load = [
+            Call::Resolve("A".into()),
+            history("A", Timeframe::Min1, None),
+        ];
+        assert_eq!(feed.calls(), load, "e: first load");
 
         let feed = Arc::new(Script::default());
         let mut chart = fed(&feed, Some("A"));
@@ -848,13 +975,17 @@ mod tests {
         frames.run(&mut chart);
         feed.sink().report_error(FeedError::Network("reset".into()));
         frames.run(&mut chart);
+        let error = Some(FeedError::Network("reset".into()));
         assert_eq!(chart.feed_state(main).unwrap().last_error, error, "e: live");
         chart.set_start_idx(0);
         frames.run(&mut chart);
         frames.run(&mut chart);
         let calls = feed.calls();
-        let older = history("A", Timeframe::Min1, Some(bars(1)[0].time));
-        assert_eq!(calls.last(), Some(&older), "e: a live error stops nothing");
+        assert_eq!(
+            calls.last(),
+            Some(&older()),
+            "e: a live error stops nothing"
+        );
 
         // f. A change of symbol and timeframe between two frames is one load at the next frame,
         // which releases the old subscription and drops its trades and bubbles; what arrives for

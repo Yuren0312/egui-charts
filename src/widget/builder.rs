@@ -538,7 +538,10 @@ impl ChartBuilder {
     ///
     /// [`build`](Self::build) calls no feed method: with a symbol, the chart's first
     /// [`show`](Chart::show) asks the feed for the instrument and the latest page of history,
-    /// and subscribes once the instrument resolves.
+    /// and subscribes once the instrument resolves. A request that fails with a
+    /// [recoverable](crate::data::FeedError::is_recoverable) error is asked again 1 s later,
+    /// doubling the wait with each retry that fails up to a minute; any other error stops
+    /// automatic requests until the symbol or timeframe changes.
     #[must_use]
     pub fn with_feed(mut self, feed: Arc<dyn Datafeed>) -> Self {
         self.feed = Some(feed);

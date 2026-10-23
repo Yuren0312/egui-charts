@@ -228,6 +228,8 @@ pub enum FeedError {
     /// The feed or service does not offer this request.
     NotSupported,
     SymbolNotFound(String),
+    /// Too many requests: the chart asks again no sooner than `retry_after`, and at most a minute
+    /// later.
     RateLimited {
         retry_after: Option<Duration>,
     },
@@ -255,6 +257,17 @@ impl fmt::Display for FeedError {
     }
 }
 
+impl FeedError {
+    /// Whether asking again later may succeed: a rate limit, a network error or a dropped
+    /// [`Reply`]. The chart asks again after a failure of this kind and stops after any other.
+    pub fn is_recoverable(&self) -> bool {
+        matches!(
+            self,
+            Self::RateLimited { .. } | Self::Network(_) | Self::Unanswered
+        )
+    }
+}
+
 impl Error for FeedError {}
 
 /// What the chart knows about one series' feed, for the application to show or log.
@@ -265,6 +278,8 @@ pub struct FeedState {
     pub status: Option<FeedStatus>,
     pub loading_history: bool,
     pub history_complete: bool,
+    /// The last error the feed reported, kept after later requests succeed: `status` and
+    /// `loading_history` tell whether it works now.
     pub last_error: Option<FeedError>,
     /// Bars and ticks dropped by validation: non-finite values, a high or low on the wrong side of
     /// the open and close, negative volume, a tick that would overflow its bar's volume, a time
