@@ -82,15 +82,10 @@
 //!
 //! ```rust
 //! # fn example(chart_a: &egui_charts::Chart, chart_b: &mut egui_charts::Chart) {
-//! // Emit crosshair position from chart A
-//! let hover_idx = chart_a.get_hover_bar_idx();
-//!
-//! // Apply to chart B
-//! chart_b.set_synced_crosshair_bar_idx(hover_idx);
-//!
-//! // Sync time scales
-//! let (spacing, offset) = chart_a.get_time_scale_state();
-//! chart_b.apply_synced_time_scale(spacing, offset);
+//! chart_b.set_synced_crosshair(chart_a.crosshair().map(|point| point.time));
+//! if let Some((from, to)) = chart_a.visible_time_range() {
+//!     chart_b.set_visible_time_range(from, to);
+//! }
 //! # }
 //! ```
 //!
@@ -106,8 +101,8 @@ use crate::chart::series::SeriesSettings;
 use crate::config::{ChartConfig, ChartOptions};
 use crate::data::FeedState;
 use crate::drawings::DrawingManager;
-use crate::model::ChartState;
 use crate::model::Timeframe;
+use crate::model::{ChartPoint, ChartState};
 use crate::model::{ChartType, ChartTypeParams};
 use crate::scales::{PriceMap, PriceScale};
 use crate::studies::IndicatorRegistry;
@@ -278,10 +273,10 @@ pub struct Chart {
     // =========================================================================
     // Multi-Chart Sync State
     // =========================================================================
-    /// External crosshair position from synced chart (bar index)
-    pub(crate) synced_crosshair_bar_idx: Option<f64>,
-    /// Last computed hover bar index (for sync emission to other charts)
-    pub(crate) last_hover_bar_idx: Option<f64>,
+    /// External crosshair time from a synced chart
+    pub(crate) synced_crosshair: Option<DateTime<Utc>>,
+    /// Last point under the pointer over the main pane, for sync emission to other charts
+    pub(crate) crosshair: Option<ChartPoint>,
 
     // =========================================================================
     // Marks (Widget API)

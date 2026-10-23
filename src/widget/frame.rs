@@ -5,7 +5,7 @@ use super::{Chart, RightClickTarget};
 use crate::chart::renderers::{self, ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering;
 use crate::config::{BackgroundStyle, WatermarkPos};
-use crate::model::{PriceLine, TimeIndex};
+use crate::model::{ChartPoint, PriceLine, TimeIndex};
 use crate::scales::TimeFormatterBuilder;
 use crate::styles::{sizing, typography};
 use crate::tokens::DESIGN_TOKENS;
@@ -490,6 +490,7 @@ impl Chart {
         let visible_data = self.state.visible_data();
 
         if visible_data.is_empty() {
+            self.crosshair = None;
             if let Some((nav, buttons)) = navigation {
                 self.paint_navigation(ui, nav, buttons);
             }
@@ -928,8 +929,12 @@ impl Chart {
         if let Some(hover_pos) = response.hover_pos()
             && price_rect.contains(hover_pos)
         {
-            // Cache the hover bar index for multi-chart sync
-            self.last_hover_bar_idx = Some(coords.x_to_idx_f32(hover_pos.x) as f64);
+            self.crosshair = self.time_index().map(|index| {
+                ChartPoint::new(
+                    index.time_at(f64::from(coords.x_to_idx_f32(hover_pos.x).round())),
+                    price_map.y_to_price(hover_pos.y),
+                )
+            });
 
             if !menu_open {
                 crosshair_tags = rendering::render_crosshair_with_options(
@@ -968,15 +973,17 @@ impl Chart {
                 }
             }
         } else {
-            // Clear hover bar index when not hovering locally
-            self.last_hover_bar_idx = None;
+            self.crosshair = None;
 
             // Render synced crosshair from other charts (if available)
             {
-                if !menu_open && let Some(bar_idx) = self.synced_crosshair_bar_idx {
-                    // Convert bar index to screen x coordinate
-                    let x = coords.idx_to_x(bar_idx.round() as usize);
-                    if coords.is_x_visible(x) {
+                if !menu_open
+                    && let Some(time) = self.synced_crosshair
+                    && let Some(index) = self.time_index()
+                {
+                    let slot = index.position(time).floor();
+                    let x = coords.idx_to_x(slot as usize);
+                    if slot >= 0.0 && coords.is_x_visible(x) {
                         // Create a synthetic hover position at the center of the price range
                         let center_y = price_rect.center().y;
                         let synced_pos = Pos2::new(x, center_y);
@@ -1071,15 +1078,57 @@ mod tests {
         );
     }
 
+    /// Daily slots from 1_700_000_000 s: bar 50 is at 1_704_320_000 s and bar 51 one day later.
+    /// The pointer selects the nearest slot and leaves no point behind on the axis or off chart.
+    #[test]
+    fn crosshair_reports_the_open_time_and_price_under_the_pointer() {
+        let ctx = egui::Context::default();
+        let mut chart = chart(&[100.0], &[200.0]);
+        frame(&ctx, &mut chart, 0.0, vec![]);
+        let map = chart.get_chart_mapping();
+        let y = map.price.price_to_y(150.0);
+        for (x, want) in [
+            (map.idx_to_x(50), Some(1_704_320_000)),
+            (
+                map.idx_to_x(50) + 0.7 * map.bar_spacing,
+                Some(1_704_406_400),
+            ),
+            (map.rect.max.x + 5.0, None),
+        ] {
+            frame(
+                &ctx,
+                &mut chart,
+                0.1,
+                vec![Event::PointerMoved(Pos2::new(x, y))],
+            );
+            let point = chart.crosshair();
+            assert_eq!(point.map(|p| p.time.timestamp()), want, "x {x}");
+            if let Some(point) = point {
+                assert!((point.price - 150.0).abs() / 150.0 < 1e-6, "{point:?}");
+            }
+        }
+        frame(
+            &ctx,
+            &mut chart,
+            0.2,
+            vec![Event::PointerMoved(Pos2::new(map.idx_to_x(50), y))],
+        );
+        assert!(chart.crosshair().is_some());
+        frame(&ctx, &mut chart, 0.3, vec![Event::PointerGone]);
+        assert_eq!(chart.crosshair(), None);
+    }
+
     /// The crosshair's time label names the bar nearest the pointer, and a chart that follows
-    /// another one's index names the same bar. The bars are daily from 2023-11-14, so bar 50 is
-    /// 3 Jan 2024 and bar 51 is 4 Jan 2024; 0.7 of a bar past the centre of bar 50 is nearer to 51.
+    /// another one's time names the bar whose slot holds it. The bars are daily from 2023-11-14,
+    /// so bar 50 is 3 Jan 2024 and bar 51 is 4 Jan 2024; 0.7 of a bar past the centre of bar 50
+    /// is nearer to 51.
     #[test]
     fn crosshair_time_label_names_the_nearest_bar() {
         use crate::model::{ChartType, ChartTypeParams};
+        let time = |s| chrono::DateTime::from_timestamp(s, 0);
         let mut highs = vec![120.0; 100];
         highs[99] = 3120.0;
-        // (type, highs, element index, pointer over chart, synced index, expected label)
+        // (type, highs, element index, pointer over chart, time another chart reports, expected label)
         for case in [
             (
                 ChartType::Candles,
@@ -1094,8 +1143,8 @@ mod tests {
                 &[200.0][..],
                 50,
                 false,
-                Some(50.7),
-                "Jan 04, 2024",
+                time(1_704_380_480),
+                "Jan 03, 2024",
             ),
             // Bar 99 alone completes 300 bricks, all dated 21 February 2024.
             (
@@ -1104,6 +1153,14 @@ mod tests {
                 250,
                 true,
                 None,
+                "Feb 21, 2024",
+            ),
+            (
+                ChartType::Renko,
+                highs.as_slice(),
+                250,
+                false,
+                time(1_708_553_600),
                 "Feb 21, 2024",
             ),
         ] {
@@ -1115,7 +1172,7 @@ mod tests {
                 renko_brick_size: 10.0,
                 ..Default::default()
             });
-            chart.set_synced_crosshair_bar_idx(synced);
+            chart.set_synced_crosshair(synced);
             frame(&ctx, &mut chart, 0.0, Vec::new());
             let map = chart.get_chart_mapping();
             let hover = Pos2::new(
