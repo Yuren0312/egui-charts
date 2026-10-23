@@ -634,6 +634,7 @@ impl Chart {
                 },
                 max_volume,
                 main_visible_range.clone(),
+                self.hit_test_added(click_pos, &coords),
             );
             match hit {
                 Some((id, bar_idx)) => self.selection.select(id, Some(bar_idx)),
@@ -685,10 +686,19 @@ impl Chart {
                     },
                     max_volume,
                     main_visible_range.clone(),
+                    self.hit_test_added(click_pos, &coords),
                 );
                 match element_hit {
                     Some((id, bar_idx)) => {
                         self.selection.select(id, Some(bar_idx));
+                        let price = if let super::ChartElementId::Series(series) = id {
+                            self.series
+                                .iter()
+                                .find(|s| s.id == series)
+                                .map_or(price, |s| s.map.y_to_price(click_pos.y))
+                        } else {
+                            price
+                        };
                         RightClickTarget::Element {
                             id,
                             bar_idx,
@@ -798,6 +808,12 @@ impl Chart {
                     self.config.text_color,
                 );
             }
+        }
+
+        if self.config.show_ohlc_info
+            && let Some(last) = visible_data.last()
+        {
+            self.render_series_legend(&painter, rect, last.time);
         }
 
         // Handle drawing tools

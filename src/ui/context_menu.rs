@@ -647,7 +647,9 @@ impl ChartMenus {
                     // The series menu fronts both the price series and indicator lines: it is
                     // the object-level menu (settings, hide, etc.).
                     let label = match id {
-                        ChartElementId::Series(_) => chart.symbol.clone(),
+                        ChartElementId::Series(id) => {
+                            chart.series_symbol(id).unwrap_or(chart.symbol()).to_owned()
+                        }
                         ChartElementId::Indicator(id) => chart
                             .indicators()
                             .find(|(study, _)| *study == id)

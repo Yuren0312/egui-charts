@@ -424,6 +424,30 @@ pub fn render_legend(
     painter.galley(Pos2::new(x, y), change_galley, change_color);
 }
 
+/// One added series' legend row, with its symbol and optional close at the legend's time.
+pub(crate) fn render_legend_row(
+    painter: &egui::Painter,
+    pos: Pos2,
+    symbol: &str,
+    value: Option<&str>,
+    color: Color32,
+    text_color: Color32,
+) {
+    let font = FontId::proportional(typography::SM);
+    let symbol = painter.layout_no_wrap(symbol.to_owned(), font.clone(), color);
+    let x = pos.x + symbol.size().x + 8.0;
+    painter.galley(pos, symbol, color);
+    if let Some(value) = value {
+        painter.text(
+            Pos2::new(x, pos.y),
+            egui::Align2::LEFT_TOP,
+            value,
+            font,
+            text_color,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::model::{Bar, BarData};

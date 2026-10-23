@@ -105,6 +105,13 @@ impl Chart {
                 }
             }
             ChartElementId::Series(series_id) => {
+                if series_id != SeriesId::MAIN && series_id != SeriesId::VOLUME {
+                    self.render_added_selection(painter, coords, series_id);
+                    return;
+                }
+                if !self.main_visible {
+                    return;
+                }
                 let config = SelectionHandleConfig {
                     dot_interval: calculate_dot_interval(coords.bar_spacing),
                     ..Default::default()
@@ -163,6 +170,7 @@ pub(super) fn hit_test_main_chart(
     bars: &[crate::model::Bar],
     max_volume: f64,
     visible_range: std::ops::Range<usize>,
+    added: Option<(SeriesId, usize)>,
 ) -> Option<(ChartElementId, usize)> {
     // 1. Overlay indicators (drawn on top of the series).
     for (idx, indicator) in studies.indicators().iter().enumerate() {
@@ -181,6 +189,9 @@ pub(super) fn hit_test_main_chart(
         }
     }
 
+    if let Some((id, idx)) = added {
+        return Some((ChartElementId::Series(id), idx));
+    }
     if bars.is_empty() {
         return None;
     }
@@ -275,6 +286,7 @@ mod selection_tests {
             &bars,
             100.0,
             0..bars.len(),
+            None,
         );
         assert!(hit.is_none());
     }
@@ -295,6 +307,7 @@ mod selection_tests {
             &bars,
             100.0,
             0..bars.len(),
+            None,
         );
         assert_eq!(hit, Some((ChartElementId::Series(SeriesId::MAIN), 2)));
     }
@@ -320,6 +333,7 @@ mod selection_tests {
             &bars,
             100.0,
             0..bars.len(),
+            None,
         );
         assert_eq!(hit, Some((ChartElementId::Indicator(SeriesId(2)), 2)));
     }
@@ -350,6 +364,7 @@ mod selection_tests {
             &bars,
             100.0,
             0..bars.len(),
+            None,
         );
         // Falls through to the series, since the pane indicator is not an overlay.
         assert_eq!(hit, Some((ChartElementId::Series(SeriesId::MAIN), 2)));
@@ -368,6 +383,7 @@ mod selection_tests {
             &[],
             100.0,
             0..0,
+            None,
         );
         assert!(hit.is_none());
     }

@@ -61,7 +61,7 @@ pub fn calculate_dot_interval(bar_spacing: f32) -> usize {
 }
 
 /// Draw a single selection dot (donut style - filled ring with inner circle)
-fn draw_selection_dot(painter: &Painter, pos: Pos2, config: &SelectionHandleConfig) {
+pub(crate) fn draw_selection_dot(painter: &Painter, pos: Pos2, config: &SelectionHandleConfig) {
     // Outer filled circle
     painter.circle_filled(pos, config.outer_radius, config.ring_color);
     // Inner circle (chart background color) to create donut effect

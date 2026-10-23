@@ -9,7 +9,7 @@ use crate::model::{Bar, BarClock, ChartType, PriceSource, next_revision, revise}
 use crate::scales::{PriceMap, PriceScale, PriceScaleId, PriceTransform, scale_bounds};
 use crate::tokens::DESIGN_TOKENS;
 use chrono::{DateTime, Utc};
-use egui::{Color32, Rect};
+use egui::{Color32, Pos2, Rect};
 use std::collections::BTreeSet;
 use std::ops::Range;
 
@@ -91,6 +91,130 @@ impl Series {
 }
 
 impl Chart {
+    pub(crate) fn series_symbol(&self, id: SeriesId) -> Option<&str> {
+        if id == SeriesId::MAIN || id == SeriesId::VOLUME {
+            Some(&self.symbol)
+        } else {
+            self.series
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.symbol.as_str())
+        }
+    }
+
+    pub(super) fn render_series_legend(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        time: DateTime<Utc>,
+    ) {
+        if self.chart_type.is_time_independent() {
+            return;
+        }
+        for (k, s) in self.series.iter().filter(|s| s.visible).enumerate() {
+            let value = s
+                .bars
+                .partition_point(|bar| bar.time <= time)
+                .checked_sub(1)
+                .map(|i| {
+                    let close = s.bars[i].close;
+                    let decimals = crate::chart::renderers::price_decimals(close);
+                    format!("{close:.decimals$}")
+                });
+            crate::chart::renderers::render_legend_row(
+                painter,
+                Pos2::new(
+                    rect.min.x + crate::styles::sizing::chart::PADDING,
+                    rect.min.y + 12.0 + 18.0 * (k + 1) as f32,
+                ),
+                &s.symbol,
+                value.as_deref(),
+                s.options.color,
+                self.config.text_color,
+            );
+        }
+    }
+
+    pub(super) fn hit_test_added(
+        &self,
+        pos: Pos2,
+        coords: &ChartMapping,
+    ) -> Option<(SeriesId, usize)> {
+        use crate::chart::hit_test::{HIT_TOLERANCE, point_to_segment_distance};
+        if !coords.rect.contains(pos) || self.chart_type.is_time_independent() {
+            return None;
+        }
+        let window = self.series_window();
+        let main = &self.state.data().bars[window.clone()];
+        for s in self
+            .series
+            .iter()
+            .rev()
+            .filter(|s| s.visible && !s.drawn.is_empty())
+        {
+            let x = |bar: &Bar| x_of(bar.time, main, window.start, coords);
+            let bars = &s.bars[s.drawn.clone()];
+            let hit = if matches!(
+                drawn_type(s.options.chart_type),
+                ChartType::Bars
+                    | ChartType::Candles
+                    | ChartType::HollowCandles
+                    | ChartType::Heikin
+                    | ChartType::HighLow
+            ) {
+                bars.iter().any(|bar| {
+                    let (high, low) = (s.map.price_to_y(bar.high), s.map.price_to_y(bar.low));
+                    (pos.x - x(bar)).abs() <= coords.bar_spacing * self.config.candle_width / 2.0
+                        && (high.min(low)..=high.max(low)).contains(&pos.y)
+                })
+            } else {
+                bars.windows(2).any(|pair| {
+                    point_to_segment_distance(
+                        pos,
+                        Pos2::new(x(&pair[0]), s.map.price_to_y(pair[0].close)),
+                        Pos2::new(x(&pair[1]), s.map.price_to_y(pair[1].close)),
+                    ) <= HIT_TOLERANCE
+                })
+            };
+            if hit {
+                return Some((s.id, coords.x_to_idx(pos.x)));
+            }
+        }
+        None
+    }
+
+    pub(super) fn render_added_selection(
+        &self,
+        painter: &egui::Painter,
+        coords: &ChartMapping,
+        id: SeriesId,
+    ) {
+        use crate::chart::series::selection_render::draw_selection_dot;
+        use crate::chart::series::{SelectionHandleConfig, calculate_dot_interval};
+        if self.chart_type.is_time_independent() {
+            return;
+        }
+        let Some(s) = self.series.iter().find(|s| s.id == id && s.visible) else {
+            return;
+        };
+        let config = SelectionHandleConfig {
+            dot_interval: calculate_dot_interval(coords.bar_spacing),
+            ..Default::default()
+        };
+        let window = self.series_window();
+        let main = &self.state.data().bars[window.clone()];
+        for i in s.drawn.clone().step_by(config.dot_interval) {
+            let bar = &s.bars[i];
+            let pos = Pos2::new(
+                x_of(bar.time, main, window.start, coords),
+                s.map.price_to_y(bar.close),
+            );
+            if coords.rect.contains(pos) {
+                draw_selection_dot(painter, pos, &config);
+            }
+        }
+    }
+
     pub(super) fn fit_scales(&mut self) -> PriceTransform {
         let (start, end) = self.state.visible_range();
         let mut right = (f64::INFINITY, f64::NEG_INFINITY);
@@ -429,6 +553,66 @@ mod tests {
                         "{case} {id:?}: {range:?}, expected {min}..{max}"
                     );
                 }
+            }
+        }
+    }
+    /// Clicks use the added series' own scale, and hidden series cannot be selected.
+    #[test]
+    fn clicks_select_an_added_series_on_its_scale() {
+        use crate::widget::{ChartElementId, RightClickTarget};
+        use egui::{Event, Modifiers, PointerButton};
+        for (hidden, button) in [
+            (false, PointerButton::Primary),
+            (true, PointerButton::Primary),
+            (false, PointerButton::Secondary),
+        ] {
+            let (mut chart, id) = comparison();
+            chart.series_options_mut(id).unwrap().price_scale = PriceScaleId::Left;
+            let ctx = Context::default();
+            frame(&ctx, &mut chart, 0.0, Vec::new());
+            let painted = shapes(&ctx, &mut chart, 0.02, Vec::new());
+            let main = path(&painted, chart.config().bullish_color);
+            let rect = chart.get_rendered_price_rect();
+            // Visible added closes 200..300, with 10% margins, give 190..310.
+            let pos = Pos2::new(
+                main[2].x,
+                rect.max.y - (240.0 - 190.0) / 120.0 * rect.height(),
+            );
+            // Both series have the same relative shape; isolate the added line from the main.
+            chart.set_series_visible(SeriesId::MAIN, false);
+            if hidden {
+                chart.set_series_visible(id, false);
+            }
+            frame(&ctx, &mut chart, 0.04, vec![Event::PointerMoved(pos)]);
+            for (time, pressed) in [(0.06, true), (0.08, false)] {
+                frame(
+                    &ctx,
+                    &mut chart,
+                    time,
+                    vec![Event::PointerButton {
+                        pos,
+                        button,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    }],
+                );
+            }
+            assert_eq!(
+                chart.selected_element(),
+                (!hidden).then_some(ChartElementId::Series(id)),
+                "hidden={hidden}, {button:?}"
+            );
+            if button == PointerButton::Secondary {
+                let Some(RightClickTarget::Element { id: hit, price, .. }) =
+                    chart.take_right_click()
+                else {
+                    panic!("no series menu");
+                };
+                assert_eq!(hit, ChartElementId::Series(id));
+                assert!(
+                    (price - 240.0).abs() < 120.0 / f64::from(rect.height()),
+                    "{price}"
+                );
             }
         }
     }

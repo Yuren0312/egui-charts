@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- The legend lists each shown added series with its symbol and its close at the legend's bar. A click or right-click on an added series selects it, and the series menu opened on it is titled with its symbol.
+
 - The chart draws a left price axis, labelled and with a crosshair label in the left scale's units, while a shown series is on `PriceScaleId::Left`.
 
 - `Chart::add_series(symbol, options)` adds a series of bars to the price pane and returns its `SeriesId`, and `remove_series` removes it. `widget::SeriesOptions` sets its chart type, colours and price scale: the right scale of the main series, the left scale, or `PriceScaleId::Overlay`, a scale of the series' own. A series is placed by time on the main series' bars, between two of them in proportion to its time, so a symbol with other trading hours fills the gap, and is not drawn before the first or after the last main bar. Volume candles, TPO and the price-based chart types are drawn as a line. `set_data`, `update`, `bars` and `feed_state` take its id, and `series_options_mut` changes its options.
