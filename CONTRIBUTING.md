@@ -46,7 +46,7 @@ To add one: add a `Theme::<name>()` constructor in `src/theme/presets.rs` and ad
 
 ## Development setup
 
-Install the Rust toolchain with [rustup](https://rustup.rs/). The minimum supported Rust version (MSRV) is **1.95**. CI tests against both `1.95.0` and current `stable`.
+Install the Rust toolchain with [rustup](https://rustup.rs/). The minimum supported Rust version (MSRV) is **1.95**. CI runs the library and doc tests on Linux, macOS and Windows with current `stable` and on Linux with `1.95.0`.
 
 For the web demo you also need the WebAssembly target and [Trunk](https://trunkrs.dev/):
 
@@ -102,6 +102,21 @@ for round in 1 2 3 4 5; do /tmp/frame_time-base; /tmp/frame_time-head; done
 ```
 
 Compare the medians round by round, and quote the machine and the number of rounds with the figures.
+
+### Fuzzing
+
+`fuzz/` holds [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets that look for panics and hangs on hostile input: `bars` feeds appends, live updates, prepends and replacements of bars with non-finite prices and unordered timestamps to a chart and paints a frame, `studies` calculates and updates every study of the catalogue over such a series, and `drawings` loads saved drawing files from arbitrary bytes. They need a nightly toolchain:
+
+```sh
+cargo install cargo-fuzz
+cargo +nightly fuzz run bars -- -max_total_time=120 -timeout=10 -len_control=0 -max_len=8192
+mkdir -p fuzz/corpus/drawings
+cargo +nightly fuzz run drawings fuzz/corpus/drawings src/drawings/fixtures -- -max_total_time=120 -timeout=10
+```
+
+`-len_control=0` lets the inputs grow long enough to hold a series from the start, and `drawings` starts from the saved files in `src/drawings/fixtures/`, since arbitrary bytes rarely form a drawing file.
+
+A crash is saved under `fuzz/artifacts/<target>/`; rerun it with `cargo +nightly fuzz run <target> <file>`. A scheduled workflow (`.github/workflows/fuzz.yml`) runs every target weekly and uploads the crash inputs.
 
 ## Project layout
 
