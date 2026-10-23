@@ -1,0 +1,6 @@
+# Figures of the bare-chart check (ci.yml, job bare-chart): ubuntu-24.04, the MSRV toolchain, the committed lockfile.
+# A pull request that moves a figure outside its tolerance commits the values its failing run printed and says why.
+# Commit figures only from a run on the same CPU model as the current baseline, or on the model most runs get; re-run the job otherwise. The `cpu` line is informational and is not compared.
+size_bytes=
+frame_instructions=
+cpu=

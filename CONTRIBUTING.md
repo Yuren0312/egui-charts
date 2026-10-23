@@ -187,6 +187,8 @@ cd examples/demo && trunk build --release
 
 CI runs clippy with warnings denied. Its `stable` toolchain is current stable, which is newer than the 1.95 MSRV, so run clippy on current stable to catch the same lints CI will. It also checks the dependency tree and runs `cargo audit`.
 
+The `Bare chart size and frame cost` job builds `examples/bare_chart` with `--no-default-features --features widget` and compares two figures with `benches/bare_chart.baseline`: the stripped size of the example and the instructions per frame of `benches/bare_chart.rs` under Cachegrind. It fails when either figure moves by more than its tolerance in either direction. The figures depend on the runner, so they come only from CI: a pull request that moves one commits the values printed in the job summary and explains the change in its description.
+
 ## Code style
 
 - **Idiomatic Rust.** Match the conventions already in the surrounding code; `cargo fmt` is the source of truth for formatting.

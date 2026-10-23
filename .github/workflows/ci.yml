@@ -75,6 +75,92 @@ jobs:
       - name: Run doc tests (all features)
         run: cargo test --doc --all-features
 
+  bare-chart:
+    name: Bare chart size and frame cost
+    # Fixed OS release and compiler: the figures move with the code, the lockfile, the MSRV or the runner image.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+      - name: Build
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+        run: >-
+          cargo build --release --locked --no-default-features --features widget
+          --example bare_chart --bench bare_chart --message-format=json-render-diagnostics > build.json
+      - name: Measure and compare with benches/bare_chart.baseline
+        shell: bash
+        run: |
+          bench=$(jq -r 'select(.target.kind == ["bench"] and .executable) | .executable' build.json)
+          size=$(stat -c %s target/release/examples/bare_chart)
+          # Instructions of the start-up and warm-up alone are subtracted, so only the 300 frames count.
+          ir() { BARE_CHART_FRAMES=$1 valgrind --tool=cachegrind --cache-sim=no --cachegrind-out-file=/dev/null \
+                 "$bench" 2>&1 | sed -n 's/.*I *refs: *//p' | tr -d ,; }
+          ir0=$(ir 0); ir300=$(ir 300)
+          [[ $ir0 =~ ^[0-9]+$ && $ir300 =~ ^[0-9]+$ ]] || { echo "::error::Cachegrind did not report an instruction count"; exit 1; }
+          instr=$(( (ir300 - ir0) / 300 ))
+          wall=$("$bench") # frames=600 median_us=.. p95_us=..
+          median=$(sed -n 's/.* median_us=\([0-9.]*\).*/\1/p' <<< "$wall")
+          p95=$(sed -n 's/.* p95_us=\([0-9.]*\).*/\1/p' <<< "$wall")
+          cpu=$(awk -F': ' '/^model name/ { print $2; exit }' /proc/cpuinfo)
+          glibc=$(dpkg-query -W -f '${Version}' libc6:amd64); vg=$(valgrind --version)
+          rust=$(rustc --version | awk '{ print $2 }')
+
+          baseline() { sed -n "s/^$1=//p" benches/bare_chart.baseline; }
+          show() { if [[ $1 ]]; then echo "$(sed ':a; s/\B[0-9]\{3\}\>/,&/; ta' <<< "$1")$2"; else echo none; fi; }
+          base_cpu=$(baseline cpu)
+          out=$GITHUB_STEP_SUMMARY
+          fail=0
+          # Label, baseline, this build, tolerance in percent, unit. A missing baseline is outside.
+          check() {
+            local result change mark=ok text
+            result=$(awk -v b="$2" -v v="$3" -v t="$4" 'BEGIN {
+              if (b !~ /^[0-9]+$/ || b == 0) { print "n/a outside"; exit }
+              c = (v - b) * 100 / b
+              printf "%+.2f%% %s\n", c, (c > t || c < -t) ? "outside" : "ok" }')
+            change=${result% *}
+            text="$1 ${2:-none} -> $3 ($change)"
+            echo "::notice title=Bare chart::$text"
+            if [[ ${result#* } != ok ]]; then
+              echo "::error title=Bare chart::$text"
+              mark='**outside**'
+              fail=1
+            fi
+            echo "| $1 | $(show "$2" "$5") | $(show "$3" "$5") | $change | ±$4% | $mark |" >> "$out"
+          }
+
+          {
+            echo '### Bare chart (`--no-default-features --features widget`)'
+            echo
+            echo '| Figure | Baseline | This build | Change | Tolerance | |'
+            echo '|---|---:|---:|---:|---:|---|'
+          } >> "$out"
+          check 'Stripped size of `examples/bare_chart`' "$(baseline size_bytes)" "$size" 0.5 ' B'
+          check 'Instructions per frame (Cachegrind, 300 frames)' "$(baseline frame_instructions)" "$instr" 2 ''
+          {
+            echo "| Frame time, median / p95 (wall clock, not checked) | | $median µs / $p95 µs | | | |"
+            echo
+            echo "Runner: $cpu, image $ImageVersion, glibc $glibc, $vg, Rust $rust, \`Cargo.lock\` as committed."
+            echo "Baseline taken on: ${base_cpu:-none}."
+          } >> "$out"
+          if (( fail )); then
+            {
+              echo
+              echo 'To accept these figures, set these lines in `benches/bare_chart.baseline` and say why in the pull request:'
+              echo
+              echo "    size_bytes=$size"
+              echo "    frame_instructions=$instr"
+              echo "    cpu=$cpu"
+            } >> "$out"
+          fi
+          exit "$fail"
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
