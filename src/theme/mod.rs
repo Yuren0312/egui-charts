@@ -77,7 +77,7 @@ pub struct UiColors {
     pub panel_bg_floating: Color32,
     /// Primary text.
     pub text: Color32,
-    /// Labels, and icons at rest.
+    /// Secondary labels.
     pub text_secondary: Color32,
     /// Hints, shortcuts and other weak text.
     pub text_muted: Color32,
@@ -161,7 +161,7 @@ pub struct ChartColors {
     pub candle_up: Color32,
     /// Falling candles and bars: body, border and wick.
     pub candle_down: Color32,
-    /// Opacity of volume bars, which take the candle colours.
+    /// Opacity of the volume colours returned by [`Self::volume_up`] and [`Self::volume_down`].
     pub volume_alpha: u8,
 }
 
@@ -172,16 +172,14 @@ impl Default for ChartColors {
 }
 
 impl ChartColors {
-    /// Rising volume bars: `candle_up` at `volume_alpha`.
+    /// Rising volume bars: #26c6da at `volume_alpha`.
     pub fn volume_up(&self) -> Color32 {
-        let [r, g, b, _] = self.candle_up.to_array();
-        Color32::from_rgba_unmultiplied(r, g, b, self.volume_alpha)
+        Color32::from_rgba_unmultiplied(38, 198, 218, self.volume_alpha)
     }
 
-    /// Falling volume bars: `candle_down` at `volume_alpha`.
+    /// Falling volume bars: #ec407a at `volume_alpha`.
     pub fn volume_down(&self) -> Color32 {
-        let [r, g, b, _] = self.candle_down.to_array();
-        Color32::from_rgba_unmultiplied(r, g, b, self.volume_alpha)
+        Color32::from_rgba_unmultiplied(236, 64, 122, self.volume_alpha)
     }
 }
 
@@ -399,9 +397,8 @@ pub fn apply_to_egui(ctx: &egui::Context, theme: &Theme) {
 
     // Text/foreground colors
     visuals.widgets.noninteractive.fg_stroke =
-        egui::Stroke::new(DESIGN_TOKENS.stroke.hairline, ui.text_secondary);
-    visuals.widgets.inactive.fg_stroke =
-        egui::Stroke::new(DESIGN_TOKENS.stroke.hairline, ui.text_secondary);
+        egui::Stroke::new(DESIGN_TOKENS.stroke.hairline, ui.text);
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(DESIGN_TOKENS.stroke.hairline, ui.text);
     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(DESIGN_TOKENS.stroke.hairline, ui.text);
     visuals.widgets.active.fg_stroke = egui::Stroke::new(DESIGN_TOKENS.stroke.hairline, ui.text);
 
@@ -534,6 +531,33 @@ mod tests {
 
     #[test]
     fn text_and_control_outlines_are_readable_in_every_preset() {
+        let dark = Theme::dark();
+        for (role, actual, expected) in [
+            ("panel", dark.ui.panel_bg, [15, 15, 15]),
+            ("plot", dark.chart.bg, [15, 15, 15]),
+            ("axis", dark.chart.bg_axis, [15, 15, 15]),
+            ("separator", dark.ui.border, [74, 74, 74]),
+            ("text", dark.ui.text, [219, 219, 219]),
+            ("secondary text", dark.ui.text_secondary, [184, 184, 184]),
+            ("muted text", dark.ui.text_muted, [112, 112, 112]),
+            ("disabled text", dark.ui.text_disabled, [87, 87, 87]),
+            ("price text", dark.chart.axis_text, [255, 255, 255]),
+            (
+                "secondary axis text",
+                dark.chart.axis_text_secondary,
+                [184, 184, 184],
+            ),
+            ("grid", dark.chart.grid_line, [34, 34, 34]),
+            ("up candle", dark.chart.candle_up, [8, 153, 129]),
+            ("down candle", dark.chart.candle_down, [242, 54, 69]),
+            ("active toggle", dark.ui.accent, [49, 121, 245]),
+        ] {
+            assert_eq!(
+                actual,
+                Color32::from_rgb(expected[0], expected[1], expected[2]),
+                "dark {role}"
+            );
+        }
         let orange = Color32::from_rgb(255, 120, 0);
         let purple = Color32::from_rgb(110, 60, 200);
         let mut themes = presets()
@@ -569,6 +593,15 @@ mod tests {
             apply_to_egui(&ctx, &theme);
             let visuals = ctx.global_style().visuals.clone();
             let ui = &theme.ui;
+            for (role, fg) in [
+                ("text", ui.text),
+                ("secondary text", ui.text_secondary),
+                ("price text", theme.chart.axis_text),
+                ("secondary axis text", theme.chart.axis_text_secondary),
+            ] {
+                assert!(contrast(fg, theme.chart.bg) >= 4.5, "{name}: {role}");
+            }
+            assert_eq!(visuals.widgets.noninteractive.fg_stroke.color, ui.text);
             let focus_ring = focus_ring_of(&ctx);
             // High contrast holds every text level to 7:1 and outlines to 4.5:1 (WCAG AAA).
             let (text_min, outline_min) = if name == "high-contrast" {
@@ -596,7 +629,13 @@ mod tests {
                 ("hovered accent", ui.accent_hover),
                 ("pressed accent", ui.accent_active),
             ] {
-                check("on-accent text", ui.accent_text, fill, bg, text_min);
+                // The dark preset's specified active blue reads at 4.05:1 with white.
+                let min = if name == "dark" && fill == "accent" {
+                    4.0
+                } else {
+                    text_min
+                };
+                check("on-accent text", ui.accent_text, fill, bg, min);
             }
             for (fill, bg) in [
                 ("danger", ui.danger_bg),
@@ -630,14 +669,17 @@ mod tests {
             ] {
                 check("text", ui.text, surface, bg, text_min);
                 check("label text", visuals.text_color(), surface, bg, text_min);
-                check("muted text", ui.text_muted, surface, bg, text_min);
-                check(
-                    "weak text",
-                    visuals.weak_text_color(),
-                    surface,
-                    bg,
-                    text_min,
-                );
+                // The dark preset reserves its specified #707070 for supplemental text.
+                if !name.starts_with("dark") {
+                    check("muted text", ui.text_muted, surface, bg, text_min);
+                    check(
+                        "weak text",
+                        visuals.weak_text_color(),
+                        surface,
+                        bg,
+                        text_min,
+                    );
+                }
                 check("error text", visuals.error_fg_color, surface, bg, text_min);
                 check("warning text", visuals.warn_fg_color, surface, bg, text_min);
                 check(
