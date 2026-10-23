@@ -22,9 +22,10 @@ pub use bar::render_ohlc_bar;
 pub use candle::render_candle;
 pub use context::{BarRenderParams, ChartMapping, RenderContext, StyleColors};
 
+pub(crate) use crosshair::price_label;
 pub use crosshair::render_crosshair_full;
 pub use indicator::IndicatorRenderer;
-pub(crate) use labels::price_decimals;
+pub(crate) use labels::{price_decimals, render_price_labels_at_pos};
 pub use labels::{render_legend, render_ohlc_info, render_price_labels, render_time_labels};
 pub use markers::render_markers;
 pub use session_breaks::{

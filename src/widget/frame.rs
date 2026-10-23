@@ -6,7 +6,7 @@ use crate::chart::renderers::{self, ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering;
 use crate::config::{BackgroundStyle, WatermarkPos};
 use crate::model::PriceLine;
-use crate::scales::TimeFormatterBuilder;
+use crate::scales::{PriceScaleId, TimeFormatterBuilder};
 use crate::styles::{sizing, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Pos2, Rect, Response, Sense, Ui, Vec2};
@@ -246,7 +246,16 @@ impl Chart {
         };
         let right_axis_width = sizing::chart::RIGHT_AXIS_WIDTH;
 
-        let left_margin = sizing::chart::PADDING;
+        let left_axis = !self.chart_type.is_time_independent()
+            && self
+                .series
+                .iter()
+                .any(|s| s.visible && s.options.price_scale == PriceScaleId::Left);
+        let left_margin = if left_axis {
+            right_axis_width
+        } else {
+            sizing::chart::PADDING
+        };
         let right_margin = sizing::chart::PADDING + right_axis_width;
 
         let chart_rect = Rect::from_min_size(
@@ -385,7 +394,10 @@ impl Chart {
                 chart_rect.min.y + chart_rect.height() * (1.0 - self.config.volume_height_fraction);
             (
                 Rect::from_min_max(chart_rect.min, Pos2::new(chart_rect.max.x, split_y)),
-                Rect::from_min_max(Pos2::new(chart_rect.min.x, split_y), chart_rect.max),
+                Rect::from_min_max(
+                    Pos2::new(rect.min.x + sizing::chart::PADDING, split_y),
+                    chart_rect.max,
+                ),
             )
         } else {
             (chart_rect, Rect::ZERO)
@@ -538,7 +550,9 @@ impl Chart {
         // Create clipped painter and contexts to prevent bars from rendering on axes
         let clipped_painter = painter.with_clip_rect(chart_rect);
         let clipped_price_ctx = RenderContext::new(&clipped_painter, price_rect);
-        let clipped_volume_ctx = RenderContext::new(&clipped_painter, volume_rect);
+        let volume_painter =
+            painter.with_clip_rect(if left_axis { volume_rect } else { chart_rect });
+        let clipped_volume_ctx = RenderContext::new(&volume_painter, volume_rect);
 
         let render_ctx = rendering::CandleDataContext {
             price_ctx: &clipped_price_ctx,
@@ -710,6 +724,7 @@ impl Chart {
 
         // The axis labels go at these depths, painted once the crosshair's tags are placed
         let price_labels = painter.add(egui::Shape::Noop);
+        let left_labels = left_axis.then(|| painter.add(egui::Shape::Noop));
 
         let mut tags: Vec<_> = self
             .price_lines
@@ -916,6 +931,39 @@ impl Chart {
                     }
                 }
             }
+        }
+
+        if let Some(slot) = left_labels {
+            use crate::chart::rendering::axes::{PRICE_LABEL_GAP, paint_axis_tag};
+            let map = self.left_scale.map(
+                self.left_scale.transform(),
+                price_rect.top(),
+                price_rect.bottom(),
+            );
+            let left_tag = crosshair_tags[0]
+                .filter(|_| response.hover_pos().is_some())
+                .map(|tag| {
+                    let y = tag.center().y;
+                    let options = self.chart_options.crosshair.resolved(ui.ctx());
+                    paint_axis_tag(
+                        &painter,
+                        Pos2::new(price_rect.min.x - PRICE_LABEL_GAP, y),
+                        egui::Align2::RIGHT_CENTER,
+                        f32::INFINITY,
+                        None,
+                        renderers::price_label(&map, y),
+                        options.label_text_color,
+                        options.label_background_color,
+                    )
+                });
+            renderers::render_price_labels_at_pos(
+                &price_ctx,
+                &map,
+                &colors,
+                PriceScaleId::Left,
+                &[left_tag],
+                slot,
+            );
         }
 
         // Draw the axis labels, leaving out those the tags overlap

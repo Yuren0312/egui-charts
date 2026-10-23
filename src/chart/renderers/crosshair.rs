@@ -131,27 +131,13 @@ pub fn render_crosshair_full(
         }
     }
 
-    // Calculate price at cursor
-    let price = price_scale.y_to_price(actual_pos.y);
-
-    // Price label, in the axis units of the relative modes and with the tick decimals otherwise
-    let transform = price_scale.transform();
-    let price_label = if matches!(
-        transform.mode,
-        PriceScaleMode::Percentage | PriceScaleMode::IndexedTo100
-    ) {
-        transform.label(price_scale.y_to_scale(actual_pos.y), 2)
-    } else {
-        let decimals = tick_decimals(price_scale, actual_pos.y);
-        format!("{price:.decimals$}")
-    };
     let price_tag = paint_axis_tag(
         context.painter,
         Pos2::new(context.rect.max.x + PRICE_LABEL_GAP, actual_pos.y),
         Align2::LEFT_CENTER,
         axis_right,
         last_price_tag,
-        price_label,
+        price_label(price_scale, actual_pos.y),
         label_text,
         label_bg,
     );
@@ -176,6 +162,20 @@ pub fn render_crosshair_full(
     });
 
     [Some(price_tag), time_tag]
+}
+
+/// Price at `y`, written in the axis units and with the nearest tick's decimals.
+pub(crate) fn price_label(map: &PriceMap, y: f32) -> String {
+    let transform = map.transform();
+    if matches!(
+        transform.mode,
+        PriceScaleMode::Percentage | PriceScaleMode::IndexedTo100
+    ) {
+        transform.label(map.y_to_scale(y), 2)
+    } else {
+        let decimals = tick_decimals(map, y);
+        format!("{:.decimals$}", map.y_to_price(y))
+    }
 }
 
 /// The crosshair's time label for a bar `bar_seconds` long: its date as the time axis writes

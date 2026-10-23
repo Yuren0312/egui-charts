@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- The chart draws a left price axis, labelled and with a crosshair label in the left scale's units, while a shown series is on `PriceScaleId::Left`.
+
 - `Chart::add_series(symbol, options)` adds a series of bars to the price pane and returns its `SeriesId`, and `remove_series` removes it. `widget::SeriesOptions` sets its chart type, colours and price scale: the right scale of the main series, the left scale, or `PriceScaleId::Overlay`, a scale of the series' own. A series is placed by time on the main series' bars, between two of them in proportion to its time, so a symbol with other trading hours fills the gap, and is not drawn before the first or after the last main bar. Volume candles, TPO and the price-based chart types are drawn as a line. `set_data`, `update`, `bars` and `feed_state` take its id, and `series_options_mut` changes its options.
 - Each price scale auto-scales to the visible bars of the shown series on it, and the right scale also to the main series and its overlay studies. In the percentage and indexed modes each series is measured from its own close at the first visible bar, so compared symbols start at the same level. `Chart::set_series_visible` and `is_series_visible` hide and show a bar series, the main one included: a hidden main series keeps its studies, drawings and time axis and hides its volume, markers, price lines and last-price line.
 
