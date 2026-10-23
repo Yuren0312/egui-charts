@@ -63,6 +63,7 @@ impl ObjectTreeState {
     pub fn new() -> Self {
         let mut state = Self::default();
         // Expand all groups by default
+        state.expanded_groups.insert("Data sources".to_string());
         state.expanded_groups.insert("Indicators".to_string());
         state.expanded_groups.insert("Drawings".to_string());
         state.expanded_groups.insert("Templates".to_string());
@@ -167,6 +168,7 @@ impl ObjectTreeState {
 
     /// Expand all groups
     pub fn expand_all_groups(&mut self) {
+        self.expanded_groups.insert("Data sources".to_string());
         self.expanded_groups.insert("Indicators".to_string());
         self.expanded_groups.insert("Drawings".to_string());
         self.expanded_groups.insert("Templates".to_string());

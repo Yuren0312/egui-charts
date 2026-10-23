@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- The demo's compare button opens the compare symbols dialog: each symbol added there is drawn as a line on the right price scale, which shows percentages while symbols are compared. The dialog and the object tree hide, show and remove them, and the object tree hides and shows the main series.
+
 - On a chart built with a feed, an added series loads its symbol at the chart's timeframe, follows its live bars, pages back as the view nears its oldest bar and reloads when the timeframe changes. Removing it ends its subscription.
 
 - The legend lists each shown added series with its symbol and its close at the legend's bar. A click or right-click on an added series selects it, and the series menu opened on it is titled with its symbol.

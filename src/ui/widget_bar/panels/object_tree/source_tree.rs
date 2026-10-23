@@ -1,6 +1,6 @@
 //! Source tree rendering
 //!
-//! Renders the hierarchical tree of indicators and drawings.
+//! Renders the hierarchical tree of data sources, indicators and drawings.
 
 use egui::{RichText, ScrollArea, Ui};
 
@@ -31,7 +31,7 @@ pub fn render_source_tree(
         .auto_shrink([false, false])
         .show(ui, |ui| {
             if config.group_by_type {
-                // Grouped view: Indicators, Drawings, Templates
+                // Grouped view: Data sources, Indicators, Drawings, Templates
                 action = render_grouped_tree(ui, sources, config, state, &filter_lower);
             } else {
                 // Flat view: all items in z-order
@@ -53,6 +53,10 @@ fn render_grouped_tree(
     let mut action = ObjectTreeAction::None;
 
     // Count items per type
+    let data_source_count = sources
+        .iter()
+        .filter(|s| s.source_type == SourceType::DataSource && matches_filter(s, filter, state))
+        .count();
     let indicator_count = sources
         .iter()
         .filter(|s| s.source_type == SourceType::Indicator && matches_filter(s, filter, state))
@@ -65,6 +69,23 @@ fn render_grouped_tree(
         .iter()
         .filter(|s| s.source_type == SourceType::Template && matches_filter(s, filter, state))
         .count();
+
+    // Data sources group
+    if data_source_count > 0 {
+        let group_action = render_group(
+            ui,
+            "Data sources",
+            SourceType::DataSource,
+            data_source_count,
+            sources,
+            config,
+            state,
+            filter,
+        );
+        if !group_action.is_none() {
+            action = group_action;
+        }
+    }
 
     // Indicators group
     if indicator_count > 0 {
@@ -118,7 +139,7 @@ fn render_grouped_tree(
     }
 
     // Empty state
-    if indicator_count == 0 && drawing_count == 0 && template_count == 0 {
+    if data_source_count == 0 && indicator_count == 0 && drawing_count == 0 && template_count == 0 {
         render_empty_state(ui, state.has_filter());
     }
 

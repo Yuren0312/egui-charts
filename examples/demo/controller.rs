@@ -11,6 +11,7 @@ use egui_charts::Chart;
 use egui_charts::chart::selection::SeriesId;
 use egui_charts::chart::series::SeriesSettings;
 use egui_charts::model::{Bar, ChartType, RenkoConfig, Timeframe};
+use egui_charts::scales::PriceScaleMode;
 use egui_charts::theme::Theme;
 use egui_charts::ui::app_state::ChartAppState;
 use egui_charts::ui::context_menu::{ChartContextAction, ChartMenus, ContextMenuAction};
@@ -35,11 +36,14 @@ use egui_charts::ui::top_toolbar::components::indicator_dialog::{
 };
 use egui_charts::ui::top_toolbar::components::settings_menu::data::ChartSettingsState;
 use egui_charts::ui::top_toolbar::components::settings_menu::{SettingsAction, SettingsDialog};
-use egui_charts::ui::top_toolbar::{TopToolbar, TopToolbarAction};
+use egui_charts::ui::top_toolbar::{
+    CompareAction, CompareSymbolsDialog, TopToolbar, TopToolbarAction,
+};
 use egui_charts::ui::widget_bar::panels::object_tree::{
     DataWindowInfo, ObjectTreeAction, ObjectTreePanel, SourceItem,
 };
 use egui_charts::ui::widget_bar::{RightBarIcon, WidgetBar, WidgetBarAction};
+use egui_charts::widget::SeriesOptions;
 use std::sync::{Arc, mpsc};
 
 use crate::sampledata::{
@@ -136,6 +140,9 @@ pub struct DemoApp {
     settings_dialog: SettingsDialog,
     settings_state: ChartSettingsState,
     symbol_search: SymbolSearchDialog,
+    compare: CompareSymbolsDialog,
+    compares: Vec<(String, SeriesId)>,
+    mode_before_compare: Option<PriceScaleMode>,
     alert_dialog: AlertDialog,
     series_settings: SeriesSettingsDialog,
     drawing_props: DrawingPropertiesDialog,
@@ -232,6 +239,9 @@ impl DemoApp {
             settings_dialog: SettingsDialog::new(),
             settings_state: ChartSettingsState::default(),
             symbol_search: SymbolSearchDialog::new(),
+            compare: CompareSymbolsDialog::new(),
+            compares: Vec::new(),
+            mode_before_compare: None,
             alert_dialog: AlertDialog::new(),
             series_settings: SeriesSettingsDialog::new(),
             drawing_props: DrawingPropertiesDialog::new(),
@@ -262,6 +272,10 @@ impl DemoApp {
         self.chart.set_timeframe(tf);
         let count = bar_count_for_timeframe(tf);
         self.regenerate_bars(count, tf);
+        for (symbol, id) in &self.compares {
+            self.chart
+                .set_data(*id, generate_sample_bars(symbol, count, tf));
+        }
         self.symbol_header.symbol_info.timeframe = tf.as_str().to_string();
         // A replay continues at its current time on the new interval.
         if let Some(replay) = self.replay.as_mut() {
@@ -420,6 +434,72 @@ impl DemoApp {
 
     // --- dialog wiring -----------------------------------------------------
 
+    fn handle_compare(&mut self, action: CompareAction) {
+        match action {
+            CompareAction::AddSymbol(symbol) => {
+                if self.compares.iter().any(|(s, _)| *s == symbol) {
+                    return;
+                }
+                let Some(entry) = self
+                    .compare
+                    .compared_symbols
+                    .iter()
+                    .find(|s| s.symbol == symbol)
+                else {
+                    return;
+                };
+                let id = self.chart.add_series(
+                    &symbol,
+                    SeriesOptions {
+                        color: entry.color,
+                        ..Default::default()
+                    },
+                );
+                self.chart.set_data(
+                    id,
+                    generate_sample_bars(&symbol, self.bars.len(), self.state.timeframe),
+                );
+                if self.compares.is_empty()
+                    && let Some(scale) = self.chart.price_scale_mut(SeriesId::MAIN)
+                {
+                    self.mode_before_compare = Some(scale.options().mode);
+                    scale.options_mut().mode = PriceScaleMode::Percentage;
+                    scale.reset();
+                }
+                self.compares.push((symbol, id));
+            }
+            CompareAction::RemoveSymbol(symbol) => {
+                if let Some(at) = self.compares.iter().position(|(s, _)| *s == symbol) {
+                    let (_, id) = self.compares.remove(at);
+                    self.chart.remove_series(id);
+                    self.compare.compared_symbols.retain(|s| s.symbol != symbol);
+                    if self.compares.is_empty()
+                        && let Some(mode) = self.mode_before_compare.take()
+                        && let Some(scale) = self.chart.price_scale_mut(SeriesId::MAIN)
+                    {
+                        scale.options_mut().mode = mode;
+                        scale.reset();
+                    }
+                }
+            }
+            CompareAction::ToggleVisibility(symbol) => {
+                if let Some((_, id)) = self.compares.iter().find(|(s, _)| *s == symbol) {
+                    let visible = !self.chart.is_series_visible(*id);
+                    self.chart.set_series_visible(*id, visible);
+                    if let Some(entry) = self
+                        .compare
+                        .compared_symbols
+                        .iter_mut()
+                        .find(|s| s.symbol == symbol)
+                    {
+                        entry.visible = visible;
+                    }
+                }
+            }
+            CompareAction::None | CompareAction::Close => {}
+        }
+    }
+
     fn show_dialogs(&mut self, ctx: &egui::Context) {
         // Indicators: add the study the dialog created.
         if let IndicatorDialogAction::AddIndicator(study) =
@@ -438,11 +518,14 @@ impl DemoApp {
             _ => {}
         }
 
-        // Symbol search (used by the pill, quick search, and compare entry).
+        // Symbol search and comparisons.
         let symbols = DemoSymbol::symbols();
         if let Some(picked) = self.symbol_search.show(ctx, &symbols) {
             self.switch_symbol(&picked.name);
         }
+
+        let action = self.compare.show(ctx, &symbols);
+        self.handle_compare(action);
 
         // Alert creation.
         match self.alert_dialog.show(ctx) {
@@ -678,9 +761,8 @@ impl DemoApp {
                 }
             }
             TopToolbarAction::IntervalSelected(tf) => self.switch_timeframe(tf),
-            TopToolbarAction::OpenSymbolSearch | TopToolbarAction::OpenCompare => {
-                self.symbol_search.open();
-            }
+            TopToolbarAction::OpenSymbolSearch => self.symbol_search.open(),
+            TopToolbarAction::OpenCompare => self.compare.open(),
             TopToolbarAction::OpenIndicators => self.indicator_dialog.open(),
             TopToolbarAction::CreateAlert => self.alert_dialog.open(self.state.symbol.clone()),
             TopToolbarAction::ToggleReplay => self.toggle_replay(),
@@ -886,10 +968,15 @@ impl DemoApp {
 
         // Main data source row.
         let tf = self.state.timeframe.as_str();
-        items.push(SourceItem::data_source(
-            MAIN_SERIES_ID,
-            format!("{} · {}", self.state.symbol, tf),
-        ));
+        let mut main =
+            SourceItem::data_source(MAIN_SERIES_ID, format!("{} · {}", self.state.symbol, tf));
+        main.visible = self.chart.is_series_visible(SeriesId::MAIN);
+        items.push(main);
+        for (symbol, id) in &self.compares {
+            let mut item = SourceItem::data_source(indicator_tree_id(*id), symbol);
+            item.visible = self.chart.is_series_visible(*id);
+            items.push(item);
+        }
 
         // Live indicators.
         for (id, ind) in self.chart.indicators() {
@@ -923,6 +1010,19 @@ impl DemoApp {
     fn handle_object_tree(&mut self, action: ObjectTreeAction, sources: &[SourceItem]) {
         match action {
             ObjectTreeAction::ToggleVisibility(id) => {
+                if id == MAIN_SERIES_ID {
+                    let visible = !self.chart.is_series_visible(SeriesId::MAIN);
+                    self.chart.set_series_visible(SeriesId::MAIN, visible);
+                    return;
+                }
+                if let Some((symbol, _)) = self
+                    .compares
+                    .iter()
+                    .find(|(_, series)| indicator_tree_id(*series) == id)
+                {
+                    self.handle_compare(CompareAction::ToggleVisibility(symbol.clone()));
+                    return;
+                }
                 let chart = &mut self.chart;
                 if let Some(study) = indicator_from_tree_id(id) {
                     let now = chart
@@ -931,7 +1031,9 @@ impl DemoApp {
                         .is_none_or(|(_, i)| i.is_visible());
                     chart.set_indicator_visible(study, !now);
                 } else {
-                    chart.drawings_mut().edit_drawing(id, |d| d.visible = !d.visible);
+                    chart
+                        .drawings_mut()
+                        .edit_drawing(id, |d| d.visible = !d.visible);
                 }
             }
             ObjectTreeAction::ToggleLock(id) => {
@@ -940,6 +1042,17 @@ impl DemoApp {
                     .edit_drawing(id, |d| d.locked = !d.locked);
             }
             ObjectTreeAction::Delete(id) | ObjectTreeAction::RemoveIndicator(id) => {
+                if let Some((symbol, _)) = self
+                    .compares
+                    .iter()
+                    .find(|(_, series)| indicator_tree_id(*series) == id)
+                {
+                    self.handle_compare(CompareAction::RemoveSymbol(symbol.clone()));
+                    return;
+                }
+                if id == MAIN_SERIES_ID {
+                    return;
+                }
                 let chart = &mut self.chart;
                 if let Some(study) = indicator_from_tree_id(id) {
                     chart.remove_series(study);
