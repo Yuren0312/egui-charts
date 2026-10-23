@@ -7,10 +7,11 @@
 use egui::{Rect, UiBuilder, pos2, vec2};
 use egui_charts::ChartType;
 use egui_charts::model::BarData;
+use egui_charts::scales::PriceScaleId;
 use egui_charts::studies::{
     ADX, ATR, BollingerBands, EMA, IchimokuCloud, MACD, ParabolicSAR, RSI, SMA, Stochastic,
 };
-use egui_charts::widget::Chart;
+use egui_charts::widget::{Chart, SeriesOptions};
 
 #[path = "../examples/bare_chart.rs"]
 #[expect(dead_code, reason = "the bench draws only the example's sample bars")]
@@ -25,9 +26,10 @@ struct Scenario {
     charts: usize,
     columns: usize,
     studies: bool,
+    added_series: bool,
 }
 
-const SCENARIOS: [Scenario; 4] = [
+const SCENARIOS: [Scenario; 5] = [
     Scenario {
         name: "1 chart, 5,000,000 bars, zoomed out",
         bars: 5_000_000,
@@ -35,6 +37,7 @@ const SCENARIOS: [Scenario; 4] = [
         charts: 1,
         columns: 1,
         studies: false,
+        added_series: false,
     },
     Scenario {
         name: "1 chart, 5,000,000 bars, zoomed in",
@@ -43,6 +46,7 @@ const SCENARIOS: [Scenario; 4] = [
         charts: 1,
         columns: 1,
         studies: false,
+        added_series: false,
     },
     Scenario {
         name: "4 charts, 100,000 bars",
@@ -51,6 +55,7 @@ const SCENARIOS: [Scenario; 4] = [
         charts: 4,
         columns: 2,
         studies: false,
+        added_series: false,
     },
     Scenario {
         name: "8 charts, 100,000 bars, 10 studies each",
@@ -59,6 +64,16 @@ const SCENARIOS: [Scenario; 4] = [
         charts: 8,
         columns: 4,
         studies: true,
+        added_series: false,
+    },
+    Scenario {
+        name: "1 chart, 1,000,000 bars, 3 added series",
+        bars: 1_000_000,
+        visible: 200,
+        charts: 1,
+        columns: 1,
+        studies: false,
+        added_series: true,
     },
 ];
 
@@ -122,6 +137,31 @@ fn chart(scenario: &Scenario) -> Chart {
     chart.set_chart_type(ChartType::Candles);
     chart.set_visible_bars(scenario.visible);
     chart.set_symbol("SAMPLE");
+    if scenario.added_series {
+        for (k, (chart_type, price_scale)) in [
+            (ChartType::Line, PriceScaleId::Right),
+            (ChartType::Candles, PriceScaleId::Left),
+            (ChartType::Heikin, PriceScaleId::Overlay),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = chart.add_series(
+                format!("SAMPLE{}", k + 1),
+                SeriesOptions {
+                    chart_type,
+                    price_scale,
+                    ..Default::default()
+                },
+            );
+            chart.set_data(
+                id,
+                (0..scenario.bars)
+                    .map(|i| example::sample_bar(i, (k + 1) as u64))
+                    .collect(),
+            );
+        }
+    }
     if scenario.studies {
         // Five price overlays and five studies in panes below the price pane.
         chart.add_indicator(Box::new(SMA::default()));
