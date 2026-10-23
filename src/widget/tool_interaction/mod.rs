@@ -117,6 +117,7 @@ impl Chart {
             revision: self.state.revision(),
             bar_to_x: &bar_to_x,
             price_to_y: &price_to_y,
+            price_format: self.price_format(),
         };
         drawing_manager.render_all(painter, price_rect, &view);
     }

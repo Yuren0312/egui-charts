@@ -2,7 +2,7 @@
 
 use crate::chart::rendering::draw_dashed_line;
 use crate::model::PriceLine;
-use crate::scales::PriceMap;
+use crate::scales::{PriceFormat, PriceMap, PriceScaleMode};
 use crate::theme::{ThemeExt, contrast};
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, Vec2};
 
@@ -53,8 +53,8 @@ pub(crate) fn paint_axis_tag(
 }
 
 /// Renders `line` from `start_x`, clamped to the plot's left edge, to its right edge and, with
-/// `show_axis` and the line's `axis_label`, its tag in the price axis, which ends at `axis_right`.
-/// Returns the tag's rect, or `None` when no tag is drawn.
+/// `show_axis` and the line's `axis_label`, its tag in the price axis, which ends at `axis_right`,
+/// with the price written by `format`. Returns the tag's rect, or `None` when no tag is drawn.
 pub fn render_price_line(
     painter: &Painter,
     price_rect: Rect,
@@ -63,6 +63,7 @@ pub fn render_price_line(
     start_x: f32,
     show_axis: bool,
     axis_right: f32,
+    format: PriceFormat,
 ) -> Option<Rect> {
     let x0 = start_x.max(price_rect.min.x);
     if x0 >= price_rect.max.x {
@@ -97,7 +98,10 @@ pub fn render_price_line(
     if !show_axis || !line.axis_label {
         return None;
     }
-    let label = transform.label(transform.to_scale(line.price), 2);
+    let label = match transform.mode {
+        PriceScaleMode::Normal | PriceScaleMode::Logarithmic => format.price(line.price),
+        _ => transform.label(transform.to_scale(line.price), 2),
+    };
     // Black or white, whichever reads better on the line colour.
     let text_color = if contrast(Color32::WHITE, line.color) >= contrast(Color32::BLACK, line.color)
     {
@@ -189,7 +193,17 @@ mod tests {
             );
             let line = PriceLine::new(price, Color32::RED).with_axis_label(axis_label);
             let output = ctx.run_ui(RawInput::default(), |ui| {
-                render_price_line(ui.painter(), pane, &map, &line, pane.min.x, true, 200.0);
+                let format = PriceFormat::default();
+                render_price_line(
+                    ui.painter(),
+                    pane,
+                    &map,
+                    &line,
+                    pane.min.x,
+                    true,
+                    200.0,
+                    format,
+                );
             });
             let segments: Vec<_> = output
                 .shapes

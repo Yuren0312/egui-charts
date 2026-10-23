@@ -8,6 +8,7 @@
 
 use crate::drawings::DrawingToolType;
 use crate::model::percent_change;
+use crate::scales::PriceFormat;
 use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
@@ -324,6 +325,9 @@ pub struct DataWindowInfo {
     pub change_percent: f64,
     /// Previous close price
     pub prev_close: f64,
+    /// How prices and volumes are written, such as the chart's
+    /// [`Chart::price_format`](crate::Chart::price_format).
+    pub price_format: PriceFormat,
 }
 
 impl DataWindowInfo {
@@ -342,6 +346,12 @@ impl DataWindowInfo {
         self.low = low;
         self.close = close;
         self.volume = volume;
+        self
+    }
+
+    /// Set how prices and volumes are written
+    pub fn with_price_format(mut self, format: PriceFormat) -> Self {
+        self.price_format = format;
         self
     }
 

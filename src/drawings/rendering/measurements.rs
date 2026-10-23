@@ -3,9 +3,9 @@
 //! Includes: measure, price range, date range, date and price range, info line, and bars pattern.
 
 use super::{ChartView, bars_between};
-use crate::chart::renderers::price_decimals;
 use crate::drawings::domain::{Drawing, DrawingToolType};
 use crate::model::{Bar, percent_change};
+use crate::scales::PriceFormat;
 use crate::scales::{PriceFormatter, VolumeFormatter};
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
@@ -141,7 +141,9 @@ impl Drawing {
                 line_stroke,
             );
 
-            let info = self.measurement_label(view.bars).unwrap_or_default();
+            let info = self
+                .measurement_label(view.bars, view.price_format)
+                .unwrap_or_default();
 
             // Draw info box at the top-left corner of rect
             let font = egui::FontId::proportional(typography::SM);
@@ -169,7 +171,12 @@ impl Drawing {
         }
     }
 
-    pub(crate) fn render_price_range(&self, painter: &egui::Painter, chart_rect: Rect) {
+    pub(crate) fn render_price_range(
+        &self,
+        painter: &egui::Painter,
+        chart_rect: Rect,
+        format: PriceFormat,
+    ) {
         if self.points.len() < 2 {
             if !self.points.is_empty() {
                 painter.circle_filled(
@@ -215,7 +222,7 @@ impl Drawing {
             Stroke::new(stroke::HAIRLINE, color),
         );
 
-        let info = self.measurement_label(&[]).unwrap_or_default();
+        let info = self.measurement_label(&[], format).unwrap_or_default();
 
         painter.text(
             Pos2::new(mid_x + 10.0, (p1.y + p2.y) / 2.0),
@@ -280,7 +287,9 @@ impl Drawing {
             Stroke::new(stroke::HAIRLINE, color),
         );
 
-        let info = self.measurement_label(view.bars).unwrap_or_default();
+        let info = self
+            .measurement_label(view.bars, view.price_format)
+            .unwrap_or_default();
 
         painter.text(
             Pos2::new((p1.x + p2.x) / 2.0, mid_y - 10.0),
@@ -327,7 +336,9 @@ impl Drawing {
             StrokeKind::Outside,
         );
 
-        let info = self.measurement_label(view.bars).unwrap_or_default();
+        let info = self
+            .measurement_label(view.bars, view.price_format)
+            .unwrap_or_default();
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -357,7 +368,7 @@ impl Drawing {
         painter.circle_filled(start, DESIGN_TOKENS.rounding.md, color);
         painter.circle_filled(end, DESIGN_TOKENS.rounding.md, color);
 
-        let Some(info_text) = self.measurement_label(view.bars) else {
+        let Some(info_text) = self.measurement_label(view.bars, view.price_format) else {
             return;
         };
         let is_positive = self.chart_points[1].price >= self.chart_points[0].price;
@@ -421,13 +432,13 @@ impl Drawing {
     /// and for the info line the angle of the line on screen. Each anchor counts at its nearest
     /// bar: anchors N bars apart span N bars of time and the volume of the N + 1 bars from one to
     /// the other, both included.
-    pub(crate) fn measurement_label(&self, bars: &[Bar]) -> Option<String> {
+    pub(crate) fn measurement_label(&self, bars: &[Bar], format: PriceFormat) -> Option<String> {
         let [a, b, ..] = &self.chart_points[..] else {
             return None;
         };
         let change = b.price - a.price;
         let pct = percent_change(a.price, b.price);
-        let decimals = price_decimals(a.price);
+        let decimals = format.decimals_of(a.price);
         let change = format!("{change:+.decimals$} ({pct:+.2}%)");
         let (from, to) = (a.bar_idx.round(), b.bar_idx.round());
         let mut span = format!("{} bars", (to - from).abs() as i64);
@@ -468,11 +479,15 @@ impl Drawing {
     /// then its height in price), from the anchors' bars and prices. The lines are straight on
     /// screen, so their prices between the anchors come from the chart's `price_to_y`, which
     /// on a logarithmic scale puts the trend line's midpoint at the geometric mean.
-    pub(crate) fn size_labels(&self, price_to_y: &dyn Fn(f64) -> f32) -> Vec<String> {
+    pub(crate) fn size_labels(
+        &self,
+        price_to_y: &dyn Fn(f64) -> f32,
+        format: PriceFormat,
+    ) -> Vec<String> {
         let gap = |a: f64, b: f64| {
             let (low, gap) = (a.min(b), (a - b).abs());
             let pct = percent_change(low, low + gap);
-            let decimals = price_decimals(low);
+            let decimals = format.decimals_of(low);
             format!("{gap:.decimals$} ({pct:.2}%)")
         };
         let label = |a: Option<f64>, b: Option<f64>| a.zip(b).map(|(a, b)| gap(a, b));
@@ -668,7 +683,7 @@ mod tests {
             let mut drawing = Drawing::new(1, tool);
             drawing.chart_points = vec![ChartPoint::new(b1, p1), ChartPoint::new(b2, p2)];
             drawing.update_screen_coords(|bar| bar * 10.0, |price| 500.0 - price as f32);
-            let got = drawing.measurement_label(&bars);
+            let got = drawing.measurement_label(&bars, PriceFormat::default());
             if got.as_deref() != Some(want) {
                 wrong.push(format!("{tool:?}: got {got:?}, want {want:?}"));
             }
@@ -729,7 +744,7 @@ mod tests {
                 let value = |price: f64| if log { price.ln() * 100.0 } else { price };
                 let price_to_y = |price: f64| ((value(top) - value(price)) * scale) as f32;
                 drawing.update_screen_coords(|bar| bar * 10.0, price_to_y);
-                let got = drawing.size_labels(&price_to_y);
+                let got = drawing.size_labels(&price_to_y, PriceFormat::default());
                 if got != want {
                     wrong.push(format!(
                         "{tool:?} at {scale} px per unit, log {log}: got {got:?}, want {want:?}"

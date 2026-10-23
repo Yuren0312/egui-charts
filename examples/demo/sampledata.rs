@@ -122,6 +122,10 @@ pub fn generate_sample_bars(symbol: &str, count: usize, timeframe: Timeframe) ->
     // Per-symbol salt so each instrument has its own price action.
     let salt = spec.seed.wrapping_mul(0x9E37_79B1);
 
+    // Prices as a feed quotes them: in cents, or to five decimals for a currency pair.
+    let scale = if spec.start_price < 10.0 { 1e5 } else { 1e2 };
+    let quote = |price: f64| (price * scale).round() / scale;
+
     let mut trend = 0.0_f64;
     let mut volatility = 1.0_f64;
 
@@ -160,10 +164,10 @@ pub fn generate_sample_bars(symbol: &str, count: usize, timeframe: Timeframe) ->
 
         bars.push(Bar {
             time,
-            open,
-            high,
-            low,
-            close,
+            open: quote(open),
+            high: quote(high),
+            low: quote(low),
+            close: quote(close),
             volume,
         });
         price = close;

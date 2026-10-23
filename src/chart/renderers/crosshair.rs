@@ -4,7 +4,7 @@ use crate::chart::rendering::axes::{PRICE_LABEL_GAP, TIME_LABEL_GAP, paint_axis_
 use crate::chart::rendering::draw_dashed_line;
 use crate::config::{CrosshairLineStyle, CrosshairMode, CrosshairStyle};
 use crate::model::Bar;
-use crate::scales::{PriceMap, PriceScaleMode, TickMarkType, TimeFormatter};
+use crate::scales::{PriceFormat, PriceMap, PriceScaleMode, TickMarkType, TimeFormatter};
 use crate::tokens::DESIGN_TOKENS;
 use chrono::{DateTime, Utc};
 use egui::{Align2, Color32, Pos2, Rect, Stroke};
@@ -13,8 +13,9 @@ use egui::{Align2, Color32, Pos2, Rect, Stroke};
 ///
 /// The vertical line runs down to `chart_bottom`, the bottom of the volume pane. The price label
 /// sits in the price axis, which ends at `axis_right`, over the `last_price_tag` it overlaps, and
-/// the time label on the time axis below `chart_bottom`, written by `formatter`. Returns the rects
-/// of the price and time labels drawn.
+/// the time label on the time axis below `chart_bottom`, written by `formatter`. Prices are
+/// rounded to the tick size of `format` and written with its decimals. Returns the rects of the
+/// price and time labels drawn.
 pub fn render_crosshair_full(
     context: &RenderContext,
     hover_pos: Pos2,
@@ -33,6 +34,7 @@ pub fn render_crosshair_full(
     last_price_tag: Option<Rect>,
     formatter: &dyn TimeFormatter,
     bar_seconds: i64,
+    format: PriceFormat,
 ) -> [Option<Rect>; 2] {
     // Arrow style = no crosshair at all (just standard mouse cursor)
     if style == CrosshairStyle::Arrow {
@@ -135,13 +137,16 @@ pub fn render_crosshair_full(
     // Calculate price at cursor
     let price = price_scale.y_to_price(actual_pos.y);
 
-    // Price label, in the axis units of the relative modes and with the tick decimals otherwise
+    // Price label, in the axis units of the relative modes, and otherwise with the instrument's
+    // decimals, or the tick decimals of the axis without them
     let transform = price_scale.transform();
     let price_label = if matches!(
         transform.mode,
         PriceScaleMode::Percentage | PriceScaleMode::IndexedTo100
     ) {
         transform.label(price_scale.y_to_scale(actual_pos.y), 2)
+    } else if format.decimals.is_some() {
+        format.price(format.round_to_tick(price))
     } else {
         let decimals = tick_decimals(price_scale, actual_pos.y);
         format!("{price:.decimals$}")

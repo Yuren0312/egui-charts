@@ -912,7 +912,8 @@ impl DemoApp {
     fn build_data_window(&self) -> DataWindowInfo {
         let last = self.chart.bars(SeriesId::MAIN).last();
         let mut info = DataWindowInfo::new(self.state.symbol.clone())
-            .with_timeframe(self.state.timeframe.as_str().to_string());
+            .with_timeframe(self.state.timeframe.as_str().to_string())
+            .with_price_format(self.chart.price_format());
         if let Some(b) = last {
             info = info.with_ohlcv(b.open, b.high, b.low, b.close, b.volume);
             info = info.with_timestamp(b.time.to_rfc3339());

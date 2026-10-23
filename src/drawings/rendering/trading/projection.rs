@@ -2,6 +2,7 @@
 
 use crate::drawings::domain::Drawing;
 use crate::drawings::rendering::utils::draw_dashed_line;
+use crate::scales::PriceFormat;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Color32, Pos2, Rect, Stroke, epaint::StrokeKind};
@@ -9,7 +10,7 @@ use egui::{Color32, Pos2, Rect, Stroke, epaint::StrokeKind};
 impl Drawing {
     /// Renders Projection Tool with measured move and percentage.
     /// Features: AB=CD style projection, percentage labels, target zone.
-    pub(crate) fn render_projection_tool(&self, painter: &egui::Painter, _chart_rect: Rect) {
+    pub(crate) fn render_projection_tool(&self, painter: &egui::Painter, format: PriceFormat) {
         if self.points.len() < 2 {
             return;
         }
@@ -55,7 +56,16 @@ impl Drawing {
         self.draw_projection_anchors(painter, start, end, proj_point, color);
 
         // Labels
-        self.draw_projection_labels(painter, start, end, proj_end, dy, color, dashed_color);
+        self.draw_projection_labels(
+            painter,
+            start,
+            end,
+            proj_end,
+            dy,
+            color,
+            dashed_color,
+            format,
+        );
     }
 
     fn draw_projection_main_line(
@@ -146,6 +156,7 @@ impl Drawing {
         dy: f32,
         color: Color32,
         dashed_color: Color32,
+        format: PriceFormat,
     ) {
         let font = egui::FontId::proportional(typography::XS);
 
@@ -169,7 +180,10 @@ impl Drawing {
 
         // Move label (at midpoint of AB)
         let mid_ab = Pos2::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
-        let label_text = format!("{price_change:.2} ({pct_change:.1}%)");
+        // A difference takes the decimals of the price it starts from.
+        let anchor = self.chart_points.first().map_or(price_change, |p| p.price);
+        let decimals = format.decimals_of(anchor);
+        let label_text = format!("{price_change:.decimals$} ({pct_change:.1}%)");
         let label_bg = Rect::from_center_size(
             Pos2::new(mid_ab.x + 10.0, mid_ab.y - 10.0),
             egui::vec2(90.0, 16.0),
@@ -193,7 +207,7 @@ impl Drawing {
 
         // Projection target label
         let zone_height = (dy.abs() * 0.2).max(20.0);
-        let target_label = format!("Target: {price_change:.2}");
+        let target_label = format!("Target: {price_change:.decimals$}");
         let target_bg = Rect::from_center_size(
             Pos2::new(proj_end.x, proj_end.y - zone_height / 2.0 - 12.0),
             egui::vec2(80.0, 16.0),

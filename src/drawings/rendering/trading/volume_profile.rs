@@ -124,7 +124,7 @@ impl Drawing {
         painter.text(
             vwap_bg.center(),
             egui::Align2::CENTER_CENTER,
-            format!("VWAP {vwap:.2}"),
+            format!("VWAP {}", view.price_format.price(vwap)),
             font,
             Color32::WHITE,
         );
@@ -517,6 +517,7 @@ mod tests {
     use super::*;
     use crate::drawings::domain::DrawingToolType;
     use crate::drawings::rendering::sample_bars;
+    use crate::scales::PriceFormat;
 
     fn assert_close(got: f64, want: f64) {
         assert!((got - want).abs() < 1e-9, "got {got}, want {want}");
@@ -638,6 +639,7 @@ mod tests {
                 revision: 0,
                 bar_to_x: &|x| x,
                 price_to_y,
+                price_format: PriceFormat::default(),
             };
             let output = egui::Context::default().run_ui(egui::RawInput::default(), |ui| {
                 let painter = egui::Painter::new(
@@ -724,6 +726,7 @@ mod tests {
                 revision: 0,
                 bar_to_x: &|x| x,
                 price_to_y: &|price| price as f32,
+                price_format: PriceFormat::default(),
             };
             let want = VolumeProfile::of(&bars[1..], 24);
             assert_eq!(*span_profile(&view, 24, 1, &bars[1..]), want, "{case}");

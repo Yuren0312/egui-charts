@@ -55,6 +55,8 @@ impl Default for PriceMarkGeneratorConfig {
 /// Implements "nice numbers" algorithm for price ticks
 pub struct PriceMarkGenerator {
     config: PriceMarkGeneratorConfig,
+    /// Decimals of every label, instead of those of the step.
+    decimals: Option<usize>,
 }
 
 impl PriceMarkGenerator {
@@ -62,12 +64,25 @@ impl PriceMarkGenerator {
     pub fn new() -> Self {
         Self {
             config: PriceMarkGeneratorConfig::default(),
+            decimals: None,
         }
     }
 
     /// Create with custom config
     pub fn with_config(config: PriceMarkGeneratorConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            decimals: None,
+        }
+    }
+
+    /// Labels every mark with `decimals` and steps marks at least `min_step` apart, for prices
+    /// quoted with those decimals in multiples of `min_step`.
+    #[cfg(feature = "widget")]
+    pub(crate) fn with_price_decimals(mut self, decimals: usize, min_step: f64) -> Self {
+        self.decimals = Some(decimals);
+        self.config.min_price_step = Some(min_step);
+        self
     }
 
     /// Generates marks for the visible range of `map`, positioned through it.
@@ -295,6 +310,9 @@ impl PriceMarkGenerator {
     /// Calculate the decimal precision for marks `step` apart, the same for every
     /// mark including zero
     fn calculate_precision(&self, step: f64) -> usize {
+        if let Some(decimals) = self.decimals {
+            return decimals;
+        }
         // For very small steps, we need more precision
         if step <= 0.0001 {
             8

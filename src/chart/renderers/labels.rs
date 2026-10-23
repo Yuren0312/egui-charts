@@ -2,8 +2,8 @@ use super::context::{ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering::axes::{PRICE_LABEL_GAP, TIME_LABEL_GAP, axis_font};
 use crate::model::{Bar, DataStatus, Instrument, percent_change};
 use crate::scales::{
-    PriceMap, PriceMarkGenerator, PriceScaleId, TickMark, TickMarkGenerator,
-    TickMarkGeneratorConfig, TimeFormatter,
+    PriceFormat, PriceMap, PriceMarkGenerator, PriceScaleId, PriceScaleMode, TickMark,
+    TickMarkGenerator, TickMarkGeneratorConfig, TimeFormatter,
 };
 use crate::styles::typography;
 use crate::theme::ThemeExt;
@@ -13,13 +13,15 @@ use egui::{Color32, FontId, Pos2, Rect, Shape};
 
 /// Paints the price labels on the right side into `slot`, using smart tick mark generation and
 /// leaving out the labels the `tags` (the price line, last price and crosshair tags) would cut
-/// through.
+/// through. Prices are written with the decimals of `format`, and stepped no finer than its tick
+/// size.
 pub fn render_price_labels(
     context: &RenderContext,
     price_scale: &PriceMap,
     colors: &StyleColors,
     tags: &[Option<Rect>],
     slot: ShapeIdx,
+    format: PriceFormat,
 ) {
     render_price_labels_at_pos(
         context,
@@ -28,6 +30,7 @@ pub fn render_price_labels(
         PriceScaleId::Right,
         tags,
         slot,
+        format,
     );
 }
 
@@ -40,9 +43,17 @@ pub fn render_price_labels_at_pos(
     position: PriceScaleId,
     tags: &[Option<Rect>],
     slot: ShapeIdx,
+    format: PriceFormat,
 ) {
-    // Create price mark generator with default config
-    let generator = PriceMarkGenerator::new();
+    let mut generator = PriceMarkGenerator::new();
+    let prices = matches!(
+        price_scale.transform().mode,
+        PriceScaleMode::Normal | PriceScaleMode::Logarithmic
+    );
+    if let Some(decimals) = format.decimals.filter(|_| prices) {
+        let step = format.tick_size.unwrap_or(10f64.powi(-(decimals as i32)));
+        generator = generator.with_price_decimals(decimals, step);
+    }
 
     // Generate smart price marks using "nice numbers" algorithm
     let marks = generator.generate_marks(price_scale);
@@ -272,24 +283,7 @@ pub fn render_time_labels(
     context.painter.set(slot, labels);
 }
 
-/// Decimals for a price by its magnitude: 2 from 100 up, 4 from 1 up, 6 below 1.
-pub(crate) fn price_decimals(price: f64) -> usize {
-    if price.abs() >= 100.0 {
-        2
-    } else if price.abs() >= 1.0 {
-        4
-    } else {
-        6
-    }
-}
-
-/// Formats a header price with [`price_decimals`].
-fn format_price(price: f64) -> String {
-    let decimals = price_decimals(price);
-    format!("{price:.decimals$}")
-}
-
-/// Renders OHLC info header
+/// Renders OHLC info header, with prices and volume written by `format`
 pub fn render_ohlc_info(
     painter: &egui::Painter,
     rect: Rect,
@@ -297,6 +291,7 @@ pub fn render_ohlc_info(
     padding: f32,
     text_color: Color32,
     show_volume: bool,
+    format: PriceFormat,
 ) {
     if visible_data.is_empty() {
         return;
@@ -306,14 +301,14 @@ pub fn render_ohlc_info(
 
     let mut info = format!(
         "open: {}  close: {}  high: {}  low: {}",
-        format_price(candle.open),
-        format_price(candle.close),
-        format_price(candle.high),
-        format_price(candle.low)
+        format.price(candle.open),
+        format.price(candle.close),
+        format.price(candle.high),
+        format.price(candle.low)
     );
 
     if show_volume {
-        info.push_str(&format!("  volume: {:.2}", candle.volume));
+        info.push_str(&format!("  volume: {}", format.volume(candle.volume)));
     }
 
     painter.text(
@@ -326,7 +321,8 @@ pub fn render_ohlc_info(
 }
 
 /// Legend showing symbol info, OHLC values with colors, and change percentage, with the
-/// instrument's price currency and whether its data is delayed or end of day.
+/// instrument's price currency and whether its data is delayed or end of day. Prices are
+/// written by `format`.
 /// Example: "BTCUSD . 1h . USD   O 43,521.50  H 43,650.00  L 43,400.00  C 43,580.25  +58.75 (+0.14%)"
 pub fn render_legend(
     painter: &egui::Painter,
@@ -334,6 +330,7 @@ pub fn render_legend(
     symbol: &str,
     timeframe: &str,
     instrument: Option<&Instrument>,
+    format: PriceFormat,
     visible_data: &[Bar],
     prev_close: Option<f64>,
     colors: &StyleColors,
@@ -403,7 +400,7 @@ pub fn render_legend(
     let o_label = painter.layout_no_wrap("O ".to_string(), label_font.clone(), label_color);
     painter.galley(Pos2::new(x, y), o_label.clone(), label_color);
     x += o_label.rect.width();
-    let o_val = painter.layout_no_wrap(format_price(candle.open), val_font.clone(), val_color);
+    let o_val = painter.layout_no_wrap(format.price(candle.open), val_font.clone(), val_color);
     painter.galley(Pos2::new(x, y), o_val.clone(), val_color);
     x += o_val.rect.width() + 12.0;
 
@@ -411,7 +408,7 @@ pub fn render_legend(
     let h_label = painter.layout_no_wrap("H ".to_string(), label_font.clone(), label_color);
     painter.galley(Pos2::new(x, y), h_label.clone(), label_color);
     x += h_label.rect.width();
-    let h_val = painter.layout_no_wrap(format_price(candle.high), val_font.clone(), val_color);
+    let h_val = painter.layout_no_wrap(format.price(candle.high), val_font.clone(), val_color);
     painter.galley(Pos2::new(x, y), h_val.clone(), val_color);
     x += h_val.rect.width() + 12.0;
 
@@ -419,7 +416,7 @@ pub fn render_legend(
     let l_label = painter.layout_no_wrap("L ".to_string(), label_font.clone(), label_color);
     painter.galley(Pos2::new(x, y), l_label.clone(), label_color);
     x += l_label.rect.width();
-    let l_val = painter.layout_no_wrap(format_price(candle.low), val_font.clone(), val_color);
+    let l_val = painter.layout_no_wrap(format.price(candle.low), val_font.clone(), val_color);
     painter.galley(Pos2::new(x, y), l_val.clone(), val_color);
     x += l_val.rect.width() + 12.0;
 
@@ -427,7 +424,7 @@ pub fn render_legend(
     let c_label = painter.layout_no_wrap("C ".to_string(), label_font.clone(), label_color);
     painter.galley(Pos2::new(x, y), c_label.clone(), label_color);
     x += c_label.rect.width();
-    let c_val = painter.layout_no_wrap(format_price(candle.close), val_font.clone(), val_color);
+    let c_val = painter.layout_no_wrap(format.price(candle.close), val_font.clone(), val_color);
     painter.galley(Pos2::new(x, y), c_val.clone(), val_color);
     x += c_val.rect.width() + 16.0;
 
@@ -443,14 +440,15 @@ pub fn render_legend(
     };
     let sign = if change >= 0.0 { "+" } else { "" };
 
-    let change_text = format!("{sign}{change:.2} ({sign}{change_pct:.2}%)");
+    let decimals = format.decimals_of(candle.close);
+    let change_text = format!("{sign}{change:.decimals$} ({sign}{change_pct:.2}%)");
     let change_galley = painter.layout_no_wrap(change_text, val_font, change_color);
     painter.galley(Pos2::new(x, y), change_galley, change_color);
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::model::{Bar, BarData};
+    use crate::model::{Bar, BarData, Instrument};
     use crate::widget::Chart;
     use crate::widget::test_frames::{chart, frame, shapes};
     use chrono::{DateTime, TimeZone, Utc};
@@ -543,6 +541,111 @@ mod tests {
                 "{case:?}: {tags:?}"
             );
             assert_eq!(ticks, kept, "{case:?}: {tags:?}");
+        }
+    }
+
+    /// Every price label writes the instrument's decimals, or without them those the bars are
+    /// quoted with: the axis ticks, the last price and crosshair tags and the legend, and the
+    /// crosshair price is a multiple of the tick size.
+    #[test]
+    fn price_labels_follow_the_instrument() {
+        let ctx = Context::default();
+        let x = || Instrument::new("X");
+        // (instrument, bar opens, bar closes, decimals of every price label, step of the
+        // crosshair price); the last bar opens at the first open and closes at the second close.
+        for (instrument, lows, highs, decimals, tick) in [
+            (
+                Some(x().with_tick_size(0.25)),
+                [100.0],
+                [200.0, 197.0],
+                2,
+                0.25,
+            ),
+            (
+                Some(x().with_tick_size(0.00001)),
+                [100.0],
+                [200.0, 197.0],
+                5,
+                0.00001,
+            ),
+            (
+                Some(x().with_tick_size(0.5).with_price_decimals(3)),
+                [100.0],
+                [200.0, 197.0],
+                3,
+                0.5,
+            ),
+            (None, [54.12], [55.1, 54.6], 2, 0.01),
+            (None, [1.08765], [1.0932, 1.0911], 5, 0.00001),
+            // Computed prices, not quoted to any decimals: those of the last close's size.
+            (
+                None,
+                [100.0 + 1.0 / 7.0],
+                [101.0 + 3.0 / 7.0, 100.0 + 5.0 / 7.0],
+                2,
+                0.01,
+            ),
+        ] {
+            let case = format!("{instrument:?} {lows:?} {highs:?}");
+            let mut chart = chart(&lows, &highs);
+            chart.set_symbol("X");
+            if let Some(instrument) = instrument {
+                chart.set_instrument(instrument);
+            }
+            price_axis(&ctx, &mut chart, None);
+            let plot = chart.get_chart_mapping().rect;
+            let hover = Pos2::new(plot.center().x, plot.min.y + 0.37 * plot.height());
+            price_axis(&ctx, &mut chart, Some(hover));
+            let time = ctx.input(|i| i.time) + 0.1;
+            let texts: Vec<(String, Pos2)> = shapes(&ctx, &mut chart, time, vec![])
+                .into_iter()
+                .chain(shapes(
+                    &ctx,
+                    &mut chart,
+                    time + 0.1,
+                    vec![Event::PointerMoved(hover)],
+                ))
+                .filter_map(|shape| match shape {
+                    Shape::Text(text) => Some((text.galley.text().to_owned(), text.pos)),
+                    _ => None,
+                })
+                .collect();
+
+            let axis: Vec<&str> = texts
+                .iter()
+                .filter(|(text, pos)| pos.x > plot.max.x && text.parse::<f64>().is_ok())
+                .map(|(text, _)| text.as_str())
+                .collect();
+            assert!(axis.len() >= 4, "{case}: {axis:?}");
+            for text in &axis {
+                let written = text.split_once('.').map_or(0, |(_, d)| d.len());
+                assert_eq!(written, decimals, "{case}: {text}");
+            }
+            let (open, close) = (lows[0], highs[1]);
+            assert!(
+                axis.contains(&format!("{close:.decimals$}").as_str()),
+                "{case}: {axis:?}"
+            );
+            let crosshair = texts
+                .iter()
+                .filter(|(text, pos)| pos.x > plot.max.x && text.parse::<f64>().is_ok())
+                .min_by(|a, b| (a.1.y - hover.y).abs().total_cmp(&(b.1.y - hover.y).abs()))
+                .unwrap();
+            let steps = crosshair.0.parse::<f64>().unwrap() / tick;
+            assert!(
+                (steps - steps.round()).abs() < 1e-3,
+                "{case}: {crosshair:?}"
+            );
+
+            // The legend row is the one that starts with the symbol; the tooltip writes the
+            // same prices elsewhere.
+            let row = texts.iter().find(|(text, _)| text == "X").unwrap().1.y;
+            for price in [open, close].map(|price| format!("{price:.decimals$}")) {
+                let shown = texts.iter().any(|(text, pos)| {
+                    *text == price && pos.x < plot.max.x && (pos.y - row).abs() < 4.0
+                });
+                assert!(shown, "{case}: legend {price} in {texts:?}");
+            }
         }
     }
 

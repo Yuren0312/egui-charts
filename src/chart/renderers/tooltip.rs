@@ -1,8 +1,7 @@
 use super::context::{ChartMapping, RenderContext};
-use super::labels::price_decimals;
 use crate::config::{TooltipMode, TooltipOptions};
 use crate::model::{Bar, percent_change};
-use crate::scales::PriceMap;
+use crate::scales::{PriceFormat, PriceMap};
 use crate::styles::typography;
 use crate::theme::ThemeExt;
 /// Tooltip Renderers
@@ -14,7 +13,7 @@ use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use egui::{FontId, Painter, Pos2, Rect, Stroke, Vec2, epaint::StrokeKind};
 
-/// Renders tooltip based on configured mode
+/// Renders tooltip based on configured mode, with prices and volumes written by `format`
 pub fn render_tooltip_with_options(
     context: &RenderContext,
     hover_pos: Pos2,
@@ -23,13 +22,15 @@ pub fn render_tooltip_with_options(
     price_scale: &PriceMap,
     coords: &ChartMapping,
     visible_data: &[Bar],
+    format: PriceFormat,
 ) {
     match options.mode {
         TooltipMode::Floating => {
-            render_floating_tooltip(context.painter, hover_pos, context.rect, candle, options);
+            let painter = context.painter;
+            render_floating_tooltip(painter, hover_pos, context.rect, candle, options, format);
         }
         TooltipMode::Tracking => {
-            render_tracking_tooltip(context.painter, context.rect, candle, options);
+            render_tracking_tooltip(context.painter, context.rect, candle, options, format);
         }
         TooltipMode::Magnifier => {
             render_magnifier_tooltip(
@@ -53,10 +54,11 @@ pub fn render_floating_tooltip(
     price_rect: Rect,
     candle: &Bar,
     options: &TooltipOptions,
+    format: PriceFormat,
 ) {
     let options = &options.resolved(painter.ctx());
     let price = |price: f64| {
-        let decimals = price_decimals(price).min(options.price_precision);
+        let decimals = format.decimals_of(price).min(options.price_precision);
         format!("{price:.decimals$}")
     };
     let mut rows = Vec::new();
@@ -73,7 +75,7 @@ pub fn render_floating_tooltip(
     }
 
     if options.show_volume {
-        rows.push(("Volume", format!("{:.2}", candle.volume)));
+        rows.push(("Volume", format.volume(candle.volume)));
     }
 
     if options.show_change {
@@ -155,6 +157,7 @@ pub fn render_tracking_tooltip(
     chart_rect: Rect,
     candle: &Bar,
     options: &TooltipOptions,
+    format: PriceFormat,
 ) {
     let options = &options.resolved(painter.ctx());
     let bar_height = options.tracking_bar_height;
@@ -164,7 +167,9 @@ pub fn render_tracking_tooltip(
     painter.rect_filled(bar_rect, 0.0, options.tracking_bar_background);
 
     // Build tracking text
-    let precision = options.price_precision.min(4); // Use shorter precision for tracking bar
+    let precision = format
+        .decimals_of(candle.close)
+        .min(options.price_precision);
     let mut parts = Vec::new();
 
     if options.show_time {
@@ -179,7 +184,7 @@ pub fn render_tracking_tooltip(
     }
 
     if options.show_volume {
-        parts.push(format!("Vol: {:.0}", candle.volume));
+        parts.push(format!("Vol: {}", format.volume(candle.volume)));
     }
 
     if options.show_change {

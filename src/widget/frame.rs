@@ -523,6 +523,7 @@ impl Chart {
             candle_border_width: self.config.candle_border_width,
         };
 
+        let price_format = self.price_format();
         let formatter = TimeFormatterBuilder::new()
             .with_24_hour(true)
             .with_seconds(true)
@@ -761,6 +762,7 @@ impl Chart {
                     price_rect.min.x,
                     self.config.show_right_axis,
                     rect.max.x,
+                    price_format,
                 )
             })
             .collect();
@@ -783,6 +785,7 @@ impl Chart {
                 price_rect.min.x,
                 self.config.show_right_axis,
                 rect.max.x,
+                price_format,
             )
         } else {
             None
@@ -805,6 +808,7 @@ impl Chart {
                     &self.symbol,
                     &self.timeframe.map(|tf| tf.as_str()).unwrap_or_default(),
                     self.instrument.as_ref(),
+                    price_format,
                     visible_data,
                     prev_close,
                     &colors,
@@ -819,6 +823,7 @@ impl Chart {
                     sizing::chart::PADDING,
                     self.config.text_color,
                     self.chart_type.supports_volume(),
+                    price_format,
                 );
             }
         }
@@ -932,6 +937,7 @@ impl Chart {
                     last_price_tag,
                     formatter.as_ref(),
                     bar_seconds,
+                    price_format,
                 );
 
                 // Draw the OHLC/value readout for the bar under the cursor, matching
@@ -952,6 +958,7 @@ impl Chart {
                         &price_map,
                         &coords,
                         visible_data,
+                        price_format,
                     );
                 }
             }
@@ -981,6 +988,7 @@ impl Chart {
                             last_price_tag,
                             formatter.as_ref(),
                             bar_seconds,
+                            price_format,
                         );
                     }
                 }
@@ -990,7 +998,14 @@ impl Chart {
         // Draw the axis labels, leaving out those the tags overlap
         tags.extend([last_price_tag, crosshair_tags[0], crosshair_tags[1]]);
         if self.config.show_right_axis {
-            rendering::render_price_labels(&price_ctx, &price_map, &colors, &tags, price_labels);
+            rendering::render_price_labels(
+                &price_ctx,
+                &price_map,
+                &colors,
+                &tags,
+                price_labels,
+                price_format,
+            );
         }
         if self.config.show_time_labels {
             let chart_ctx = RenderContext::new(&painter, chart_rect);

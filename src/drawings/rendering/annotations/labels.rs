@@ -1,6 +1,7 @@
 //! Price label and price note rendering
 
 use crate::drawings::domain::Drawing;
+use crate::scales::PriceFormat;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Color32, Pos2, Rect, Stroke, epaint::StrokeKind};
@@ -8,7 +9,7 @@ use egui::{Color32, Pos2, Rect, Stroke, epaint::StrokeKind};
 impl Drawing {
     /// Renders a price label badge.
     /// Features: colored badge, price display, arrow indicator.
-    pub(crate) fn render_price_label(&self, painter: &egui::Painter) {
+    pub(crate) fn render_price_label(&self, painter: &egui::Painter, format: PriceFormat) {
         if self.points.is_empty() {
             return;
         }
@@ -22,7 +23,7 @@ impl Drawing {
 
         // Get price from chart_points if available
         let price_text = if !self.chart_points.is_empty() {
-            format!("{:.2}", self.chart_points[0].price)
+            format.price(self.chart_points[0].price)
         } else {
             self.text.as_deref().unwrap_or("0.00").to_string()
         };

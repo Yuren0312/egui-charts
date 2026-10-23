@@ -15,6 +15,7 @@ use crate::data::{
     SubscriptionId, TradePage, TradeRequest,
 };
 use crate::model::{BarClock, Instrument, OrderBook, Tick, Timeframe};
+use crate::scales::{PriceFormat, decimals_in};
 use egui::ViewportId;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -179,6 +180,23 @@ impl Chart {
     /// [`set_instrument`](Self::set_instrument).
     pub fn instrument(&self) -> Option<&Instrument> {
         self.instrument.as_ref()
+    }
+
+    /// How the chart writes prices and volumes: by the decimals and tick size of its
+    /// [`instrument`](Self::instrument), else with the decimals its bars are quoted with, or,
+    /// for prices not quoted to at most 8 decimals, those of the last close's magnitude.
+    pub fn price_format(&self) -> PriceFormat {
+        let mut format = self
+            .instrument
+            .as_ref()
+            .map(PriceFormat::of)
+            .unwrap_or_default();
+        if format.decimals.is_none() {
+            let bars = &self.state.data().bars;
+            format.decimals =
+                decimals_in(bars).or_else(|| bars.last().map(|bar| format.decimals_of(bar.close)));
+        }
+        format
     }
 
     /// Describes the symbol of a chart without a feed: its price and volume decimals, tick

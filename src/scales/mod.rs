@@ -12,15 +12,20 @@
 //! | [`PriceMap`]              | Per-frame price-to-Y mapping produced by a [`PriceScale`] |
 //! | [`PriceMarkGenerator`]    | Smart tick placement on the price axis ("nice numbers")  |
 //! | [`TickMarkGenerator`]     | Hierarchical tick placement on the time axis              |
+//! | [`PriceFormat`]           | Decimals of an instrument's prices and volumes           |
 //! | [`PriceFormatter`] trait  | Customizable price label formatting                      |
 //! | [`TimeFormatter`] trait   | Customizable time label formatting                       |
 
+mod price_format;
 mod price_formatter;
 mod pricescale;
 mod pricescale_marks;
 mod time_formatter;
 mod timescale_marks;
 
+pub use price_format::PriceFormat;
+#[cfg(feature = "widget")]
+pub(crate) use price_format::decimals_in;
 pub use price_formatter::{
     CurrencyFormatter, CustomPriceFormatter, DefaultPriceFormatter, PercentageFormatter,
     PriceFormatter, PriceFormatterBuilder, ScientificFormatter, VolumeFormatter,

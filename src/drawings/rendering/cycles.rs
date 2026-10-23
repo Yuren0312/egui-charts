@@ -4,6 +4,7 @@
 
 use crate::drawings::domain::Drawing;
 use crate::drawings::rendering::utils::draw_dashed_line;
+use crate::scales::PriceFormat;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Color32, Pos2, Rect, Stroke};
@@ -225,7 +226,12 @@ impl Drawing {
 
     /// Renders a sine wave line for cyclical analysis.
     /// The anchors are a peak and a trough half a period apart; the curve extends across the chart.
-    pub(crate) fn render_sine_line(&self, painter: &egui::Painter, chart_rect: Rect) {
+    pub(crate) fn render_sine_line(
+        &self,
+        painter: &egui::Painter,
+        chart_rect: Rect,
+        format: PriceFormat,
+    ) {
         if self.points.len() < 2 {
             return;
         }
@@ -353,7 +359,10 @@ impl Drawing {
         } else {
             (amplitude / 10.0) as f64
         };
-        let amp_label = format!("A: {amp_price:.2}");
+        // A difference takes the decimals of the price it starts from.
+        let anchor = self.chart_points.first().map_or(amp_price, |p| p.price);
+        let decimals = format.decimals_of(anchor);
+        let amp_label = format!("A: {amp_price:.decimals$}");
         let amp_bg = Rect::from_center_size(
             Pos2::new(
                 p2.x + DESIGN_TOKENS.spacing.xxl + DESIGN_TOKENS.spacing.sm,

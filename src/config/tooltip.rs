@@ -94,8 +94,8 @@ pub struct TooltipOptions {
     /// Font size for tooltip text
     pub font_size: f32,
 
-    /// Most decimals for price values. The floating tooltip shows fewer for prices whose
-    /// magnitude needs fewer; the tracking bar shows this many, at most 4.
+    /// Most decimals for price values. The tooltip shows the instrument's price decimals, or
+    /// without them fewer for prices whose magnitude needs fewer.
     pub price_precision: usize,
 
     /// Tracking bar height (for Tracking mode)

@@ -9,6 +9,7 @@ use crate::theme::ThemeExt;
 
 use super::types::DataWindowInfo;
 use crate::ext::UiExt;
+use crate::scales::PriceFormat;
 use crate::tokens::DESIGN_TOKENS;
 
 /// Render the Data Window section
@@ -75,6 +76,15 @@ fn show_ohlcv_grid(ui: &mut Ui, data: &DataWindowInfo) {
         ui.active_theme().chart.candle_down
     };
 
+    let format = data.price_format;
+    // A zero price is a window without a bar.
+    let price = |price: f64| {
+        if price == 0.0 {
+            "\u{2014}".to_string()
+        } else {
+            format.price(price)
+        }
+    };
     egui::Grid::new("ohlcv_grid")
         .num_columns(4)
         .spacing([DESIGN_TOKENS.spacing.md, DESIGN_TOKENS.spacing.xs])
@@ -82,59 +92,40 @@ fn show_ohlcv_grid(ui: &mut Ui, data: &DataWindowInfo) {
         .show(ui, |ui| {
             // Row 1: Open, High
             ui.hint_label("O");
-            ui.label(format_price(data.open));
+            ui.label(price(data.open));
             ui.hint_label("H");
-            ui.label(format_price(data.high));
+            ui.label(price(data.high));
             ui.end_row();
 
             // Row 2: Low, Close
             ui.hint_label("L");
-            ui.label(format_price(data.low));
+            ui.label(price(data.low));
             ui.hint_label("C");
-            ui.label(RichText::new(format_price(data.close)).color(change_color));
+            ui.label(RichText::new(price(data.close)).color(change_color));
             ui.end_row();
 
             // Row 3: Volume, Change
             ui.hint_label("Vol");
-            ui.label(format_volume(data.volume));
+            ui.label(format_volume(data.volume, format));
             ui.hint_label("Chg");
-            ui.label(
-                RichText::new(format!(
-                    "{:+.2} ({:+.2}%)",
-                    data.change, data.change_percent
-                ))
-                .color(change_color)
-                .small(),
-            );
+            let change = if data.close == 0.0 {
+                "\u{2014}".to_string()
+            } else {
+                format!(
+                    "{:+.decimals$} ({:+.2}%)",
+                    data.change,
+                    data.change_percent,
+                    decimals = format.decimals_of(data.close),
+                )
+            };
+            ui.label(RichText::new(change).color(change_color).small());
             ui.end_row();
         });
 }
 
-/// Format price with decimals chosen by its magnitude, so a negative price
-/// keeps the decimals of the positive price of the same size
-fn format_price(price: f64) -> String {
-    if price == 0.0 {
-        return "\u{2014}".to_string();
-    }
-
-    let magnitude = price.abs();
-    if magnitude >= 10000.0 {
-        format!("{price:.0}")
-    } else if magnitude >= 1000.0 {
-        format!("{price:.1}")
-    } else if magnitude >= 10.0 {
-        format!("{price:.2}")
-    } else if magnitude >= 1.0 {
-        format!("{price:.4}")
-    } else if magnitude >= 0.001 {
-        format!("{price:.6}")
-    } else {
-        format!("{price:.8}")
-    }
-}
-
-/// Format volume with K/M/B suffixes
-fn format_volume(volume: f64) -> String {
+/// Format volume with K/M/B suffixes from a thousand up, and with the volume decimals of
+/// `format` below
+fn format_volume(volume: f64, format: PriceFormat) -> String {
     if volume == 0.0 {
         return "\u{2014}".to_string();
     }
@@ -146,7 +137,7 @@ fn format_volume(volume: f64) -> String {
     } else if volume >= 1_000.0 {
         format!("{:.2}K", volume / 1_000.0)
     } else {
-        format!("{volume:.0}")
+        format.volume(volume)
     }
 }
 
@@ -155,20 +146,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_price() {
-        assert_eq!(format_price(50000.0), "50000");
-        assert_eq!(format_price(1234.5), "1234.5");
-        assert_eq!(format_price(99.99), "99.99");
-        assert_eq!(format_price(1.2345), "1.2345");
-        assert_eq!(format_price(0.001234), "0.001234");
-        assert_eq!(format_price(-37.63), "-37.63");
-    }
-
-    #[test]
     fn test_format_volume() {
-        assert_eq!(format_volume(1_500_000_000.0), "1.50B");
-        assert_eq!(format_volume(2_500_000.0), "2.50M");
-        assert_eq!(format_volume(3_500.0), "3.50K");
-        assert_eq!(format_volume(500.0), "500");
+        let format = PriceFormat::default();
+        assert_eq!(format_volume(1_500_000_000.0, format), "1.50B");
+        assert_eq!(format_volume(2_500_000.0, format), "2.50M");
+        assert_eq!(format_volume(3_500.0, format), "3.50K");
+        assert_eq!(format_volume(500.0, format), "500");
+        // No bar under the crosshair.
+        assert_eq!(format_volume(0.0, format), "\u{2014}");
     }
 }

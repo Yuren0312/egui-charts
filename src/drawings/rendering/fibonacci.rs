@@ -4,12 +4,18 @@
 //! speed fan, spiral, wedge, and trend-based fib time.
 
 use crate::drawings::domain::{Drawing, FibonacciConfig};
+use crate::scales::PriceFormat;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Color32, Pos2, Rangef, Rect, Stroke};
 
 impl Drawing {
-    pub(crate) fn render_fibonacci(&self, painter: &egui::Painter, chart_rect: Rect) {
+    pub(crate) fn render_fibonacci(
+        &self,
+        painter: &egui::Painter,
+        chart_rect: Rect,
+        format: PriceFormat,
+    ) {
         if self.points.len() < 2 {
             return;
         }
@@ -61,7 +67,7 @@ impl Drawing {
 
             // Draw label with price if show_price is enabled
             let label_text = if level.show_price {
-                format!("{} ({:.2})", level.label, price_at_lvl)
+                format!("{} ({})", level.label, format.price(price_at_lvl))
             } else {
                 level.label.clone()
             };
@@ -79,7 +85,12 @@ impl Drawing {
         }
     }
 
-    pub(crate) fn render_fibonacci_extension(&self, painter: &egui::Painter, chart_rect: Rect) {
+    pub(crate) fn render_fibonacci_extension(
+        &self,
+        painter: &egui::Painter,
+        chart_rect: Rect,
+        format: PriceFormat,
+    ) {
         if self.points.len() < 2 {
             return;
         }
@@ -136,7 +147,7 @@ impl Drawing {
 
                 // Draw label with price if show_price is enabled
                 let label_text = if level.show_price {
-                    format!("{} ({:.2})", level.label, price_at_lvl)
+                    format!("{} ({})", level.label, format.price(price_at_lvl))
                 } else {
                     level.label.clone()
                 };

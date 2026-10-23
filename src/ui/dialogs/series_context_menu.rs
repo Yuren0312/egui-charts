@@ -5,9 +5,10 @@
 use crate::chart::series::SeriesId;
 use crate::config::KeyboardAction;
 use crate::icons::icons as embedded_icons;
+use crate::scales::PriceFormat;
 use crate::theme::Theme;
 use crate::ui::Control;
-use crate::ui::context_menu::{MenuEntry, MenuItem, POINTER_GAP, format_price, show_menu};
+use crate::ui::context_menu::{MenuEntry, MenuItem, POINTER_GAP, show_menu};
 
 use egui::{Context, Id, Pos2};
 use std::collections::HashSet;
@@ -45,6 +46,8 @@ pub struct SeriesContextMenu {
     pub symbol: String,
     /// Price at click position
     pub click_price: f64,
+    /// How the menu writes the click price: the chart's `Chart::price_format`.
+    pub price_format: PriceFormat,
     /// Last action taken
     pub last_action: SeriesContextMenuAction,
     /// Skip close detection on first frame
@@ -69,6 +72,7 @@ impl SeriesContextMenu {
             series_id: None,
             symbol: String::new(),
             click_price: 0.0,
+            price_format: PriceFormat::default(),
             last_action: SeriesContextMenuAction::None,
             just_opened: false,
             hidden: HashSet::new(),
@@ -107,7 +111,7 @@ impl SeriesContextMenu {
 
     /// Build menu items for the series context menu
     fn build_menu_items(&self) -> Vec<MenuEntry<SeriesContextMenuAction>> {
-        let price_str = format_price(self.click_price);
+        let price_str = self.price_format.price(self.click_price);
         let symbol = &self.symbol;
         let has_symbol = !symbol.is_empty();
         let of_symbol = |prep: &str| {

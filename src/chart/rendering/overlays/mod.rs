@@ -11,7 +11,7 @@ pub use crate::chart::renderers::{render_legend, render_ohlc_info};
 
 use crate::chart::renderers::{ChartMapping, RenderContext};
 use crate::config::CrosshairOptions;
-use crate::scales::{PriceMap, TimeFormatter};
+use crate::scales::{PriceFormat, PriceMap, TimeFormatter};
 use egui::{Pos2, Rect};
 
 /// Renders crosshair with full customization from CrosshairOptions.
@@ -31,6 +31,7 @@ pub fn render_crosshair_with_options(
     last_price_tag: Option<Rect>,
     formatter: &dyn TimeFormatter,
     bar_seconds: i64,
+    format: PriceFormat,
 ) -> [Option<Rect>; 2] {
     let options = options.resolved(price_ctx.painter.ctx());
     crate::chart::renderers::render_crosshair_full(
@@ -51,5 +52,6 @@ pub fn render_crosshair_with_options(
         last_price_tag,
         formatter,
         bar_seconds,
+        format,
     )
 }

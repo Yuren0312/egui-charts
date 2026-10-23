@@ -124,8 +124,13 @@ impl Drawing {
                 entry_color,
             ),
         };
-        let target_label = format!("Target: {target_price:.2} ({:.2}%)", pct(target_price));
-        let stop_label = format!("Stop: {stop_price:.2} ({:.2}%)", pct(stop_price));
+        let price = |price| view.price_format.price(price);
+        let target_label = format!(
+            "Target: {} ({:.2}%)",
+            price(target_price),
+            pct(target_price)
+        );
+        let stop_label = format!("Stop: {} ({:.2}%)", price(stop_price), pct(stop_price));
         self.draw_position_labels(
             painter,
             entry,

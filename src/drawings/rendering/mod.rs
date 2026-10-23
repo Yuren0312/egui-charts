@@ -35,6 +35,7 @@
 //! ```
 //! use egui_charts::drawings::{Drawing, DrawingToolType};
 //! use egui_charts::drawings::rendering::ChartView;
+//! use egui_charts::scales::PriceFormat;
 //!
 //! # fn example(
 //! #     painter: &egui::Painter,
@@ -46,7 +47,8 @@
 //! # ) {
 //! let drawing = Drawing::new(1, DrawingToolType::TrendLine);
 //! // After setting up points and calling update_screen_coords:
-//! let view = ChartView { bars, revision, bar_to_x: &bar_to_x, price_to_y: &price_to_y };
+//! let price_format = PriceFormat::default();
+//! let view = ChartView { bars, revision, bar_to_x: &bar_to_x, price_to_y: &price_to_y, price_format };
 //! drawing.render(painter, price_rect, &view);
 //! # }
 //! ```
@@ -74,6 +76,7 @@ pub use traits::DrawingRenderer;
 
 use crate::drawings::domain::{Drawing, DrawingToolType};
 use crate::model::{Bar, SpanCache};
+use crate::scales::PriceFormat;
 use egui::{Pos2, Rect};
 use std::rc::Rc;
 
@@ -93,6 +96,8 @@ pub struct ChartView<'a> {
     pub bar_to_x: &'a dyn Fn(f32) -> f32,
     /// Screen y of a price.
     pub price_to_y: &'a dyn Fn(f64) -> f32,
+    /// How labels write prices, such as [`Chart::price_format`](crate::Chart::price_format).
+    pub price_format: PriceFormat,
 }
 
 /// Index of the first bar and the bars from anchor `a` to anchor `b`
@@ -354,12 +359,12 @@ impl Drawing {
             DrawingToolType::VerticalLine => self.render_vertical_line(painter, rect, stroke),
             DrawingToolType::CrossLine => self.render_cross_line(painter, rect, color, stroke),
             DrawingToolType::TrendAngle => {
-                self.render_trend_angle(painter, color, stroke, view.bars)
+                self.render_trend_angle(painter, color, stroke, view.bars, view.price_format)
             }
             DrawingToolType::InfoLine => self.render_info_line(painter, view),
 
             // Shapes (8 tools)
-            DrawingToolType::Rect => self.render_rect(painter, color, stroke),
+            DrawingToolType::Rect => self.render_rect(painter, color, stroke, view.price_format),
             DrawingToolType::RotatedRect => self.render_rotated_rect(painter),
             DrawingToolType::Circle => self.render_circle(painter, color, stroke),
             DrawingToolType::Ellipse => self.render_ellipse(painter, color, stroke),
@@ -369,8 +374,12 @@ impl Drawing {
             DrawingToolType::DoubleCurve => self.render_double_curve(painter),
 
             // Fibonacci (10 tools)
-            DrawingToolType::FibonacciRetracement => self.render_fibonacci(painter, rect),
-            DrawingToolType::FibonacciExtension => self.render_fibonacci_extension(painter, rect),
+            DrawingToolType::FibonacciRetracement => {
+                self.render_fibonacci(painter, rect, view.price_format)
+            }
+            DrawingToolType::FibonacciExtension => {
+                self.render_fibonacci_extension(painter, rect, view.price_format)
+            }
             DrawingToolType::FibonacciSpeedResistanceArcs => self.render_fibonacci_arc(painter),
             DrawingToolType::FibonacciTimeZones => self.render_fibonacci_time_zones(painter, rect),
             DrawingToolType::FibonacciChannel => self.render_fibonacci_channel(painter, rect),
@@ -418,7 +427,7 @@ impl Drawing {
             // Cycles (3 tools)
             DrawingToolType::CyclicLines => self.render_cyclic_lines(painter, rect),
             DrawingToolType::TimeCycles => self.render_time_cycles(painter, rect),
-            DrawingToolType::SineLine => self.render_sine_line(painter, rect),
+            DrawingToolType::SineLine => self.render_sine_line(painter, rect, view.price_format),
 
             // Projection (6 tools)
             DrawingToolType::LongPos => self.render_pos_tool(painter, view, true),
@@ -426,7 +435,9 @@ impl Drawing {
             DrawingToolType::Forecast => self.render_forecast(painter, view),
             DrawingToolType::BarsPattern => self.render_bars_pattern(painter, view),
             DrawingToolType::GhostFeed => self.render_ghost_feed(painter),
-            DrawingToolType::ProjectionTool => self.render_projection_tool(painter, rect),
+            DrawingToolType::ProjectionTool => {
+                self.render_projection_tool(painter, view.price_format)
+            }
 
             // Volume (3 tools)
             DrawingToolType::AnchoredVWAP => self.render_anchored_vwap(painter, view),
@@ -439,7 +450,9 @@ impl Drawing {
 
             // Measurers (4 tools)
             DrawingToolType::Measure => self.render_measure(painter, view),
-            DrawingToolType::PriceRange => self.render_price_range(painter, rect),
+            DrawingToolType::PriceRange => {
+                self.render_price_range(painter, rect, view.price_format)
+            }
             DrawingToolType::DateRange => self.render_date_range(painter, rect, view),
             DrawingToolType::DateAndPriceRange => self.render_date_and_price_range(painter, view),
 
@@ -449,7 +462,7 @@ impl Drawing {
             DrawingToolType::Note => self.render_note(painter),
             DrawingToolType::AnchoredNote => self.render_anchored_note(painter),
             DrawingToolType::Callout => self.render_callout(painter),
-            DrawingToolType::PriceLabel => self.render_price_label(painter),
+            DrawingToolType::PriceLabel => self.render_price_label(painter, view.price_format),
             DrawingToolType::FlagNote => self.render_flag_note(painter),
 
             // Brushes (2 tools)

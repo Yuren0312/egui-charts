@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::chart::selection::{ChartElementId, SeriesId};
 use crate::config::KeyboardAction;
 use crate::icons::{Icon, icons as embedded_icons};
+use crate::scales::PriceFormat;
 use crate::theme::{Theme, ThemeExt};
 use crate::ui::Control;
 use crate::ui::app_state::set_control_visible;
@@ -130,56 +131,6 @@ const MAX_LABEL_WIDTH: f32 = 300.0;
 
 /// Space between the label column and the shortcut column.
 const COLUMN_GAP: f32 = 24.0;
-
-/// Format a price with two decimals (more below 1) and thousands separators.
-pub(crate) fn format_price(price: f64) -> String {
-    // Use 2 decimal places for most prices, but handle very small prices
-    let formatted = if price.abs() < 0.01 {
-        format!("{price:.6}")
-    } else if price.abs() < 1.0 {
-        format!("{price:.4}")
-    } else {
-        format!("{price:.2}")
-    };
-
-    // Add thousands separators
-    let parts: Vec<&str> = formatted.split('.').collect();
-    let integer_part = parts[0];
-    let decimal_part = parts.get(1).unwrap_or(&"");
-
-    let negative = integer_part.starts_with('-');
-    let digits: String = integer_part
-        .chars()
-        .filter(|c| c.is_ascii_digit())
-        .collect();
-
-    let with_commas: String = digits
-        .chars()
-        .rev()
-        .enumerate()
-        .fold(String::new(), |mut acc, (i, c)| {
-            if i > 0 && i % 3 == 0 {
-                acc.push(',');
-            }
-            acc.push(c);
-            acc
-        })
-        .chars()
-        .rev()
-        .collect();
-
-    if decimal_part.is_empty() {
-        if negative {
-            format!("-{with_commas}")
-        } else {
-            with_commas
-        }
-    } else if negative {
-        format!("-{with_commas}.{decimal_part}")
-    } else {
-        format!("{with_commas}.{decimal_part}")
-    }
-}
 
 /// Show an open menu next to `anchor` and return `Some` on the frame it closes: with the picked
 /// action, or with `None` when a click outside or Escape dismissed it.
@@ -398,6 +349,8 @@ pub struct ChartContextMenu {
     pub symbol: String,
     /// Price at click position
     pub click_price: f64,
+    /// How the menu writes the click price: the chart's [`Chart::price_format`].
+    pub price_format: PriceFormat,
     /// Number of indicators on chart (for Remove menu)
     pub indicator_cnt: usize,
     /// Last action taken
@@ -421,6 +374,7 @@ impl ChartContextMenu {
             position: Pos2::ZERO,
             symbol: String::new(),
             click_price: 0.0,
+            price_format: PriceFormat::default(),
             indicator_cnt: 0,
             last_action: ContextMenuAction::None,
             just_opened: false,
@@ -461,7 +415,7 @@ impl ChartContextMenu {
 
     /// Build the menu items based on current state
     fn build_menu_items(&self) -> Vec<MenuEntry<ContextMenuAction>> {
-        let price_str = format_price(self.click_price);
+        let price_str = self.price_format.price(self.click_price);
         let symbol = &self.symbol;
 
         let mut items = vec![
@@ -638,6 +592,8 @@ impl ChartMenus {
     /// chosen action. While a menu is open the chart draws no crosshair or tooltip under it.
     pub fn show(&mut self, ctx: &Context, chart: &mut Chart) -> Option<ChartContextAction> {
         if let Some(target) = chart.take_right_click() {
+            // The click price is offered at the chart's precision, on its tick.
+            let format = chart.price_format();
             // A new right-click supersedes any menu still open.
             self.chart.close();
             self.series.close();
@@ -658,7 +614,8 @@ impl ChartMenus {
                         ChartElementId::Series(sid) => sid,
                         _ => SeriesId::MAIN,
                     };
-                    self.series.set_context(label, price);
+                    self.series.price_format = format;
+                    self.series.set_context(label, format.round_to_tick(price));
                     self.series.open(pos, series_id);
                 }
                 RightClickTarget::Drawing { drawing_id, pos } => {
@@ -673,7 +630,8 @@ impl ChartMenus {
                 RightClickTarget::Background { pos, price } => {
                     self.chart.set_indicator_cnt(chart.indicators().count());
                     self.chart.set_symbol(chart.symbol.clone());
-                    self.chart.open(pos, price);
+                    self.chart.price_format = format;
+                    self.chart.open(pos, format.round_to_tick(price));
                 }
             }
         }
@@ -723,5 +681,60 @@ mod tests {
             Some(KeyboardAction::ResetChart)
         );
         assert_eq!(ctx.format_shortcut(&shortcut), "Ctrl+R");
+    }
+
+    /// The chart menu offers the clicked price on the instrument's tick, at its decimals, or at
+    /// the decimals of the bars without one, and its actions carry that price.
+    #[test]
+    fn chart_menu_writes_the_price_as_the_instrument_quotes_it() {
+        let eurusd = crate::model::Instrument::new("X").with_tick_size(0.00005);
+        // (instrument, bar lows, bar highs, clicked price, label, price carried)
+        for (instrument, lows, highs, price, label, carried) in [
+            (
+                Some(eurusd),
+                [1.0],
+                [1.1],
+                1.087_663_21,
+                "Sell 1 X @ 1.08765 limit",
+                1.08765,
+            ),
+            (
+                None,
+                [54.12],
+                [54.6],
+                54.612_345,
+                "Sell 1 X @ 54.61 limit",
+                54.61,
+            ),
+        ] {
+            let ctx = Context::default();
+            let mut chart = crate::widget::test_frames::chart(&lows, &highs);
+            chart.set_symbol("X");
+            if let Some(instrument) = instrument {
+                chart.set_instrument(instrument);
+            }
+            let pos = Pos2::new(100.0, 100.0);
+            chart.right_click = Some(RightClickTarget::Background { pos, price });
+            let mut menus = ChartMenus::default();
+            let output = ctx.run_ui(Default::default(), |ui| {
+                menus.show(ui.ctx(), &mut chart);
+            });
+            output.drop_without_applying_deltas();
+            let labels: Vec<String> = menus
+                .chart
+                .build_menu_items()
+                .into_iter()
+                .filter_map(|entry| match entry {
+                    MenuEntry::Item(item) => Some(item.label),
+                    _ => None,
+                })
+                .collect();
+            assert!(labels.contains(&label.to_owned()), "{labels:?}");
+            assert!(
+                (menus.chart.click_price - carried).abs() < 1e-12,
+                "{label}: {}",
+                menus.chart.click_price
+            );
+        }
     }
 }

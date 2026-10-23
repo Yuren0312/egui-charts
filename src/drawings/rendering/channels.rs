@@ -308,7 +308,8 @@ impl Drawing {
         painter.text(
             height_label_pos,
             egui::Align2::LEFT_CENTER,
-            self.size_labels(view.price_to_y).concat(),
+            self.size_labels(view.price_to_y, view.price_format)
+                .concat(),
             egui::FontId::proportional(typography::XS),
             measure_color,
         );
@@ -439,7 +440,8 @@ impl Drawing {
                 painter,
                 egui::Align2::CENTER_CENTER,
                 mid_connector,
-                self.size_labels(view.price_to_y).concat(),
+                self.size_labels(view.price_to_y, view.price_format)
+                    .concat(),
                 connector_color,
                 label_bg,
             );
