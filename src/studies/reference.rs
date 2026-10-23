@@ -114,6 +114,12 @@ fn staple_studies_match_published_definitions() {
         ("Keltner(20,10,2)", Box::new(KeltnerChannels::default())),
         ("LinReg(14)", Box::new(LinearRegression::default())),
         (
+            "LinRegChannel(20,2)",
+            super::IndicatorFactory::new()
+                .create("LinReg Channel")
+                .expect("registered channel"),
+        ),
+        (
             "LinRegSlope(14)",
             Box::new(LinearRegressionSlope::default()),
         ),
@@ -276,4 +282,71 @@ fn staple_studies_match_published_definitions() {
         assert!(*lines > 0, "{name} is built but has no expected values");
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// A channel refits all three lines on append and correction, dropping the expired bar.
+#[test]
+fn regression_channel_refits_the_last_n_bars_on_update() {
+    let mut bars = fixture()[..21].to_vec();
+    let mut study = super::IndicatorFactory::new()
+        .create("LinReg Channel")
+        .expect("registered channel");
+    study.calculate(&bars[..19]);
+    assert!(
+        study
+            .values()
+            .iter()
+            .all(|v| matches!(v, IndicatorValue::None))
+    );
+    // Independently computed OLS intercept, slope and 2 * residual deviation over n - 1.
+    let cases = [
+        (
+            20,
+            None,
+            19,
+            [99.9642857142857, 0.194548872180451, 1.36224386576777],
+        ),
+        (
+            21,
+            None,
+            20,
+            [100.196428571429, 0.183270676691729, 1.4344088294996],
+        ),
+        (
+            21,
+            Some((20, 120.0)),
+            20,
+            [98.7178571428571, 0.429699248120301, 6.80616500487647],
+        ),
+        (
+            21,
+            Some((1, 110.0)),
+            1,
+            [100.528571428571, 0.290413533834586, 8.30121438520255],
+        ),
+    ];
+    for (len, edit, from, [intercept, slope, offset]) in cases {
+        if let Some((index, close)) = edit {
+            bars[index].close = close;
+        }
+        study.update(&bars[..len], from);
+        assert_eq!(study.values().len(), len);
+        for (i, value) in study.values().iter().enumerate() {
+            if i < len - 20 {
+                assert!(
+                    matches!(value, IndicatorValue::None),
+                    "expired bar {i}: {value:?}"
+                );
+            } else {
+                let IndicatorValue::Multiple(lines) = value else {
+                    panic!("bar {i}: expected three lines, got {value:?}");
+                };
+                assert_eq!(lines.len(), 3);
+                let middle = intercept + slope * (i - (len - 20)) as f64;
+                for (got, want) in lines.iter().zip([middle + offset, middle, middle - offset]) {
+                    assert!((got - want).abs() < 1e-9, "bar {i}: got {got}, want {want}");
+                }
+            }
+        }
+    }
 }

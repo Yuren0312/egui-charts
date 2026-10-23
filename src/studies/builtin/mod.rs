@@ -41,7 +41,7 @@
 //! [`PivotPoints`], [`ZigZag`], [`PriceChannel`]
 //!
 //! ## Statistics
-//! [`LinearRegression`], [`StandardError`],
+//! [`LinearRegression`], [`LinearRegressionChannel`], [`StandardError`],
 //! [`RankCorrelationIndex`], [`MajorityRule`]
 
 use crate::model::Bar;
@@ -141,6 +141,7 @@ mod squeeze_momentum;
 // Fourth batch - Statistics and Price variants
 mod accumulation_swing;
 mod linear_regression;
+mod linear_regression_channel;
 mod percent_b;
 mod price_channel;
 mod relative_vigor;
@@ -298,6 +299,7 @@ pub use squeeze_momentum::SqueezeMomentum;
 // Re-exports - Fourth batch (Statistics and Price variants)
 pub use accumulation_swing::AccumulationSwingIndex;
 pub use linear_regression::{LinearRegression, LinearRegressionSlope};
+pub use linear_regression_channel::LinearRegressionChannel;
 pub use percent_b::PercentB;
 pub use price_channel::PriceChannel;
 pub use relative_vigor::RelativeVigorIndex;

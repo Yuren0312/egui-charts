@@ -204,6 +204,7 @@ impl IndicatorFactory {
             ],
             "Statistics" => [
                 LinearRegression,
+                LinearRegressionChannel,
                 LinearRegressionSlope,
                 StandardError,
                 StandardErrorBands,
@@ -518,6 +519,7 @@ mod tests {
             Box::new(ZigZag::new(x(5.0), l(0))),
             Box::new(PriceChannel::new(l(0))),
             Box::new(LinearRegression::new(l(0))),
+            Box::new(LinearRegressionChannel::new(l(0), x(2.0))),
             Box::new(LinearRegressionSlope::new(l(0))),
             Box::new(StandardError::new(l(0))),
             Box::new(StandardErrorBands::new(l(0), x(2.0))),

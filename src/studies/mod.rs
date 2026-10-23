@@ -61,6 +61,8 @@ mod custom;
 #[cfg(feature = "studies")]
 pub mod factory;
 mod indicator_trait;
+#[cfg(any(feature = "studies", feature = "widget"))]
+pub(crate) mod math;
 #[cfg(all(test, feature = "studies"))]
 mod reference;
 #[cfg(feature = "studies")]
