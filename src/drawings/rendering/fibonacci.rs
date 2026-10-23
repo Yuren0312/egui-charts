@@ -3,10 +3,10 @@
 //! Includes: retracement, extension, arc, time zones, channel, circles,
 //! speed fan, spiral, wedge, and trend-based fib time.
 
-use crate::drawings::domain::Drawing;
+use crate::drawings::domain::{Drawing, FibonacciConfig};
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
-use egui::{Color32, Pos2, Rect, Stroke};
+use egui::{Color32, Pos2, Rangef, Rect, Stroke};
 
 impl Drawing {
     pub(crate) fn render_fibonacci(&self, painter: &egui::Painter, chart_rect: Rect) {
@@ -16,9 +16,6 @@ impl Drawing {
         let Some((config, prices)) = self.fib_levels() else {
             return;
         };
-
-        let start = self.points[0];
-        let end = self.points[1];
 
         // Each level sits at the price it is labelled with, on whatever scale the chart uses
         let visible_levels: Vec<_> = config.visible_levels().collect();
@@ -47,17 +44,8 @@ impl Drawing {
             }
         }
 
-        // Calculate x range based on extend settings
-        let x_start = if config.extend_left {
-            chart_rect.min.x
-        } else {
-            start.x.min(end.x)
-        };
-        let x_end = if config.extend_right {
-            chart_rect.max.x
-        } else {
-            start.x.max(end.x)
-        };
+        let x_range = self.fib_level_x_range(&config, chart_rect);
+        let (x_start, x_end) = (x_range.min, x_range.max);
 
         // Draw lines and labels for visible levels
         for ((level, &y), &price_at_lvl) in visible_levels.iter().zip(ys).zip(&prices) {
@@ -99,9 +87,6 @@ impl Drawing {
             return;
         };
 
-        let start = self.points[0];
-        let end = self.points[1];
-
         // Each level sits at the price it is labelled with, on whatever scale the chart uses
         let visible_levels: Vec<_> = config.visible_levels().collect();
         let ys = &self.level_ys;
@@ -133,17 +118,8 @@ impl Drawing {
             }
         }
 
-        // Calculate x range based on extend settings
-        let x_start = if config.extend_left {
-            chart_rect.min.x
-        } else {
-            start.x.min(end.x)
-        };
-        let x_end = if config.extend_right {
-            chart_rect.max.x
-        } else {
-            start.x.max(end.x)
-        };
+        let x_range = self.fib_level_x_range(&config, chart_rect);
+        let (x_start, x_end) = (x_range.min, x_range.max);
 
         for ((level, &y), &price_at_lvl) in visible_levels.iter().zip(ys).zip(&prices) {
             let lvl_color = Color32::from_rgba_unmultiplied(
@@ -321,16 +297,11 @@ impl Drawing {
 
     /// Render Fibonacci Channel - Parallel channel with Fibonacci level lines
     pub(crate) fn render_fibonacci_channel(&self, painter: &egui::Painter, _chart_rect: Rect) {
-        if self.points.len() < 2 {
+        let Some((config, lines)) = self.fib_channel_level_lines() else {
             return;
-        }
-
-        let start = self.points[0];
-        let end = self.points[1];
-
-        // Use configurable levels if available
-        let config = self.fib_config.as_ref().cloned().unwrap_or_default();
-        let visible_levels: Vec<_> = config.levels.iter().filter(|l| l.visible).collect();
+        };
+        let (start, end) = (self.points[0], self.points[1]);
+        let visible_levels: Vec<_> = config.visible_levels().collect();
 
         let color = Color32::from_rgba_unmultiplied(
             self.color[0],
@@ -339,30 +310,12 @@ impl Drawing {
             self.color[3],
         );
 
-        let dx = end.x - start.x;
-        let dy = end.y - start.y;
-        let line_length = (dx * dx + dy * dy).sqrt();
-
-        if line_length < 1.0 {
-            return;
-        }
-
-        // Channel width from third point if available, otherwise use 50% of line length
-        let width_point = self
-            .points
-            .get(2)
-            .copied()
-            .unwrap_or_else(|| start + egui::vec2(-dy, dx) * 0.5);
-        let level_line = |value: f32| fib_channel_level_line(start, end, width_point, value);
-
         // Draw filled zones between levels
         if config.show_background && visible_levels.len() > 1 {
             for i in 0..visible_levels.len() - 1 {
                 let level1 = visible_levels[i];
-                let level2 = visible_levels[i + 1];
-
-                let [p1_l1, p2_l1] = level_line(level1.value);
-                let [p1_l2, p2_l2] = level_line(level2.value);
+                let [p1_l1, p2_l1] = lines[i];
+                let [p1_l2, p2_l2] = lines[i + 1];
 
                 let fill_color = Color32::from_rgba_unmultiplied(
                     level1.color[0],
@@ -380,29 +333,13 @@ impl Drawing {
         }
 
         // Draw channel level lines
-        for level in &visible_levels {
+        for (level, &[draw_start, draw_end]) in visible_levels.iter().zip(&lines) {
             let lvl_color = Color32::from_rgba_unmultiplied(
                 level.color[0],
                 level.color[1],
                 level.color[2],
                 level.color[3],
             );
-
-            let [p1, p2] = level_line(level.value);
-
-            // Extend lines if configured
-            let (draw_start, draw_end) = if config.extend_left || config.extend_right {
-                let dir_x = dx / line_length;
-                let dir_y = dy / line_length;
-                let extend_left = if config.extend_left { 500.0 } else { 0.0 };
-                let extend_right = if config.extend_right { 500.0 } else { 0.0 };
-
-                let new_start = Pos2::new(p1.x - dir_x * extend_left, p1.y - dir_y * extend_left);
-                let new_end = Pos2::new(p2.x + dir_x * extend_right, p2.y + dir_y * extend_right);
-                (new_start, new_end)
-            } else {
-                (p1, p2)
-            };
 
             let stroke_width = if level.value == 0.0 || level.value == 1.0 {
                 self.stroke_width
@@ -502,16 +439,7 @@ impl Drawing {
 
         let is_upward = end.y < start.y;
 
-        // Fibonacci speed resistance fan ratios with labels
-        let fib_ratios: [(f32, &str); 7] = [
-            (0.0, "0%"),
-            (0.236, "23.6%"),
-            (0.382, "38.2%"),
-            (0.5, "50%"),
-            (0.618, "61.8%"),
-            (0.786, "78.6%"),
-            (1.0, "100%"),
-        ];
+        let fib_ratios = SPEED_FAN_LEVELS;
 
         // Colors for different levels (gradient from green to red for up, reversed for down)
         let level_colors: [Color32; 7] = if is_upward {
@@ -706,14 +634,96 @@ impl Drawing {
     }
 }
 
+impl Drawing {
+    /// The x extent of a Fibonacci retracement's or extension's level lines:
+    /// between the anchors, or on to the edge of `chart_rect` on each side the
+    /// config extends.
+    pub(crate) fn fib_level_x_range(&self, config: &FibonacciConfig, chart_rect: Rect) -> Rangef {
+        let (a, b) = (self.points[0].x, self.points[1].x);
+        Rangef::new(
+            if config.extend_left {
+                chart_rect.min.x
+            } else {
+                a.min(b)
+            },
+            if config.extend_right {
+                chart_rect.max.x
+            } else {
+                a.max(b)
+            },
+        )
+    }
+
+    /// The Fibonacci channel's config and the line of each visible level as
+    /// drawn, run on 500 px past the anchors on each side the config extends;
+    /// `None` below two anchors or when they nearly coincide. Without a third
+    /// anchor the channel is half as wide as the base line is long.
+    pub(crate) fn fib_channel_level_lines(&self) -> Option<(FibonacciConfig, Vec<[Pos2; 2]>)> {
+        let &[start, end, ..] = self.points.as_slice() else {
+            return None;
+        };
+        let d = end - start;
+        if d.length() < 1.0 {
+            return None;
+        }
+        let config = self.fib_config.clone().unwrap_or_default();
+        let width_point = self
+            .points
+            .get(2)
+            .copied()
+            .unwrap_or_else(|| start + egui::vec2(-d.y, d.x) * 0.5);
+        let run = |extend: bool| {
+            if extend {
+                d.normalized() * 500.0
+            } else {
+                egui::Vec2::ZERO
+            }
+        };
+        let lines = config
+            .visible_levels()
+            .map(|level| {
+                let [a, b] = fib_channel_level_line(start, end, width_point, level.value);
+                [a - run(config.extend_left), b + run(config.extend_right)]
+            })
+            .collect();
+        Some((config, lines))
+    }
+}
+
 /// The line of a Fibonacci channel level: the base line from `start` to `end`
-/// moved `level` times the channel width towards `width_point`, on whichever
-/// side of the base line that point lies.
+/// moved `level` times the way onto `width_point`, straight up or down as the
+/// parallel channel's second line is, so each level is as far in price from the
+/// base at every bar.
 fn fib_channel_level_line(start: Pos2, end: Pos2, width_point: Pos2, level: f32) -> [Pos2; 2] {
-    let d = end - start;
-    let perp = egui::vec2(-d.y, d.x) / d.length();
-    let width = (width_point - start).dot(perp);
-    [start, end].map(|p| p + perp * width * level)
+    let offset = super::channels::offset_onto(start, end, width_point) * level;
+    [start + offset, end + offset]
+}
+
+/// The speed resistance fan's ratios and their labels.
+const SPEED_FAN_LEVELS: [(f32, &str); 7] = [
+    (0.0, "0%"),
+    (0.236, "23.6%"),
+    (0.382, "38.2%"),
+    (0.5, "50%"),
+    (0.618, "61.8%"),
+    (0.786, "78.6%"),
+    (1.0, "100%"),
+];
+
+/// The speed resistance fan's lines from `start` to the edge of `rect`.
+pub(super) fn speed_fan_lines(start: Pos2, end: Pos2, rect: Rect) -> Vec<[Pos2; 2]> {
+    SPEED_FAN_LEVELS
+        .iter()
+        .map(|&(ratio, _)| [start, speed_fan_line_end(start, end, ratio, rect)])
+        .collect()
+}
+
+/// The time zones' vertical lines across `rect`.
+pub(super) fn time_zone_lines(start: Pos2, end: Pos2, rect: Rect) -> Vec<[Pos2; 2]> {
+    fib_time_zone_lines(start.x, end.x, rect.x_range())
+        .into_iter()
+        .map(|(_, x)| [Pos2::new(x, rect.min.y), Pos2::new(x, rect.max.y)])
+        .collect()
 }
 
 /// A point of a speed resistance arc of `radius` around `end`, `angle`
@@ -786,13 +796,46 @@ mod tests {
         let mut wrong = Vec::new();
 
         // Channel along y = 100 with its width point 40 px above: level 1 runs
-        // through the width point, level 0.5 halfway.
-        let (start, end) = (Pos2::new(0.0, 100.0), Pos2::new(100.0, 100.0));
-        for (level, y) in [(1.0, 60.0), (0.5, 80.0)] {
-            let got = fib_channel_level_line(start, end, Pos2::new(50.0, 60.0), level);
-            let want = [Pos2::new(0.0, y), Pos2::new(100.0, y)];
+        // through the width point, level 0.5 halfway. Along y = 100 - x the base
+        // is at 50 below the width point (50, 20), 30 px under it: the levels move
+        // straight up, by 30 for level 1 and 15 for level 0.5.
+        for (start, end, width_point, level, want) in [
+            (
+                (0.0, 100.0),
+                (100.0, 100.0),
+                (50.0, 60.0),
+                1.0,
+                [(0.0, 60.0), (100.0, 60.0)],
+            ),
+            (
+                (0.0, 100.0),
+                (100.0, 100.0),
+                (50.0, 60.0),
+                0.5,
+                [(0.0, 80.0), (100.0, 80.0)],
+            ),
+            (
+                (0.0, 100.0),
+                (100.0, 0.0),
+                (50.0, 20.0),
+                1.0,
+                [(0.0, 70.0), (100.0, -30.0)],
+            ),
+            (
+                (0.0, 100.0),
+                (100.0, 0.0),
+                (50.0, 20.0),
+                0.5,
+                [(0.0, 85.0), (100.0, -15.0)],
+            ),
+        ] {
+            let [start, end, width_point] = [start, end, width_point].map(Pos2::from);
+            let got = fib_channel_level_line(start, end, width_point, level);
+            let want = want.map(Pos2::from);
             if !(near(got[0], want[0]) && near(got[1], want[1])) {
-                wrong.push(format!("channel level {level}: got {got:?}, want {want:?}"));
+                wrong.push(format!(
+                    "channel {start:?} to {end:?} level {level}: got {got:?}, want {want:?}"
+                ));
             }
         }
 

@@ -4,6 +4,7 @@
 //! arrows, and polylines.
 
 use crate::drawings::domain::Drawing;
+use crate::model::Bar;
 use crate::styles::{stroke, typography};
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Color32, Pos2, Rect, Stroke, epaint::StrokeKind};
@@ -64,20 +65,7 @@ impl Drawing {
     ) {
         if self.points.len() >= 2 {
             let start = self.points[0];
-            let end = self.points[1];
-            let dx = end.x - start.x;
-            let dy = end.y - start.y;
-
-            let extended_end = if dx.abs() > 1e-6 {
-                let t = (rect.max.x - start.x) / dx;
-                Pos2::new(rect.max.x, start.y + t * dy)
-            } else if dy > 0.0 {
-                Pos2::new(start.x, rect.max.y)
-            } else {
-                Pos2::new(start.x, rect.min.y)
-            };
-
-            self.styled_segment(painter, start, extended_end, stroke);
+            self.styled_segment(painter, start, ray_end(start, self.points[1], rect), stroke);
             painter.circle_filled(start, DESIGN_TOKENS.rounding.md, color);
         } else if self.points.len() == 1 {
             painter.circle_filled(self.points[0], DESIGN_TOKENS.rounding.sm, color);
@@ -95,21 +83,8 @@ impl Drawing {
         if self.points.len() >= 2 {
             let p1 = self.points[0];
             let p2 = self.points[1];
-            let dx = p2.x - p1.x;
-            let dy = p2.y - p1.y;
-
-            if dx.abs() > 1e-6 {
-                let t_left = (rect.min.x - p1.x) / dx;
-                let t_right = (rect.max.x - p1.x) / dx;
-
-                let left_point = Pos2::new(rect.min.x, p1.y + t_left * dy);
-                let right_point = Pos2::new(rect.max.x, p1.y + t_right * dy);
-
-                self.styled_segment(painter, left_point, right_point, stroke);
-            } else {
-                let (top, bottom) = (Pos2::new(p1.x, rect.min.y), Pos2::new(p1.x, rect.max.y));
-                self.styled_segment(painter, top, bottom, stroke);
-            }
+            let [a, b] = extended_line(p1, p2, rect);
+            self.styled_segment(painter, a, b, stroke);
 
             painter.circle_filled(p1, DESIGN_TOKENS.rounding.sm, color);
             painter.circle_filled(p2, DESIGN_TOKENS.rounding.sm, color);
@@ -186,6 +161,7 @@ impl Drawing {
         painter: &egui::Painter,
         color: Color32,
         stroke: Stroke,
+        bars: &[Bar],
     ) {
         if self.points.len() >= 2 {
             let start = self.points[0];
@@ -251,19 +227,6 @@ impl Drawing {
                 );
             }
 
-            // Calculate distance and slope for info display
-            let distance = (dx * dx + dy * dy).sqrt();
-            let slope = if dx.abs() > 0.001 {
-                dy / dx
-            } else {
-                f32::INFINITY
-            };
-            let slope_display = if slope.is_finite() {
-                format!("{slope:.3}")
-            } else {
-                "∞".to_string()
-            };
-
             // Draw angle label with background box
             let label_angle = angle_rad / 2.0;
             let label_distance = arc_radius + DESIGN_TOKENS.spacing.section_lg;
@@ -320,7 +283,7 @@ impl Drawing {
                 mid_point.y + info_offset * perpendicular_angle.sin(),
             );
 
-            let info_text = format!("d: {distance:.0}px  m: {slope_display}");
+            let info_text = self.measurement_label(bars).unwrap_or_default();
             let info_font = egui::FontId::proportional(typography::XS);
             let muted_color =
                 Color32::from_rgba_unmultiplied(self.color[0], self.color[1], self.color[2], 180);
@@ -389,53 +352,39 @@ impl Drawing {
                 DESIGN_TOKENS.rounding.md,
             );
 
-            // Draw price range label (right side)
-            let height = (rect.max.y - rect.min.y).abs();
-            let width = (rect.max.x - rect.min.x).abs();
+            // Width in bars below, height in price on the right
+            let height = rect.height();
+            let width = rect.width();
+            let [width_label, height_label] =
+                <[String; 2]>::try_from(self.size_labels(&|_| 0.0)).unwrap_or_default();
             let label_bg = DESIGN_TOKENS
                 .semantic
                 .extended
                 .chart_axis_bg
                 .gamma_multiply(0.8);
-            let label_font = egui::FontId::proportional(typography::XS);
 
             // Width label (bottom center)
             if width > 50.0 {
                 let width_label_pos = Pos2::new(rect.center().x, rect.max.y + typography::XS);
-                let width_rect = Rect::from_center_size(
-                    width_label_pos,
-                    egui::Vec2::new(
-                        DESIGN_TOKENS.sizing.technical_labels.line_arc_radius,
-                        DESIGN_TOKENS.sizing.technical_labels.gann_label_height,
-                    ),
-                );
-                painter.rect_filled(width_rect, DESIGN_TOKENS.rounding.sm, label_bg);
-                painter.text(
-                    width_label_pos,
+                super::measurements::boxed_label(
+                    painter,
                     egui::Align2::CENTER_CENTER,
-                    format!("{width:.0}px"),
-                    label_font.clone(),
+                    width_label_pos,
+                    width_label,
                     middle_color,
+                    label_bg,
                 );
             }
 
             // Height label (right center)
             if height > 50.0 {
-                let height_label_pos = Pos2::new(rect.max.x + typography::LG, rect.center().y);
-                let height_rect = Rect::from_center_size(
-                    height_label_pos,
-                    egui::Vec2::new(
-                        DESIGN_TOKENS.sizing.technical_labels.line_arc_radius,
-                        DESIGN_TOKENS.sizing.technical_labels.gann_label_height,
-                    ),
-                );
-                painter.rect_filled(height_rect, DESIGN_TOKENS.rounding.sm, label_bg);
-                painter.text(
-                    height_label_pos,
-                    egui::Align2::CENTER_CENTER,
-                    format!("{height:.0}px"),
-                    label_font,
+                super::measurements::boxed_label(
+                    painter,
+                    egui::Align2::LEFT_CENTER,
+                    Pos2::new(rect.max.x + typography::XS, rect.center().y),
+                    height_label,
                     middle_color,
+                    label_bg,
                 );
             }
 
@@ -479,20 +428,7 @@ impl Drawing {
     /// Render ellipse
     pub(crate) fn render_ellipse(&self, painter: &egui::Painter, color: Color32, stroke: Stroke) {
         if self.points.len() >= 2 {
-            let p1 = self.points[0];
-            let p2 = self.points[1];
-            let center = Pos2::new((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0);
-            let rx = (p2.x - p1.x).abs() / 2.0;
-            let ry = (p2.y - p1.y).abs() / 2.0;
-
-            let segments = 48;
-            let mut ellipse_points: Vec<Pos2> = Vec::with_capacity(segments + 1);
-            for i in 0..=segments {
-                let angle = (i as f32 / segments as f32) * std::f32::consts::TAU;
-                let x = center.x + rx * angle.cos();
-                let y = center.y + ry * angle.sin();
-                ellipse_points.push(Pos2::new(x, y));
-            }
+            let ellipse_points = ellipse_points(self.points[0], self.points[1]);
 
             if let Some(fill) = self.fill_color {
                 let fill_color =
@@ -544,24 +480,8 @@ impl Drawing {
     pub(crate) fn render_arc(&self, painter: &egui::Painter, color: Color32, stroke: Stroke) {
         if self.points.len() >= 2 {
             let center = self.points[0];
-            let edge = self.points[1];
-            let radius = ((edge.x - center.x).powi(2) + (edge.y - center.y).powi(2)).sqrt();
-
-            let start_angle = (edge.y - center.y).atan2(edge.x - center.x);
-            let segments = 32;
-
-            let mut prev_point: Option<Pos2> = None;
-            for i in 0..=segments {
-                let t = i as f32 / segments as f32;
-                let angle = start_angle + std::f32::consts::PI * t;
-                let x = center.x + radius * angle.cos();
-                let y = center.y + radius * angle.sin();
-                let point = Pos2::new(x, y);
-
-                if let Some(prev) = prev_point {
-                    painter.line_segment([prev, point], stroke);
-                }
-                prev_point = Some(point);
+            for pair in arc_points(center, self.points[1]).windows(2) {
+                painter.line_segment([pair[0], pair[1]], stroke);
             }
 
             painter.circle_filled(center, DESIGN_TOKENS.rounding.sm, color);
@@ -673,5 +593,90 @@ impl Drawing {
             );
             painter.add(shape);
         }
+    }
+}
+
+/// Where a ray from `start` through `end` leaves `rect`: on the side `end` is
+/// towards, or at the top or bottom when it is vertical.
+pub(super) fn ray_end(start: Pos2, end: Pos2, rect: Rect) -> Pos2 {
+    let (dx, dy) = (end.x - start.x, end.y - start.y);
+    if dx.abs() > 1e-6 {
+        let edge = if dx > 0.0 { rect.max.x } else { rect.min.x };
+        let t = (edge - start.x) / dx;
+        Pos2::new(edge, start.y + t * dy)
+    } else if dy > 0.0 {
+        Pos2::new(start.x, rect.max.y)
+    } else {
+        Pos2::new(start.x, rect.min.y)
+    }
+}
+
+/// The line through `p1` and `p2` across `rect`, edge to edge.
+pub(super) fn extended_line(p1: Pos2, p2: Pos2, rect: Rect) -> [Pos2; 2] {
+    let (dx, dy) = (p2.x - p1.x, p2.y - p1.y);
+    if dx.abs() > 1e-6 {
+        [rect.min.x, rect.max.x].map(|x| Pos2::new(x, p1.y + (x - p1.x) / dx * dy))
+    } else {
+        [rect.min.y, rect.max.y].map(|y| Pos2::new(p1.x, y))
+    }
+}
+
+/// The closed outline of the ellipse inscribed in the box from `p1` to `p2`.
+pub(super) fn ellipse_points(p1: Pos2, p2: Pos2) -> Vec<Pos2> {
+    let center = Pos2::new((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0);
+    let (rx, ry) = ((p2.x - p1.x).abs() / 2.0, (p2.y - p1.y).abs() / 2.0);
+    let segments = 48;
+    (0..=segments)
+        .map(|i| {
+            let angle = (i as f32 / segments as f32) * std::f32::consts::TAU;
+            Pos2::new(center.x + rx * angle.cos(), center.y + ry * angle.sin())
+        })
+        .collect()
+}
+
+/// The half circle around `center` that starts at `edge` and turns clockwise
+/// on screen.
+pub(super) fn arc_points(center: Pos2, edge: Pos2) -> Vec<Pos2> {
+    let radius = center.distance(edge);
+    let start_angle = (edge.y - center.y).atan2(edge.x - center.x);
+    let segments = 32;
+    (0..=segments)
+        .map(|i| {
+            let angle = start_angle + std::f32::consts::PI * (i as f32 / segments as f32);
+            Pos2::new(
+                center.x + radius * angle.cos(),
+                center.y + radius * angle.sin(),
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In a pane from (0, 0) to (1000, 600), a ray from (500, 100) moving 100 px across and
+    /// 50 px down per step reaches the right edge after 5 steps at y = 350, and moving 100 px
+    /// left reaches the left edge after 5 steps, also at y = 350. A vertical ray runs to the
+    /// bottom or the top edge, whichever its second anchor is towards.
+    #[test]
+    fn rays_run_through_their_second_anchor_to_the_pane_edge() {
+        let rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1000.0, 600.0));
+        let start = Pos2::new(500.0, 100.0);
+        let cases = [
+            ((600.0, 150.0), (1000.0, 350.0)),
+            ((400.0, 150.0), (0.0, 350.0)),
+            ((500.0, 300.0), (500.0, 600.0)),
+            ((500.0, 50.0), (500.0, 0.0)),
+        ];
+        let wrong: Vec<String> = cases
+            .into_iter()
+            .filter_map(|((x, y), (want_x, want_y))| {
+                let got = ray_end(start, Pos2::new(x, y), rect);
+                (got != Pos2::new(want_x, want_y))
+                    .then(|| format!("through ({x}, {y}): got {got:?}, want ({want_x}, {want_y})"))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
 }
