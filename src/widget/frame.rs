@@ -7,7 +7,7 @@ use crate::chart::renderers::{self, ChartMapping, RenderContext, StyleColors};
 use crate::chart::rendering;
 use crate::config::{BackgroundStyle, WatermarkPos};
 use crate::data::Footprint;
-use crate::model::PriceLine;
+use crate::model::{MarkerZOrder, PriceLine};
 use crate::scales::TimeFormatterBuilder;
 use crate::styles::typography;
 use crate::theme::ThemeExt;
@@ -713,6 +713,9 @@ impl Chart {
 
         // Draw watermark overlay (if enabled)
         self.draw_watermark(&painter, chart_rect);
+        if let Some(watermark) = &self.watermark {
+            renderers::render_watermark(ui, &painter, chart_rect, watermark);
+        }
 
         if self.state.data().is_empty() {
             self.pump_marks(ui.ctx());
@@ -757,6 +760,17 @@ impl Chart {
 
         // Fit the price scale, then apply this frame's price zoom
         let series_values = self.fit_secondary_series();
+        let source_marks = self
+            .mark_source
+            .as_ref()
+            .map(|source| &source.page.bar_marks);
+        let marker_prices = self
+            .marker_prices(
+                self.marks.iter().chain(source_marks.into_iter().flatten()),
+                self.marker_options,
+            )
+            .filter(|_| self.main_series_visible && time_based)
+            .collect::<Vec<_>>();
         let transform = self.state.fit_price_scale_with_series(
             (if self.chart_type.is_time_independent() {
                 &self.element_studies.studies
@@ -769,6 +783,7 @@ impl Chart {
             .filter(|(study, autoscale)| **autoscale && !study.is_volume())
             .map(|(study, _)| study.as_ref()),
             self.main_series_visible,
+            marker_prices,
             series_values,
         );
         self.apply_price_zoom(pending_price_zoom, &response, price_rect, transform);
@@ -1000,6 +1015,7 @@ impl Chart {
             }
         }
 
+        self.paint_marks(&clipped_price_ctx, &coords, MarkerZOrder::Normal);
         self.paint_secondary_series(&painter, price_rect);
 
         if let Some(bubbles) = self
@@ -1195,45 +1211,7 @@ impl Chart {
         // the main chart (overlay indicator line or series data points).
         self.render_main_chart_selection(&painter, &coords, visible_data, main_visible_range);
 
-        // Render bar marks (Widget API annotations)
-        let source_marks = self.mark_source.as_ref().map(|source| &source.page);
-        let combined_marks;
-        let bar_marks = if let Some(source) = source_marks.filter(|p| !p.bar_marks.is_empty()) {
-            combined_marks = self
-                .marks
-                .iter()
-                .chain(&source.bar_marks)
-                .cloned()
-                .collect::<Vec<_>>();
-            &combined_marks
-        } else {
-            &self.marks
-        };
-        if self.main_series_visible && !bar_marks.is_empty() {
-            let markers;
-            let marks = if time_based {
-                bar_marks
-            } else {
-                markers = rendering::candles::price_based::markers(
-                    bar_marks,
-                    &self.state,
-                    self.chart_type,
-                    &self.chart_type_params,
-                    self.older_bars_drawn,
-                );
-                &markers
-            };
-            renderers::render_markers(
-                &clipped_price_ctx,
-                marks,
-                self.state.shown(),
-                &price_map,
-                &crate::chart::coords::ChartMapping {
-                    start_idx: 0,
-                    ..coords
-                },
-            );
-        }
+        self.paint_marks(&clipped_price_ctx, &coords, MarkerZOrder::AboveSeries);
 
         // The axis labels go at these depths, painted once the crosshair's tags are placed
         let price_labels = painter.add(egui::Shape::Noop);
@@ -1256,7 +1234,7 @@ impl Chart {
             )));
         }
         let mut pending_values = Vec::new();
-        for line in self.price_lines.iter().filter(|_| self.main_series_visible) {
+        for (_, line) in self.price_lines.iter().filter(|_| self.main_series_visible) {
             rendering::render_price_line(
                 &painter,
                 price_rect,
@@ -1267,11 +1245,15 @@ impl Chart {
                 axis_edge,
             );
             if line.axis_label {
-                pending_values.push((line.price, line.color));
+                pending_values.push((line.price, rendering::axes::axis_label_colors(line)));
             }
         }
         #[cfg(feature = "ui")]
-        pending_values.extend(std::mem::take(&mut self.trading_tags));
+        pending_values.extend(
+            std::mem::take(&mut self.trading_tags)
+                .into_iter()
+                .map(|(value, fill)| (value, (rendering::axes::tag_text_color(fill), fill))),
+        );
 
         if self.main_series_visible
             && (self.config.show_symbol_prev_close || self.config.show_prev_close_line)
@@ -1305,7 +1287,7 @@ impl Chart {
                 axis_edge,
             );
             if self.config.show_symbol_prev_close {
-                pending_values.push((previous.close, line.color));
+                pending_values.push((previous.close, rendering::axes::axis_label_colors(&line)));
             }
         }
 
@@ -1362,7 +1344,7 @@ impl Chart {
 
         tags.push(last_price_tag);
         if show_price_axis {
-            for (value, color) in &pending_values {
+            for (value, colors) in &pending_values {
                 if price_map
                     .range()
                     .contains(price_map.transform().to_scale(*value))
@@ -1377,14 +1359,14 @@ impl Chart {
                         axis_edge,
                         price_map.price_to_y(*value),
                         label,
-                        (rendering::axes::tag_text_color(*color), *color),
+                        *colors,
                         &tags,
                     ));
                 }
             }
         }
         if show_price_axis {
-            for (value, color, map) in
+            for (value, colors, map) in
                 self.secondary_axis_values(self.main_series_scale, price_rect)
             {
                 tags.push(rendering::axes::render_axis_value(
@@ -1393,7 +1375,7 @@ impl Chart {
                     axis_edge,
                     map.price_to_y(value),
                     map.transform().label(map.transform().to_scale(value), 2),
-                    (rendering::axes::tag_text_color(color), color),
+                    colors,
                     &tags,
                 ));
             }
@@ -1581,6 +1563,7 @@ impl Chart {
             self.history
                 .finish_drawing_action(&mut self.drawings, drawing_history);
         }
+        self.paint_marks(&clipped_price_ctx, &coords, MarkerZOrder::Top);
 
         // Render "Jump to Latest" button
         if self.config.show_realtime_btn {

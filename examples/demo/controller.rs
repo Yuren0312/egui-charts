@@ -285,6 +285,8 @@ pub struct DemoApp {
 
     saved_drawings: std::collections::HashMap<String, String>,
     toasts: Toasts,
+    /// Handle of the demo's price line, moved and removed from the chart menu.
+    demo_level: Option<egui_charts::widget::PriceLineId>,
 }
 
 impl DemoApp {
@@ -337,10 +339,12 @@ impl DemoApp {
                 egui_charts::ui::top_toolbar::components::timeframe_selector::TimeframeUnit::Minute,
             );
         let mut menus = ChartMenus::default();
-        menus.host_entries.push(
+        menus.host_entries.extend([
             HostMenuEntry::new("research", "Open in research")
                 .with_icon(&egui_charts::icons::icons::QUICK_SEARCH),
-        );
+            HostMenuEntry::new("demo-level", "Move demo level here"),
+            HostMenuEntry::new("demo-level-remove", "Remove demo level"),
+        ]);
         let mut widget_bar = WidgetBar::default();
         widget_bar.config.width = 45.0;
         // The watchlist leads the built-in entries; the demo's other panels sit in the lower group.
@@ -495,6 +499,7 @@ impl DemoApp {
                 .and_then(|storage| eframe::get_value(storage, "drawings"))
                 .unwrap_or_default(),
             toasts: Toasts::new(),
+            demo_level: None,
         };
         app.drawing_toolbar
             .set_control_visible(egui_charts::ui::Control::Trading, false);
@@ -675,6 +680,7 @@ impl DemoApp {
         self.chart.set_events(Vec::new());
         self.chart
             .set_mark_source(Some(Arc::new(marks::DemoMarks(self.bars.clone()))));
+        self.annotate();
     }
 
     // --- alerts ------------------------------------------------------------
@@ -2106,6 +2112,12 @@ impl DemoApp {
 
     fn handle_context_action(&mut self, action: ChartContextAction) {
         match action {
+            ChartContextAction::Host { id, .. } if id == "demo-level-remove" => {
+                self.remove_demo_level();
+            }
+            ChartContextAction::Host { id, context } if id == "demo-level" => {
+                self.set_demo_level(context.price);
+            }
             ChartContextAction::Host { id, context } => {
                 self.toasts.info(format!(
                     "Host action: {id}, time: {}, price: {:.4}, target: {:?}",
