@@ -166,6 +166,8 @@ impl Chart {
             timeframe: None,
             feed_link: None,
             cursor_modes: CursorModeState::new(),
+            main_series_style: crate::model::SeriesStyle::default(),
+            last_price_pulse: std::cell::Cell::new(None),
             last_price_map: PriceMap::new(
                 PriceTransform::default(),
                 PriceRange::new(0.0, 100.0),

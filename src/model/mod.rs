@@ -44,6 +44,7 @@ pub mod quote;
 pub mod range_bar;
 pub mod renko;
 mod series_scale;
+mod series_style;
 pub mod session;
 mod signal;
 mod strategy;
@@ -64,7 +65,10 @@ pub(crate) use bar::SpanCache;
 pub(crate) use bar::percent_change;
 pub use bar::{Bar, BarData};
 pub use box_size::{BoxSizeMethod, PriceBasedSource};
-pub use chart_style::{AreaStyle, BaselineStyle, ChartTypeStyles, LinePlotStyle};
+pub use chart_style::{
+    AreaStyle, BarsStyle, BaselineStyle, ChartTypeStyles, LastPriceAnimation, LinePlotStyle,
+    LineType,
+};
 pub use chart_type::{BaselineLevel, ChartType, ChartTypeCategory, ChartTypeParams};
 pub use chartstate::{ChartState, ZoomState};
 pub use clock::BarClock;
@@ -91,6 +95,7 @@ pub use range_bar::{
 };
 pub use renko::{RenkoBrick, RenkoConfig, RenkoDirection, to_renko_bricks};
 pub use series_scale::SeriesScale;
+pub use series_style::{AutoscaleProvider, PriceLineSource, SeriesStyle};
 pub use session::{
     CompositeSessionProvider, DailySessionProvider, ExchangeSessionProvider,
     MonthlySessionProvider, SessionBreak, SessionBreakType, SessionProvider, WeeklySessionProvider,

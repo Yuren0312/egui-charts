@@ -178,7 +178,7 @@ impl Chart {
         let time = super::sync::time_at(shown, index)?;
         let bar_at = (index >= 0.0 && index < shown.len() as f64).then_some(index as usize);
         let magnet = |map: crate::scales::PriceMap, values: Vec<f64>| {
-            if self.chart_options.crosshair.mode == crate::config::CrosshairMode::Magnet {
+            if self.chart_options.crosshair.mode.snaps() {
                 crate::chart::renderers::snap_to_values(pos.y, &map, values)
                     .unwrap_or_else(|| map.y_to_price(pos.y))
             } else {
@@ -409,15 +409,42 @@ mod tests {
         assert_eq!(chart.drain_events().count(), 0);
         // With a manual linear 100..200 range, a quarter of the way from bottom is 125.
         // The same fraction on an inverted map is 175; on a logarithmic map it is 100*2^0.25.
-        for (mode, inverted, price) in [
-            (crate::scales::PriceScaleMode::Normal, false, 125.0),
-            (crate::scales::PriceScaleMode::Normal, true, 175.0),
+        // Bars open at their low of 100 and close at their high of 200, so the magnet takes
+        // the nearer 100 and the close magnet 200.
+        use crate::config::CrosshairMode;
+        for (mode, inverted, crosshair, price) in [
+            (
+                crate::scales::PriceScaleMode::Normal,
+                false,
+                CrosshairMode::Normal,
+                125.0,
+            ),
+            (
+                crate::scales::PriceScaleMode::Normal,
+                true,
+                CrosshairMode::Normal,
+                175.0,
+            ),
             (
                 crate::scales::PriceScaleMode::Logarithmic,
                 false,
+                CrosshairMode::Normal,
                 100.0 * 2.0_f64.powf(0.25),
             ),
+            (
+                crate::scales::PriceScaleMode::Normal,
+                false,
+                CrosshairMode::Magnet,
+                100.0,
+            ),
+            (
+                crate::scales::PriceScaleMode::Normal,
+                false,
+                CrosshairMode::MagnetClose,
+                200.0,
+            ),
         ] {
+            chart.set_crosshair_mode(crosshair);
             let scale = chart.state.price_scale_mut();
             scale.options_mut().mode = mode;
             scale.options_mut().invert_scale = inverted;
@@ -490,6 +517,7 @@ mod tests {
                     .any(|event| event == ChartEvent::CrosshairMoved(None))
             );
         }
+        chart.set_crosshair_mode(CrosshairMode::Normal);
         #[cfg(feature = "studies")]
         {
             let id = chart.add_indicator(Box::new(crate::studies::RSI::default()));

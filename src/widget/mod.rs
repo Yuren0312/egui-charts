@@ -147,7 +147,7 @@ mod readout;
 mod replay;
 mod selection;
 mod series;
-pub use price_series::SeriesOptions;
+pub use price_series::{SeriesKind, SeriesOptions};
 pub use series::PriceLineId;
 mod volume;
 pub use layout::{ChartLayout, ChartLayoutMode, ChartSyncOptions};
@@ -345,6 +345,11 @@ pub struct Chart {
     pub(crate) feed_link: Option<FeedLink>,
     /// Cursor mode state (Demonstration, Magic, Eraser effects)
     pub(crate) cursor_modes: CursorModeState,
+    /// The main series' last value, price line, base line, autoscale and click tolerance.
+    pub(crate) main_series_style: crate::model::SeriesStyle,
+    /// The last bar's time and price when the last price pulse saw it, and the input time of
+    /// that pulse's start, negative infinity before any update.
+    pub(crate) last_price_pulse: std::cell::Cell<Option<(chrono::DateTime<chrono::Utc>, f64, f64)>>,
     /// Price mapping of the last rendered frame (includes zoom adjustments)
     pub(crate) last_price_map: PriceMap,
     /// Last rendered price rect (actual rect used for candle rendering); see

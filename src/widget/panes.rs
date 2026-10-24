@@ -434,13 +434,15 @@ impl Chart {
                     })
                     .filter(|_| !egui::Popup::is_any_open(ui.ctx()));
                 let mut crosshair_options = self.chart_options.crosshair.resolved(ui.ctx());
-                if self.drawings.eraser_mode {
+                if self.drawings.eraser_mode
+                    && crosshair_options.style != crate::config::CrosshairStyle::Hidden
+                {
                     crosshair_options.style = crate::config::CrosshairStyle::Arrow;
                 }
 
                 if panel.overlay {
                     hover = None;
-                } else if crosshair_options.mode == crate::config::CrosshairMode::Magnet {
+                } else if crosshair_options.mode.snaps() {
                     if let Some(pos) = &mut hover
                         && panel_rect.contains(*pos)
                         && let Some(bar) = panel.bar_index
@@ -1612,7 +1614,10 @@ mod tests {
             let overlay = chart.add_indicator(Box::new(CustomIndicator::new("Overlay", |bars| {
                 vec![IndicatorValue::Single(107.25); bars.len()]
             })));
-            chart.chart_options.crosshair.line_style = crate::config::CrosshairLineStyle::Solid;
+            chart.chart_options.crosshair.vert_line_style =
+                crate::config::CrosshairLineStyle::Solid;
+            chart.chart_options.crosshair.horz_line_style =
+                crate::config::CrosshairLineStyle::Solid;
             chart.chart_options.crosshair.vert_line_color = egui::Color32::RED;
             chart.chart_options.crosshair.horz_line_color = egui::Color32::BLUE;
             frame(&ctx, &mut chart, 0.0, vec![]);
