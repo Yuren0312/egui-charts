@@ -128,6 +128,7 @@ mod events;
 mod feed;
 mod marks;
 pub use events::{ChartEvent, ChartPointer};
+pub mod export;
 mod frame;
 mod history;
 pub(crate) mod interaction;
