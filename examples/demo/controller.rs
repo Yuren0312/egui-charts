@@ -11,6 +11,8 @@ mod layouts;
 use egui_charts::widget::ChartLayout;
 use layouts::{DemoChart, LayoutTab};
 
+#[path = "comparison.rs"]
+mod comparison;
 #[path = "live.rs"]
 mod live;
 
@@ -41,6 +43,7 @@ use egui_charts::ui::top_toolbar::components::indicator_dialog::{
 };
 use egui_charts::ui::top_toolbar::components::settings_menu::data::ChartSettingsState;
 use egui_charts::ui::top_toolbar::components::settings_menu::{SettingsAction, SettingsDialog};
+use egui_charts::ui::top_toolbar::{CompareAction, CompareSymbol};
 use egui_charts::ui::top_toolbar::{TopToolbar, TopToolbarAction};
 use egui_charts::ui::widget_bar::panels::object_tree::{
     DataWindowInfo, ObjectTreeAction, ObjectTreePanel, SourceItem,
@@ -158,6 +161,8 @@ pub struct DemoApp {
     settings_dialog: SettingsDialog,
     settings_state: ChartSettingsState,
     symbol_search: SymbolSearchDialog,
+    compare_dialog: egui_charts::ui::top_toolbar::CompareSymbolsDialog,
+    comparisons: Vec<(String, SeriesId, Arc<LiveFeed>)>,
     indicator_templates: Vec<SavedIndicators>,
     quick_search: egui_charts::ui_kit::command_palette::CommandPaletteHandler,
     alert_dialog: AlertDialog,
@@ -285,6 +290,8 @@ impl DemoApp {
             settings_dialog: SettingsDialog::new(),
             settings_state: ChartSettingsState::default(),
             symbol_search: SymbolSearchDialog::new(),
+            compare_dialog: egui_charts::ui::top_toolbar::CompareSymbolsDialog::new(),
+            comparisons: Vec::new(),
             indicator_templates: Vec::new(),
             quick_search: egui_charts::ui_kit::command_palette::CommandPaletteHandler::new(
                 [
@@ -318,6 +325,7 @@ impl DemoApp {
         app.alerts.set_service(app.alert_host.clone());
         app.alert_dialog.set_storage(app.alert_host.clone());
         app.apply_session();
+        app.settings_state = ChartSettingsState::from_chart(&app.chart);
         app
     }
 
@@ -363,6 +371,80 @@ impl DemoApp {
         self.regenerate_bars();
         // A symbol change invalidates an in-flight replay.
         self.stop_replay();
+    }
+
+    fn sync_comparisons(&mut self) {
+        self.comparisons
+            .retain(|(_, id, _)| self.chart.indicators().any(|(current, _)| current == *id));
+        self.compare_dialog.compared_symbols = self
+            .comparisons
+            .iter()
+            .filter_map(|(symbol, id, _)| {
+                let (_, study) = self.chart.indicators().find(|(current, _)| current == id)?;
+                let spec = DemoSymbol::find(symbol);
+                let mut entry =
+                    CompareSymbol::new(symbol, spec.company_name, spec.exchange, study.colors()[0]);
+                entry.visible = study.is_visible();
+                Some(entry)
+            })
+            .collect();
+    }
+
+    fn handle_comparison(&mut self, action: CompareAction) {
+        match action {
+            CompareAction::AddSymbol(symbol) => {
+                if self
+                    .comparisons
+                    .iter()
+                    .any(|(current, _, _)| *current == symbol)
+                    || !DemoSymbol::catalog()
+                        .iter()
+                        .any(|spec| spec.symbol == symbol)
+                {
+                    return;
+                }
+                let feed = Arc::new(LiveFeed::new(&symbol, chrono::Utc::now()));
+                let colors = [
+                    self.theme.ui.info,
+                    self.theme.ui.warning,
+                    self.theme.ui.success,
+                ];
+                let color = colors[self.comparisons.len() % colors.len()];
+                let id = self
+                    .chart
+                    .add_indicator(Box::new(comparison::Comparison::new(
+                        symbol.clone(),
+                        feed.clone(),
+                        color,
+                    )));
+                self.comparisons.push((symbol, id, feed));
+            }
+            CompareAction::RemoveSymbol(symbol) => {
+                if let Some((_, id, _)) = self
+                    .comparisons
+                    .iter()
+                    .find(|(current, _, _)| *current == symbol)
+                {
+                    self.chart.remove_series(*id);
+                }
+            }
+            CompareAction::ToggleVisibility(symbol) => {
+                if let Some((_, id, _)) = self
+                    .comparisons
+                    .iter()
+                    .find(|(current, _, _)| *current == symbol)
+                {
+                    let visible = self
+                        .chart
+                        .indicators()
+                        .find(|(current, _)| current == id)
+                        .is_some_and(|(_, study)| study.is_visible());
+                    self.chart.set_indicator_visible(*id, !visible);
+                }
+            }
+            CompareAction::None | CompareAction::Close => {}
+        }
+        self.sync_comparisons();
     }
 
     fn regenerate_bars(&mut self) {
@@ -526,63 +608,10 @@ impl DemoApp {
     // --- selection / context helpers --------------------------------------
 
     fn open_chart_settings_dialog(&mut self) {
-        let config = self.chart.config();
-        let settings = &mut self.settings_state;
-        settings.timezone = self.timeframe_toolbar.state.timezone.clone();
-        settings.candle_colors.body_up = config.bullish_color;
-        settings.candle_colors.body_down = config.bearish_color;
-        settings.candle_colors.border_up =
-            config.bullish_border_color.unwrap_or(config.bullish_color);
-        settings.candle_colors.border_down =
-            config.bearish_border_color.unwrap_or(config.bearish_color);
-        settings.candle_colors.wick_up = config
-            .bullish_wick_color
-            .unwrap_or(settings.candle_colors.border_up);
-        settings.candle_colors.wick_down = config
-            .bearish_wick_color
-            .unwrap_or(settings.candle_colors.border_down);
-        settings.chart_basic_styles.background_color = config.background_color;
-        settings.grid_lines.horizontal_color = config.grid_color;
-        settings.grid_lines.vertical_color = config.grid_color;
-        settings.status_line.show_symbol = config.show_symbol_labels;
-        settings.status_line.title_as_description = config.title_as_description;
-        settings.status_line.show_quote_boxes = config.show_quote_boxes;
-        settings.status_line.show_ohlc = config.show_ohlc_info;
-        settings.status_line.show_change = config.show_ohlc_change;
-        settings.status_line.show_change_percent = config.show_ohlc_change_percent;
-        settings.status_line.show_volume = config.show_legend_volume;
-        settings.status_line.show_indicator_titles = config.show_indicator_labels;
-        settings.status_line.show_indicator_inputs = config.show_indicator_inputs;
-        settings.status_line.show_indicator_values = config.show_indicator_last_val;
-        settings.scales_and_lines.price_scale_left =
-            !config.show_right_axis && config.show_left_axis;
-        settings.scales_and_lines.show_last_price_label = config.show_symbol_last_val;
-        settings.scales_and_lines.show_price_line = config.show_price_line;
-        settings.scales_and_lines.show_prev_close_label = config.show_symbol_prev_close;
-        settings.scales_and_lines.show_prev_close = config.show_prev_close_line;
-        settings.scales_and_lines.show_countdown = config.show_countdown;
-        settings.scales_and_lines.show_bid_ask = config.show_bid_ask;
-        settings.scales_and_lines.show_high_low = config.show_high_low;
-        settings.margins.top_percent =
-            (self.chart.state().price_scale().options().scale_margins.top * 100.0) as f32;
-        settings.margins.bottom_percent = (self
-            .chart
-            .state()
-            .price_scale()
-            .options()
-            .scale_margins
-            .bottom
-            * 100.0) as f32;
-        settings.margins.right_bars =
-            self.chart.chart_options().time_scale.right_offset.max(0.0) as u32;
-        let scale = self.chart.state().price_scale();
-        settings.scales_and_lines.auto_scale = !scale.is_manual();
-        settings.scales_and_lines.log_scale =
-            scale.options().mode == egui_charts::scales::PriceScaleMode::Logarithmic;
-        settings.scales_and_lines.percentage_scale =
-            scale.options().mode == egui_charts::scales::PriceScaleMode::Percentage;
-        settings.scales_and_lines.invert_scale = scale.options().invert_scale;
-        self.settings_dialog.open(settings.clone());
+        let alerts = self.settings_state.alerts.clone();
+        self.settings_state = ChartSettingsState::from_chart(&self.chart);
+        self.settings_state.alerts = alerts;
+        self.settings_dialog.open(self.settings_state.clone());
     }
 
     fn open_series_settings_dialog(&mut self) {
@@ -700,29 +729,15 @@ impl DemoApp {
             SettingsAction::Apply(state) => {
                 self.settings_state = state.clone();
                 apply_settings_state(&state, &mut self.chart, &mut self.timeframe_toolbar);
-                let scale = self.chart.price_scale_mut();
-                let mode = if state.scales_and_lines.log_scale {
-                    egui_charts::scales::PriceScaleMode::Logarithmic
-                } else if state.scales_and_lines.percentage_scale {
-                    egui_charts::scales::PriceScaleMode::Percentage
-                } else {
-                    egui_charts::scales::PriceScaleMode::Normal
-                };
-                scale.options_mut().mode = mode;
-                scale.options_mut().invert_scale = state.scales_and_lines.invert_scale;
-                if state.scales_and_lines.auto_scale {
-                    scale.reset();
-                } else {
-                    let range = scale.range();
-                    scale.set_range(range.min, range.max);
-                }
             }
             SettingsAction::Cancel => {}
             _ => {}
         }
 
-        // Symbol search (used by the pill, quick search, and compare entry).
         let symbols = DemoSymbol::symbols();
+        self.sync_comparisons();
+        let action = self.compare_dialog.show(ctx, &symbols);
+        self.handle_comparison(action);
         self.symbol_search
             .set_recent_symbols(vec![self.state.symbol.clone()]);
         if let Some(picked) = self.symbol_search.show(ctx, &symbols) {
@@ -772,7 +787,11 @@ impl DemoApp {
 
     fn remove_all_indicators(&mut self) {
         let chart = &mut self.chart;
-        let ids: Vec<SeriesId> = chart.indicators().map(|(id, _)| id).collect();
+        let ids: Vec<SeriesId> = chart
+            .indicators()
+            .filter(|(id, _)| !self.comparisons.iter().any(|(_, current, _)| current == id))
+            .map(|(id, _)| id)
+            .collect();
         for id in ids {
             chart.remove_series(id);
         }
@@ -917,9 +936,18 @@ impl eframe::App for DemoApp {
             }
         }
 
+        for (_, _, feed) in &self.comparisons {
+            feed.set_paused(self.live.paused() || self.replay.is_some());
+            feed.advance(chrono::Utc::now());
+        }
+
         for extra in &mut self.extra_charts {
             extra.live.set_symbol(extra.chart.symbol());
             let delay = extra.live.advance(chrono::Utc::now());
+            for (_, _, feed) in &extra.comparisons {
+                feed.set_paused(extra.live.paused());
+                feed.advance(chrono::Utc::now());
+            }
             if !extra.live.paused() {
                 ctx.request_repaint_after(delay);
             }
@@ -1113,9 +1141,8 @@ impl DemoApp {
                 self.size_price_based_charts();
             }
             TopToolbarAction::IntervalSelected(tf) => self.switch_timeframe(tf),
-            TopToolbarAction::OpenSymbolSearch | TopToolbarAction::OpenCompare => {
-                self.symbol_search.open();
-            }
+            TopToolbarAction::OpenSymbolSearch => self.symbol_search.open(),
+            TopToolbarAction::OpenCompare => self.compare_dialog.open(),
             TopToolbarAction::OpenIndicators => self.indicator_dialog.open(),
             TopToolbarAction::CreateAlert => self.open_alert(None),
             TopToolbarAction::ToggleReplay => self.toggle_replay(),
@@ -1143,11 +1170,13 @@ impl DemoApp {
                 let studies = self
                     .chart
                     .indicators()
+                    .filter(|(id, _)| !self.comparisons.iter().any(|(_, current, _)| current == id))
                     .map(|(_, study)| study.clone_box())
                     .collect();
                 let inputs = self
                     .chart
                     .indicators()
+                    .filter(|(id, _)| !self.comparisons.iter().any(|(_, current, _)| current == id))
                     .map(|(id, _)| {
                         self.chart
                             .indicator_inputs(id)
@@ -1251,7 +1280,11 @@ impl DemoApp {
             }
             DrawingToolbarAction::HideAllIndicators => {
                 let chart = &mut self.chart;
-                let ids: Vec<SeriesId> = chart.indicators().map(|(id, _)| id).collect();
+                let ids: Vec<SeriesId> = chart
+                    .indicators()
+                    .filter(|(id, _)| !self.comparisons.iter().any(|(_, current, _)| current == id))
+                    .map(|(id, _)| id)
+                    .collect();
                 for id in ids {
                     chart.set_indicator_visible(id, false);
                 }
@@ -1986,63 +2019,8 @@ fn apply_settings_state(
     chart: &mut Chart,
     toolbar: &mut TimeframeToolbar,
 ) {
-    use egui_charts::config::NavigationButtons;
-    use egui_charts::ui::top_toolbar::components::settings_menu::types::{
-        ButtonVisibility, GridLinesMode,
-    };
-    apply_timezone(chart, toolbar, &state.timezone);
-    let config = chart.config_mut();
-
-    config.bullish_color = state.candle_colors.body_up;
-    config.bearish_color = state.candle_colors.body_down;
-    config.bullish_border_color = Some(state.candle_colors.border_up);
-    config.bearish_border_color = Some(state.candle_colors.border_down);
-    config.bullish_wick_color = Some(state.candle_colors.wick_up);
-    config.bearish_wick_color = Some(state.candle_colors.wick_down);
-
-    config.background_color = state.chart_basic_styles.background_color;
-    config.grid_color = state.grid_lines.horizontal_color;
-
-    let (h, v) = match state.grid_lines.mode {
-        GridLinesMode::None => (false, false),
-        GridLinesMode::Horizontal => (true, false),
-        GridLinesMode::Vertical => (false, true),
-        GridLinesMode::Both => (true, true),
-    };
-    config.show_horizontal_grid = h;
-    config.show_vertical_grid = v;
-    config.show_grid = h || v;
-
-    config.navigation_buttons = match state.btns.navigation {
-        ButtonVisibility::AlwaysVisible => NavigationButtons::Always,
-        ButtonVisibility::VisibleOnMouseOver => NavigationButtons::OnHover,
-        ButtonVisibility::Hidden => NavigationButtons::Never,
-    };
-    config.show_ohlc_info = state.status_line.show_ohlc;
-    config.show_symbol_labels = state.status_line.show_symbol;
-    config.title_as_description = state.status_line.title_as_description;
-    config.show_quote_boxes = state.status_line.show_quote_boxes;
-    config.show_ohlc_change = state.status_line.show_change;
-    config.show_ohlc_change_percent = state.status_line.show_change_percent;
-    config.show_legend_volume = state.status_line.show_volume;
-    config.show_indicator_labels = state.status_line.show_indicator_titles;
-    config.show_indicator_inputs = state.status_line.show_indicator_inputs;
-    config.show_indicator_last_val = state.status_line.show_indicator_values;
-    config.show_right_axis = !state.scales_and_lines.price_scale_left;
-    config.show_left_axis = state.scales_and_lines.price_scale_left;
-    config.show_symbol_last_val = state.scales_and_lines.show_last_price_label;
-    config.show_price_line = state.scales_and_lines.show_price_line;
-    config.show_symbol_prev_close = state.scales_and_lines.show_prev_close_label;
-    config.show_prev_close_line = state.scales_and_lines.show_prev_close;
-    config.show_countdown = state.scales_and_lines.show_countdown;
-    config.show_bid_ask = state.scales_and_lines.show_bid_ask;
-    config.show_high_low = state.scales_and_lines.show_high_low;
-    chart.price_scale_mut().options_mut().scale_margins = egui_charts::scales::PriceScaleMargins {
-        top: f64::from(state.margins.top_percent.clamp(0.0, 100.0)) / 100.0,
-        bottom: f64::from(state.margins.bottom_percent.clamp(0.0, 100.0)) / 100.0,
-    };
-    if state.margins.right_bars != chart.chart_options().time_scale.right_offset.max(0.0) as u32 {
-        chart.set_right_margin(state.margins.right_bars as f32);
+    if state.apply_to_chart(chart).is_ok() {
+        toolbar.set_timezone(state.timezone.clone());
     }
 }
 
@@ -2050,6 +2028,187 @@ fn apply_settings_state(
 mod tests {
     use super::*;
     use egui_charts::ui::timeframe_toolbar::DateRange;
+
+    #[test]
+    fn comparison_dialog_adds_hides_and_removes_chart_series() {
+        let ctx = egui::Context::default();
+        let mut app = DemoApp::new(&eframe::CreationContext::_new_kittest(ctx.clone()));
+        app.live.set_paused(true);
+        app.chart.set_feed_paused(true);
+        let main_symbol = app.chart.symbol().to_owned();
+        let main_bars = app.chart.bars(SeriesId::MAIN).to_vec();
+        app.handle_top_toolbar(&ctx, TopToolbarAction::OpenCompare);
+        for (label, count, visible) in [
+            ("AAPL", 1, true),
+            ("Hide", 1, false),
+            ("Show", 1, true),
+            ("X", 0, false),
+        ] {
+            let mut frame = |events| {
+                let output = ctx.run_ui(
+                    egui::RawInput {
+                        events,
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1440.0, 900.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| app.show_dialogs(ui.ctx()),
+                );
+                let pos = output.shapes.iter().find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == label => {
+                        Some(text.pos + text.galley.size() / 2.0)
+                    }
+                    _ => None,
+                });
+                output.drop_without_applying_deltas();
+                pos
+            };
+            frame(vec![]);
+            let pos = frame(vec![]).expect("comparison action is visible");
+            frame(vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                frame(vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                }]);
+            }
+            let comparisons: Vec<_> = app
+                .chart
+                .indicators()
+                .filter(|(_, study)| study.name() == "AAPL")
+                .collect();
+            assert_eq!(
+                comparisons.len(),
+                count,
+                "{label} must change actual chart membership"
+            );
+            if let Some((_, study)) = comparisons.first() {
+                assert_eq!(study.is_visible(), visible);
+                assert!(study.values().line(0).iter().any(|value| value.is_finite()));
+            }
+            if label == "AAPL" {
+                let colour = comparisons[0].1.colors()[0];
+                let mut painted = false;
+                for _ in 0..3 {
+                    let output = ctx.run_ui(Default::default(), |ui| {
+                        app.show_chart(ui, app.theme.chart.bg)
+                    });
+                    painted |= output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == colour));
+                    output.drop_without_applying_deltas();
+                }
+                assert!(painted, "comparison prices must be painted");
+                app.handle_top_toolbar(&ctx, TopToolbarAction::SaveIndicatorTemplate);
+                assert!(app.indicator_templates.last().unwrap().studies.is_empty());
+                app.handle_top_toolbar(
+                    &ctx,
+                    TopToolbarAction::ApplyIndicatorTemplate("Study set 1".into()),
+                );
+                assert!(
+                    app.chart
+                        .indicators()
+                        .any(|(_, study)| study.name() == "AAPL")
+                );
+            }
+            assert_eq!(app.compare_dialog.compared_symbols.len(), count);
+            assert_eq!(app.chart.symbol(), main_symbol);
+            assert!(
+                app.chart.bars(SeriesId::MAIN) == main_bars,
+                "comparison actions must preserve the main data"
+            );
+        }
+    }
+
+    #[test]
+    fn display_settings_apply_styles_and_read_back() {
+        use egui_charts::config::{BackgroundStyle, CrosshairLineStyle};
+        use egui_charts::ui::top_toolbar::components::settings_menu::{
+            BackgroundType, PrecisionMode, WatermarkMode,
+        };
+        let ctx = egui::Context::default();
+        let mut app = DemoApp::new(&eframe::CreationContext::_new_kittest(ctx));
+        let mut state = app.settings_state.clone();
+        state.chart_basic_styles.background_type = BackgroundType::VerticalGradient;
+        state.chart_basic_styles.background_gradient_top = egui::Color32::RED;
+        state.chart_basic_styles.background_gradient_bottom = egui::Color32::BLUE;
+        state.crosshair.line_width = 3.0;
+        state.crosshair.line_style =
+            egui_charts::ui::top_toolbar::components::settings_menu::LineStyle::Solid;
+        state.crosshair.color = egui::Color32::GREEN;
+        state.precision = PrecisionMode::Decimals5;
+        state.watermark.mode = WatermarkMode::Symbol;
+        state.grid_lines.horizontal_color = egui::Color32::RED;
+        state.grid_lines.vertical_color = egui::Color32::BLUE;
+        state.margins.top_percent = 12.5;
+        state.margins.bottom_percent = 7.5;
+        state.margins.right_bars = 17;
+        apply_settings_state(&state, &mut app.chart, &mut app.timeframe_toolbar);
+        assert_eq!(
+            app.chart.config().background_style,
+            BackgroundStyle::VerticalGradient {
+                top_color: egui::Color32::RED,
+                bottom_color: egui::Color32::BLUE,
+            }
+        );
+        assert_eq!(
+            app.chart.chart_options().crosshair.line_style,
+            CrosshairLineStyle::Solid
+        );
+        assert_eq!(app.chart.chart_options().crosshair.horz_line_width, 3.0);
+        assert_eq!(
+            app.chart.chart_options().crosshair.vert_line_color,
+            egui::Color32::GREEN
+        );
+        assert!(app.chart.config().show_watermark);
+        let scale = app.chart.state().price_scale();
+        assert_eq!(
+            scale.map(Default::default(), 0.0, 1.0).price_precision(),
+            Some(5)
+        );
+        assert_eq!(scale.options().scale_margins.top, 0.125);
+        assert_eq!(scale.options().scale_margins.bottom, 0.075);
+        state.alerts.show_alerts = false;
+        state.alerts.show_alert_labels = false;
+        state.alerts.alert_color = egui::Color32::YELLOW;
+        app.settings_state.alerts = state.alerts.clone();
+        app.open_chart_settings_dialog();
+        assert_eq!(app.settings_state.alerts, state.alerts);
+        assert_eq!(app.settings_dialog.settings().alerts, state.alerts);
+        assert_eq!(app.settings_state.grid_lines, state.grid_lines);
+        assert_eq!(app.settings_state.crosshair, state.crosshair);
+        assert_eq!(app.settings_state.precision, state.precision);
+        assert_eq!(app.settings_state.margins, state.margins);
+        assert_eq!(app.settings_state.watermark, state.watermark);
+        let mut next = app.chart.bars(SeriesId::MAIN).last().unwrap().clone();
+        next.time += chrono::TimeDelta::minutes(1);
+        app.chart.update(SeriesId::MAIN, next);
+        assert_eq!(
+            app.chart.get_time_scale_state().1,
+            17.0,
+            "live bars retain the chosen right margin"
+        );
+        let before = app.settings_state.clone();
+        for (timezone, top, bottom, width) in [
+            ("Unknown", 10.0, 10.0, 1.0),
+            ("UTC", f32::NAN, 10.0, 1.0),
+            ("UTC", 60.0, 40.0, 1.0),
+            ("UTC", -1.0, 10.0, 1.0),
+            ("UTC", 10.0, 10.0, 0.0),
+        ] {
+            let mut invalid = state.clone();
+            invalid.timezone = timezone.into();
+            invalid.margins.top_percent = top;
+            invalid.margins.bottom_percent = bottom;
+            invalid.crosshair.line_width = width;
+            invalid.candle_colors.body_up = egui::Color32::YELLOW;
+            apply_settings_state(&invalid, &mut app.chart, &mut app.timeframe_toolbar);
+            app.open_chart_settings_dialog();
+            assert_eq!(app.settings_state, before);
+        }
+    }
 
     #[test]
     fn alt_a_creates_a_host_alert_at_the_hovered_price_and_dragging_submits_its_new_level() {

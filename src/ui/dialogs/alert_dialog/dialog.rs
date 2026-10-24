@@ -13,7 +13,8 @@ use crate::model::{
 };
 use crate::services::{Storage, StoreKind};
 use crate::ui_kit::FormGrid;
-use crate::ui_kit::dialog::{DialogFooter, DialogFrame, dialog_header};
+use crate::ui_kit::dialog::{DialogFooter, dialog_header};
+use crate::ui_kit::modal::Modal;
 use crate::ui_kit::status_message::{MessageKind, status_message};
 
 /// A dialog that creates or edits the same alert type the host stores and evaluates.
@@ -169,59 +170,77 @@ impl AlertDialog {
         } else {
             "Create Alert"
         };
-        DialogFrame::with_width(title, self.config.width).show(ctx, |ui| {
-            if dialog_header(ui, title) {
-                self.close();
-                action = AlertDialogAction::Cancel;
-            }
-            ui.separator();
-            let mut expiry = Ok(None);
-            let mut valid = false;
-            egui::ScrollArea::vertical()
-                .max_height(
-                    (ui.available_height() - 65.0)
-                        .min(self.config.height)
-                        .max(0.0),
-                )
-                .show(ui, |ui| {
-                    self.form(ui);
-                    expiry = if self.expires.trim().is_empty() {
-                        Ok(None)
-                    } else {
-                        DateTime::parse_from_rfc3339(self.expires.trim())
-                            .map(|t| Some(t.with_timezone(&Utc)))
-                    };
-                    valid = self.alert.is_valid() && expiry.is_ok();
-                    if !valid {
-                        status_message(
-                            ui,
-                            MessageKind::Error,
-                            "Check the subject, levels, lookback and expiry (RFC 3339)",
-                        );
-                    }
-                    if let Some(error) = &self.error {
-                        status_message(ui, MessageKind::Error, error);
-                    }
-                });
-            let (save, cancel) = DialogFooter::new("Save alert")
-                .secondary("Cancel")
-                .primary_enabled(valid)
-                .show(ui);
-            if cancel {
-                self.close();
-                action = AlertDialogAction::Cancel;
-            }
-            if save {
-                self.alert.expires = expiry.unwrap();
-                action = AlertDialogAction::Create(Box::new(self.alert.clone()));
-                self.close();
-            }
-        });
+        let mut open = true;
+        Modal::new("create_alert", "")
+            .width(self.config.width + 32.0)
+            .height(self.config.height + 130.0)
+            .show(ctx, &mut open, |ui| {
+                if dialog_header(ui, title) {
+                    self.close();
+                    action = AlertDialogAction::Cancel;
+                }
+                ui.separator();
+                let mut expiry = Ok(None);
+                let mut valid = false;
+                egui::ScrollArea::vertical()
+                    .max_height(
+                        (ui.available_height() - 65.0)
+                            .min(self.config.height)
+                            .max(0.0),
+                    )
+                    .show(ui, |ui| {
+                        self.form(ui);
+                        expiry = if self.expires.trim().is_empty() {
+                            Ok(None)
+                        } else {
+                            DateTime::parse_from_rfc3339(self.expires.trim())
+                                .map(|t| Some(t.with_timezone(&Utc)))
+                        };
+                        valid = self.alert.is_valid() && expiry.is_ok();
+                        if !valid {
+                            status_message(
+                                ui,
+                                MessageKind::Error,
+                                "Check the subject, levels, lookback and expiry (RFC 3339)",
+                            );
+                        }
+                        if let Some(error) = &self.error {
+                            status_message(ui, MessageKind::Error, error);
+                        }
+                    });
+                let (save, cancel) = DialogFooter::new("Save alert")
+                    .secondary("Cancel")
+                    .primary_enabled(valid)
+                    .show(ui);
+                if cancel {
+                    self.close();
+                    action = AlertDialogAction::Cancel;
+                }
+                if save {
+                    self.alert.expires = expiry.unwrap();
+                    action = AlertDialogAction::Create(Box::new(self.alert.clone()));
+                    self.close();
+                }
+            });
+        if !open {
+            self.close();
+            action = AlertDialogAction::Cancel;
+        }
         action
     }
 
     fn form(&mut self, ui: &mut Ui) {
-        ui.spacing_mut().text_edit_width = (ui.available_width() - 110.0).clamp(40.0, 280.0);
+        let label_width = ui
+            .painter()
+            .layout_no_wrap(
+                "Expiry (optional)".into(),
+                egui::TextStyle::Body.resolve(ui.style()),
+                ui.visuals().text_color(),
+            )
+            .size()
+            .x;
+        ui.spacing_mut().text_edit_width =
+            (ui.available_width() - label_width - ui.spacing().item_spacing.x).max(0.0);
         FormGrid::new("alert_details").show(ui, |ui| {
             ui.label("Name");
             ui.text_edit_singleline(&mut self.alert.name);
@@ -525,6 +544,37 @@ mod tests {
     }
 
     #[test]
+    fn form_controls_fill_the_dialog_width_for_each_source() {
+        for source in [
+            AlertSource::Price,
+            AlertSource::Study {
+                id: "study".into(),
+                output: 0,
+            },
+            AlertSource::Volume,
+        ] {
+            for width in [360.0, 560.0] {
+                let ctx = Context::default();
+                let mut dialog = AlertDialog::new();
+                dialog.alert.source = source.clone();
+                let mut form_width = 0.0;
+                for _ in 0..3 {
+                    ctx.run_ui(Default::default(), |ui| {
+                        ui.set_width(width);
+                        let form = ui.vertical(|ui| dialog.form(ui));
+                        form_width = form.response.rect.width();
+                    })
+                    .drop_without_applying_deltas();
+                }
+                assert!(
+                    (form_width - width).abs() < 16.0,
+                    "{source:?}: {form_width} at {width}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn alert_form_and_actions_fit_narrow_windows_in_both_themes() {
         for dark in [false, true] {
             let ctx = Context::default();
@@ -559,7 +609,11 @@ mod tests {
                     comparison: AlertComparison::Crossing,
                 },
             });
-            for size in [egui::vec2(1440.0, 900.0), egui::vec2(320.0, 450.0)] {
+            for size in [
+                egui::vec2(1440.0, 900.0),
+                egui::vec2(600.0, 360.0),
+                egui::vec2(320.0, 450.0),
+            ] {
                 for invalid in [false, true] {
                     dialog.expires = if invalid { "invalid" } else { "" }.into();
                     for frame in 0..3 {
@@ -584,8 +638,15 @@ mod tests {
                             }
                             _ => None,
                         });
+                        let message_visible = output.shapes.iter().any(|shape| matches!(
+                            &shape.shape, egui::Shape::Text(text) if text.galley.text() == "Message"
+                                && shape.clip_rect.contains_rect(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                        ));
                         output.drop_without_applying_deltas();
                         if frame > 0 {
+                            if size.y == 900.0 {
+                                assert!(message_visible, "the default height fits the message row");
+                            }
                             let (clip, button) = save.expect("save action is painted");
                             assert!(
                                 clip.contains_rect(button),
@@ -594,7 +655,7 @@ mod tests {
                         }
                     }
                     let rect = ctx
-                        .memory(|m| m.area_rect(egui::Id::unique(Some("Create Alert"))))
+                        .memory(|m| m.area_rect(egui::Id::unique("create_alert")))
                         .unwrap();
                     assert!(
                         rect.left() >= 0.0
