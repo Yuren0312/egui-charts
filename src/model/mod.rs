@@ -70,6 +70,8 @@ pub use chart_style::{
     LineType,
 };
 pub use chart_type::{BaselineLevel, ChartType, ChartTypeCategory, ChartTypeParams};
+#[cfg(feature = "widget")]
+pub(crate) use chartstate::next_revision;
 pub use chartstate::{ChartState, ZoomState};
 pub use clock::BarClock;
 pub use color::ColorType;

@@ -96,11 +96,19 @@ pub enum ChartEvent {
         position: ChartPointer,
     },
     /// A successful history page or `set_data` completed, including an empty result.
-    /// Live updates and failed or obsolete feed replies do not emit this event.
+    /// Live updates emit `DataUpdated` instead; failed or obsolete feed replies emit nothing.
     DataLoaded {
         /// Bar series that received data.
         series: SeriesId,
         /// Total accepted bars now held by that series, after cleaning and merging.
+        bars: usize,
+    },
+    /// A live bar from `update` or the chart's feed changed the bars of a series, or `pop_bars`
+    /// removed some. Changes of one series in a row are reported once, with the latest count.
+    DataUpdated {
+        /// Bar series whose bars changed.
+        series: SeriesId,
+        /// Total bars now held by that series.
         bars: usize,
     },
     /// The symbol setter accepted a different symbol.
@@ -170,6 +178,21 @@ impl Chart {
         });
     }
 
+    pub(super) fn data_updated(&mut self, series: SeriesId) {
+        let bars = self.bars(series).len();
+        if let Some(ChartEvent::DataUpdated {
+            series: last,
+            bars: count,
+        }) = self.host_events.queue.back_mut()
+            && *last == series
+        {
+            *count = bars;
+        } else {
+            self.host_events
+                .push(ChartEvent::DataUpdated { series, bars });
+        }
+    }
+
     fn pointer_at(&self, ui: &Ui, pos: Pos2) -> Option<ChartPointer> {
         let scale = self.state.time_scale();
         let plot = self.last_rendered_price_rect;
@@ -199,11 +222,7 @@ impl Chart {
                     && plot.x_range().contains(pos.x)
             }) {
             let owner = *self.pane_series(group.id).first()?;
-            let map = group.scale.map(
-                group.scale.transform(),
-                group.rect.top(),
-                group.rect.bottom(),
-            );
+            let map = group.price_map();
             let closes = group.members.iter().filter_map(|id| {
                 let item =
                     (self.price_series.iter()).find(|item| item.id == *id && item.visible)?;
@@ -583,23 +602,38 @@ mod tests {
             frame(&ctx, &mut chart, 1.95, vec![Event::PointerMoved(pos)]);
             let events = chart.drain_events().collect::<Vec<_>>();
             assert!(events.iter().any(|event| matches!(event, ChartEvent::CrosshairMoved(Some(point)) if point.target == Some(PointerTarget::Element(ChartElementId::Indicator(other))))), "{events:?}");
-            // The pane below the merged pair is the second pane, not the third study.
+            // The pane below the merged pair is the second pane, not the third study, and a pane
+            // of bar series counts as one, its pointer snapping to their closes.
+            let series = chart.add_series(crate::widget::SeriesOptions::default());
+            chart.set_data(series, bars.clone());
+            let series_pane = chart.add_pane();
+            assert!(chart.move_series_to_pane(series, series_pane));
             let below = chart.add_indicator(Box::new(crate::studies::RSI::default()));
             frame(&ctx, &mut chart, 1.96, vec![Event::PointerGone]);
             chart.drain_events().for_each(drop);
+            let map = chart.series_price_map(series).unwrap();
+            let pos = Pos2::new(
+                chart.get_chart_mapping().idx_to_x(70),
+                map.price_to_y(bars[70].close) + 2.0,
+            );
+            assert!(chart.pane_layout.panes[2].rect.contains(pos));
+            frame(&ctx, &mut chart, 1.965, vec![Event::PointerMoved(pos)]);
+            let events = chart.drain_events().collect::<Vec<_>>();
+            assert!(events.iter().any(|event| matches!(event, ChartEvent::CrosshairMoved(Some(point)) if point.series == series && point.pane == 2 && point.price == bars[70].close)), "{events:?}");
             let pane = chart.last_rendered_indicator_panes.last().unwrap();
             let pos = Pos2::new(pane.mapping.idx_to_x(70), pane.chart_rect.center().y);
             frame(&ctx, &mut chart, 1.97, vec![Event::PointerMoved(pos)]);
             let events = chart.drain_events().collect::<Vec<_>>();
-            assert!(events.iter().any(|event| matches!(event, ChartEvent::CrosshairMoved(Some(point)) if point.series == below && point.pane == 2)), "{events:?}");
-            // Panes count from the top as drawn, so the price pane moved to the bottom is third.
+            assert!(events.iter().any(|event| matches!(event, ChartEvent::CrosshairMoved(Some(point)) if point.series == below && point.pane == 3)), "{events:?}");
+            // Panes count from the top as drawn, so the price pane moved to the bottom is fourth.
             assert!(chart.move_pane(super::super::PaneId::MAIN, usize::MAX));
             frame(&ctx, &mut chart, 1.98, vec![Event::PointerGone]);
             chart.drain_events().for_each(drop);
             let pos = chart.last_rendered_price_rect.center();
             frame(&ctx, &mut chart, 1.99, vec![Event::PointerMoved(pos)]);
             let events = chart.drain_events().collect::<Vec<_>>();
-            assert!(events.iter().any(|event| matches!(event, ChartEvent::CrosshairMoved(Some(point)) if point.series == SeriesId::MAIN && point.pane == 2)), "{events:?}");
+            assert!(events.iter().any(|event| matches!(event, ChartEvent::CrosshairMoved(Some(point)) if point.series == SeriesId::MAIN && point.pane == 3)), "{events:?}");
+            chart.remove_series(series);
             chart.remove_series(below);
             chart.remove_series(other);
             chart.remove_series(id);

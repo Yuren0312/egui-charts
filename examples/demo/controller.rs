@@ -770,6 +770,8 @@ impl DemoApp {
         {
             self.indicator_settings
                 .open(id, study, self.chart.timeframe());
+        } else if self.chart.series().any(|(series, _)| series == id) {
+            self.compare_dialog.open();
         }
     }
 
@@ -3577,7 +3579,7 @@ mod tests {
                     let output = ctx.run_ui(Default::default(), |ui| {
                         app.show_chart(ui, app.theme.chart.bg)
                     });
-                    painted |= output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == colour));
+                    painted |= output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Path(path) if path.stroke.color == egui::epaint::ColorMode::Solid(colour)));
                     output.drop_without_applying_deltas();
                 }
                 assert!(painted, "comparison prices must be painted");

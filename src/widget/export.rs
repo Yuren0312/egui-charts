@@ -239,6 +239,7 @@ impl Chart {
                 options: series.options.clone(),
                 visible: series.visible,
                 bars: series.bars.clone(),
+                revision: series.revision,
                 feed: series.feed.clone(),
                 markers: series.markers.clone(),
                 marker_options: series.marker_options,

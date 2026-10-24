@@ -91,6 +91,12 @@ impl Pane {
         }
     }
 
+    /// The price mapping of the pane's scale over its panel rect in the last frame.
+    pub(super) fn price_map(&self) -> crate::scales::PriceMap {
+        self.scale
+            .map(self.scale.transform(), self.rect.top(), self.rect.bottom())
+    }
+
     /// The price pane takes three shares of the height and every other pane one.
     pub(super) fn default_stretch(id: PaneId) -> f32 {
         if id == PaneId::MAIN { 3.0 } else { 1.0 }
