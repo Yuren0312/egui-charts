@@ -295,6 +295,7 @@ impl Chart {
         ui: &mut Ui,
         footprint: Option<(&Footprint, &FootprintConfig)>,
     ) -> Response {
+        self.apply_config_scale_mode();
         #[cfg(feature = "studies")]
         self.sync_volume_study(ui.ctx());
         self.pump(ui.ctx());
@@ -1029,9 +1030,12 @@ impl Chart {
             renderers::render_markers(
                 &clipped_price_ctx,
                 &self.marks,
-                visible_data,
+                self.state.shown(),
                 &price_map,
-                &coords,
+                &crate::chart::coords::ChartMapping {
+                    start_idx: 0,
+                    ..coords
+                },
             );
         }
 
