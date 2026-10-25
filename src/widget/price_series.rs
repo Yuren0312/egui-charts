@@ -622,6 +622,7 @@ impl Chart {
                 .into_iter()
                 .flat_map(|(min, max)| [min, max])
                 .chain(markers)
+                .chain(self.primitive_prices(item.id))
             {
                 let value = transform.to_scale(value);
                 if value.is_finite() {
