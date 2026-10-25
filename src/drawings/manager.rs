@@ -235,7 +235,7 @@ pub(crate) struct TextEditState {
 /// // ... (start_drawing_with_coords, add_point_with_coords, etc.)
 ///
 /// // 4. Render against the chart's bars and coordinate mapping
-/// let view = ChartView { instrument: None, bars, revision, bar_to_x: &bar_to_x, price_to_y: &price_to_y };
+/// let view = ChartView { instrument: None, bars, revision, bar_to_x: &bar_to_x, price_to_y: &price_to_y, time_axis: true };
 /// manager.render_all(painter, price_rect, &view);
 /// # }
 /// ```
@@ -1629,6 +1629,7 @@ mod tests {
                         revision: 0,
                         bar_to_x: &|b| b * 10.0,
                         price_to_y: &|p| 500.0 - p as f32,
+                        time_axis: true,
                     };
                     manager.render_all(ui.painter(), pane, &view);
                 })
@@ -1707,6 +1708,7 @@ mod tests {
                     revision: 0,
                     bar_to_x: &|b| b * 10.0,
                     price_to_y: &|p| 500.0 - p as f32,
+                    time_axis: true,
                 };
                 manager.render_all(ui.painter(), pane, &view);
             });

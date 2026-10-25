@@ -58,6 +58,16 @@ path = "examples/bare_chart.rs"
 required-features = ["widget"]
 
 [[example]]
+name = "volatility_smile"
+path = "examples/volatility_smile.rs"
+required-features = ["widget"]
+
+[[example]]
+name = "yield_curve"
+path = "examples/yield_curve.rs"
+required-features = ["widget"]
+
+[[example]]
 name = "primitives"
 path = "examples/primitives.rs"
 required-features = ["widget"]

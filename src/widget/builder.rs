@@ -152,6 +152,7 @@ impl Chart {
             indicator_settings_request: None,
             session_quote: None,
             session_provider: None,
+            horizontal_scale: None,
             locale: None,
             date_format: None,
             time_formatter: None,

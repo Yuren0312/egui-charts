@@ -15,11 +15,17 @@ use crate::tokens::DESIGN_TOKENS;
 use egui::{Pos2, Rect, Response, Sense, Ui, Vec2};
 
 impl Chart {
-    /// Formats a timestamp with the chart's zone, clock visibility and bar duration.
+    /// Formats a timestamp with the chart's zone, clock visibility and bar duration, or a key
+    /// as the crosshair label of the [horizontal scale](Self::set_horizontal_scale) reads.
     /// Hosts can use this for data windows and other readouts beside the chart.
     pub fn format_time(&self, time: chrono::DateTime<chrono::Utc>) -> String {
-        self.build_time_formatter()
-            .format_crosshair(time, self.time_label_seconds())
+        let bar_seconds = self.time_label_seconds();
+        match &self.horizontal_scale {
+            Some(scale) => scale.format_crosshair(time, bar_seconds),
+            None => self
+                .build_time_formatter()
+                .format_crosshair(time, bar_seconds),
+        }
     }
 
     fn current_bar_countdown(&self) -> Option<String> {
@@ -1062,7 +1068,23 @@ impl Chart {
         };
 
         let timezone = self.display_timezone();
-        let formatter = self.build_time_formatter();
+        let time_scale = self.build_time_formatter();
+        let host_scale = self.horizontal_scale.clone();
+        let scale: &dyn crate::scales::HorizontalScale =
+            host_scale.as_deref().unwrap_or(&time_scale);
+        let time_grid = time_based && self.config.show_grid && self.config.show_vertical_grid;
+        // The grid and the labels share one set of marks and the merged bars' mapping.
+        let (time_marks, time_points) = if time_grid || self.config.show_time_labels {
+            renderers::time_axis_marks(
+                &RenderContext::new(&painter, chart_rect),
+                time_data,
+                &time_coords,
+                scale,
+                &self.chart_options.time_scale,
+            )
+        } else {
+            Default::default()
+        };
 
         if self.config.show_grid && self.config.show_vertical_grid {
             let style = self
@@ -1072,10 +1094,9 @@ impl Chart {
             if time_based {
                 renderers::render_time_grid(
                     &RenderContext::new(&painter, chart_rect),
-                    time_data,
+                    &time_marks,
+                    &time_points,
                     &time_coords,
-                    formatter.as_ref(),
-                    &self.chart_options.time_scale,
                     self.config
                         .vertical_grid_color
                         .unwrap_or(self.config.grid_color),
@@ -1103,7 +1124,8 @@ impl Chart {
         );
         let session_painter = painter.with_clip_rect(price_rect);
         let session_ctx = RenderContext::new(&session_painter, price_rect);
-        if self.config.show_session_breaks {
+        // Sessions and extended hours are periods of time, absent from other horizontal scales.
+        if self.config.show_session_breaks && host_scale.is_none() {
             let provider = self
                 .session_provider
                 .as_deref()
@@ -1131,6 +1153,7 @@ impl Chart {
             );
         }
         if time_based
+            && host_scale.is_none()
             && session_tf.duration_ms() < crate::model::Timeframe::Day1.duration_ms()
             && self.config.show_extended_hours
         {
@@ -2250,7 +2273,7 @@ impl Chart {
                     time_axis_top,
                     axis_edge,
                     last_price_tag,
-                    formatter.as_ref(),
+                    scale,
                     bar_seconds,
                     price_formatter.as_deref(),
                 );
@@ -2373,7 +2396,7 @@ impl Chart {
                         &price_map,
                         &coords,
                         visible_data,
-                        formatter.as_ref(),
+                        scale,
                         bar_seconds,
                         &self.study_values_at(start_idx + local_idx),
                         self.instrument(),
@@ -2413,7 +2436,7 @@ impl Chart {
                             time_axis_top,
                             axis_edge,
                             last_price_tag,
-                            formatter.as_ref(),
+                            scale,
                             bar_seconds,
                             price_formatter.as_deref(),
                         );
@@ -2546,10 +2569,10 @@ impl Chart {
             let chart_ctx = RenderContext::new(&painter, axis_context_rect);
             rendering::render_time_labels(
                 &chart_ctx,
-                time_data,
+                time_marks,
+                &time_points,
                 &time_coords,
                 &colors,
-                formatter.as_ref(),
                 time_tags,
                 &self.chart_options.time_scale,
                 time_labels,

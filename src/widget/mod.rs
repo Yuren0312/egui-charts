@@ -338,6 +338,7 @@ pub struct Chart {
     pub(crate) indicator_settings_request: Option<SeriesId>,
     session_quote: Option<crate::model::quote::SessionQuote>,
     session_provider: Option<std::sync::Arc<dyn crate::model::SessionProvider>>,
+    horizontal_scale: Option<std::sync::Arc<dyn crate::scales::HorizontalScale>>,
     locale: Option<String>,
     date_format: Option<String>,
     time_formatter: Option<std::sync::Arc<dyn crate::scales::TimeFormatter>>,
