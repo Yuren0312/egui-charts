@@ -577,6 +577,7 @@ impl Chart {
                         close_response,
                         visibility_response,
                         settings_response,
+                        menu,
                     } = interaction;
 
                     let pane_response = pane_response.interact(Sense::click_and_drag());
@@ -586,7 +587,8 @@ impl Chart {
                     let visibility_clicked =
                         visibility_response.as_ref().is_some_and(|r| r.clicked());
                     let settings_clicked = settings_response.as_ref().is_some_and(|r| r.clicked());
-                    let control_clicked = close_clicked || visibility_clicked || settings_clicked;
+                    let control_clicked =
+                        close_clicked || visibility_clicked || settings_clicked || menu.is_some();
                     use crate::chart::renderers::StudyAction;
                     match (study, id) {
                         (Some(idx), _) if close_clicked => {
@@ -597,6 +599,12 @@ impl Chart {
                         }
                         (Some(idx), _) if settings_clicked => {
                             pending_indicator_action = Some(StudyAction::Settings(idx));
+                        }
+                        (Some(idx), _) if menu.is_some() => {
+                            pending_indicator_action = Some(StudyAction::Menu {
+                                index: idx,
+                                pos: menu.unwrap(),
+                            });
                         }
                         (None, Some(id)) if control_clicked => {
                             pending_series_action = Some((id, close_clicked, visibility_clicked));

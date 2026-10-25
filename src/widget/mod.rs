@@ -127,6 +127,8 @@ pub mod builder;
 mod change_marks;
 mod clipboard;
 mod crosshair;
+#[cfg(feature = "ui")]
+pub(crate) use crosshair::menu_value;
 mod events;
 mod feed;
 mod marks;
@@ -151,6 +153,7 @@ mod series;
 pub use crate::chart::primitives::{
     PriceAxisLabel, Primitive, PrimitiveId, PrimitivePass, PrimitiveView, TimeAxisLabel,
 };
+pub use pane_layout::VisualOrder;
 pub use price_series::SeriesOptions;
 pub use series::{BarsInRange, MismatchDirection, PriceLineId};
 mod volume;
@@ -330,7 +333,7 @@ pub struct Chart {
     quote_action: Option<QuoteSide>,
     server_time_offset: Option<chrono::TimeDelta>,
     bar_close_time: Option<chrono::DateTime<chrono::Utc>>,
-    indicator_settings_request: Option<SeriesId>,
+    pub(crate) indicator_settings_request: Option<SeriesId>,
     session_quote: Option<crate::model::quote::SessionQuote>,
     session_provider: Option<std::sync::Arc<dyn crate::model::SessionProvider>>,
     extended_hours: bool,

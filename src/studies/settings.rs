@@ -83,6 +83,7 @@ pub struct ConfiguredStudy {
     timeframe: Option<Timeframe>,
     instrument_precision: Option<u8>,
     overlay: Option<bool>,
+    scale: Option<super::StudyScale>,
 }
 
 impl ConfiguredStudy {
@@ -101,6 +102,7 @@ impl ConfiguredStudy {
             timeframe: None,
             instrument_precision: None,
             overlay: None,
+            scale: None,
         }
     }
 }
@@ -223,7 +225,7 @@ impl Indicator for ConfiguredStudy {
         self.study.value_format()
     }
     fn scale(&self) -> super::StudyScale {
-        self.study.scale()
+        self.scale.unwrap_or_else(|| self.study.scale())
     }
     fn precision(&self) -> Option<usize> {
         self.settings
@@ -264,6 +266,10 @@ impl Indicator for ConfiguredStudy {
     }
     fn set_overlay(&mut self, overlay: bool) -> bool {
         self.overlay = Some(overlay);
+        true
+    }
+    fn set_scale(&mut self, scale: super::StudyScale) -> bool {
+        self.scale = Some(scale);
         true
     }
     fn is_visible(&self) -> bool {
