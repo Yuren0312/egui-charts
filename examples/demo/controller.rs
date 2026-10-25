@@ -341,7 +341,7 @@ pub struct DemoApp {
     )>,
     // Reopening the dialog must not adopt an earlier readback result.
     export_generation: u64,
-    export_renderer: Option<eframe::egui_wgpu::RenderState>,
+    export_renderer: Option<Arc<eframe::glow::Context>>,
     image_jobs: usize,
     // GPU readback sends each image here for delivery on the next frame.
     screenshots: (mpsc::Sender<Screenshot>, mpsc::Receiver<Screenshot>),
@@ -579,7 +579,7 @@ impl DemoApp {
             replay_control: FloatingReplayControl::new(),
             screenshot_requested: None,
             export_generation: 0,
-            export_renderer: cc.wgpu_render_state.clone(),
+            export_renderer: cc.gl.clone(),
             image_jobs: 0,
             screenshots: mpsc::channel(),
             saved_drawings: cc
@@ -2658,9 +2658,6 @@ impl DemoApp {
             }
         }
         if self.image_jobs > 0 {
-            if let Some(renderer) = &self.export_renderer {
-                let _ = renderer.device.poll(eframe::wgpu::PollType::Poll);
-            }
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
         while let Ok((image, target, generation)) = self.screenshots.1.try_recv() {
