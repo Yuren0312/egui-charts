@@ -789,6 +789,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_subscription_before_the_session_gets_depth_when_trading_starts() {
+        let now = "2026-10-23T14:29:59Z".parse().unwrap();
+        let feed = Arc::new(LiveFeed::new("SAMPLE", now));
+        feed.set_view(SessionType::RTH, false);
+        let mut chart = ChartBuilder::new()
+            .with_feed(feed.clone())
+            .with_symbol("SAMPLE")
+            .with_initial_bars(100)
+            .build();
+        chart.set_extended_hours(false);
+        let ctx = egui::Context::default();
+        let frame = |chart: &mut egui_charts::Chart| {
+            ctx.run_ui(egui::RawInput::default(), |ui| {
+                chart.show(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..4 {
+            frame(&mut chart);
+        }
+        assert!(chart.order_book(SeriesId::MAIN).is_none());
+        feed.advance(now + TimeDelta::seconds(3));
+        frame(&mut chart);
+        let book = chart
+            .order_book(SeriesId::MAIN)
+            .expect("the opening trade starts depth");
+        assert!(book.best_bid().is_some() && book.best_ask().is_some());
+    }
+
     /// Archiving executions must preserve their price path, volume and the bucket crossing
     /// the archive boundary, including when a calendar or session choice rebuilds the stream.
     #[test]

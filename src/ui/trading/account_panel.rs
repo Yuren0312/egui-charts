@@ -238,7 +238,7 @@ enum RowAction {
 }
 
 /// `value` with thousands separators and `decimals` decimals, signed with `sign`.
-fn grouped(value: f64, decimals: usize, sign: bool) -> String {
+pub(super) fn grouped(value: f64, decimals: usize, sign: bool) -> String {
     if !value.is_finite() {
         return "-".to_owned();
     }
@@ -616,10 +616,7 @@ impl Trading {
         };
         let side = |side: OrderSide, text: &str| Cell {
             text: text.to_owned(),
-            color: match side {
-                OrderSide::Buy => theme.ui.accent,
-                OrderSide::Sell => theme.ui.error,
-            },
+            color: super::ticket::side_color(&theme, side),
             unit: String::new(),
             symbol: false,
         };

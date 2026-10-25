@@ -1212,6 +1212,7 @@ impl eframe::App for DemoApp {
         self.layout.sync = self.top_toolbar.chart_grid_selector.sync.clone();
         self.show_drawing_toolbar(ui, panel_bg);
         self.show_widget_bar(ui, panel_bg);
+        self.trading.show_ticket(ui, &self.chart);
         let narrow_account = ui.available_width() < 700.0 && self.trading.is_connected();
         if narrow_account {
             self.show_account_panel(ui, panel_bg);
@@ -1942,14 +1943,16 @@ impl DemoApp {
     fn feed_market_panels(&mut self, ctx: &egui::Context) {
         let chart_symbol = self.chart.symbol().to_owned();
         let symbols: Vec<String> = self.watchlist.symbols().map(str::to_owned).collect();
+        let mut selected = chart_symbol.clone();
         for symbol in symbols {
             if symbol.eq_ignore_ascii_case(&chart_symbol) {
-                self.watchlist.set_selected(&symbol);
+                selected.clone_from(&symbol);
             }
             if let Some(decimals) = live::price_decimals(&symbol) {
                 self.watchlist.set_price_decimals(&symbol, decimals);
             }
         }
+        self.watchlist.set_selected(&selected);
         self.quotes.publish(chrono::Utc::now());
         self.watchlist.poll(ctx);
         self.symbol_details.set_instrument(
@@ -2953,12 +2956,16 @@ mod tests {
             let mut value = false;
             for _ in 0..3 {
                 let output = ctx.run_ui(Default::default(), |ui| {
+                    app.trading.show_ticket(ui, &app.chart);
                     app.show_chart(ui, app.theme.chart.bg);
                 });
-                value |= output.shapes.iter().any(|shape| {
-                    matches!(&shape.shape, egui::Shape::Text(text)
-                        if text.galley.text() == "Value  110.00 USD")
-                });
+                let has_text = |label| {
+                    output.shapes.iter().any(|shape| {
+                        matches!(&shape.shape, egui::Shape::Text(text)
+                        if text.galley.text() == label)
+                    })
+                };
+                value |= has_text("Trade value") && has_text("110.00");
                 output.drop_without_applying_deltas();
             }
             assert!(value, "{side:?} ticket must use the replay close");
