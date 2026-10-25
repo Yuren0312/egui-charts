@@ -249,6 +249,8 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- The right bar's screener, hotlists, calendars, news, chats, alerts and object tree use flat dropdowns with thin chevrons and hover-filled text actions. Long dropdown menus scroll to keep every choice reachable in short windows. News and highlights keep the market scope reachable beside long symbols in narrow panels. Screener filters use the shared input style; market rows share the watchlist's height and hover fill, with right-aligned tabular values. Calendars keep event metadata on one line and actual, forecast and prior in fixed columns, including missing figures. The screener, hotlists and news entries use fresh radar, mountain and feed glyphs. The demo's Time and sales and Session notes entries appear only with Toggle API samples; hiding them closes an open sample panel and preserves session notes. ([#863](https://github.com/userFRM/egui-charts/issues/863))
+
 - Marker text sits on a background in the chart's colour, so it reads in full over the candles, bars and lines behind it. ([#859](https://github.com/userFRM/egui-charts/issues/859))
 - A toast's message wraps short of its close button, so the end of a long message, such as a broker's reason for rejecting an order, is no longer drawn under the button.
 - A chart with a feed or server time repaints once a second only while its bar countdown is drawn, so a hidden price axis or a last price outside the visible range no longer keeps an idle chart repainting. ([#852](https://github.com/userFRM/egui-charts/issues/852))
