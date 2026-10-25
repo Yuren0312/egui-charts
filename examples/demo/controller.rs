@@ -31,6 +31,8 @@ use egui_charts::ui::dialogs::templates::{DrawingTemplate, StudyTemplate, Templa
 mod feeds;
 #[path = "live.rs"]
 mod live;
+#[path = "market.rs"]
+mod market;
 #[path = "paper.rs"]
 mod paper;
 
@@ -304,6 +306,7 @@ pub struct DemoApp {
     paper: Arc<paper::PaperAccount>,
     // Watchlists and time and sales, fed by synthetic quotes and the live feed's executions.
     watchlist: WatchlistPanel,
+    quotes: Arc<live::DemoQuotes>,
     // Text pasted for a watchlist import, while its window is open.
     watchlist_import: Option<String>,
     // Symbol search is open for the watchlist's add button: the pick joins the list.
@@ -380,6 +383,7 @@ impl DemoApp {
         options.time_scale.time_visible = true;
         options.time_scale.seconds_visible = true;
         let live = Arc::new(LiveFeed::new(symbol, chrono::Utc::now()));
+        let quotes = Arc::new(live::DemoQuotes::new(live.clone()));
         let mut chart = egui_charts::ChartBuilder::new()
             .with_feed(live.clone())
             .with_symbol(symbol)
@@ -528,6 +532,7 @@ impl DemoApp {
                         )]
                     }),
             ),
+            quotes,
             watchlist_import: None,
             watchlist_search: false,
             time_and_sales: TimeAndSalesPanel::default(),
@@ -605,6 +610,7 @@ impl DemoApp {
         app.trading.set_service(app.paper.clone());
         app.top_toolbar.state.can_trade = true;
         app.watchlist.set_selected(symbol);
+        app.watchlist.set_service(app.quotes.clone());
         app.alert_dialog.set_storage(app.alert_host.clone());
         app.symbol_details.set_feed(app.live.clone());
         app.highlights.set_feed(app.live.clone());
@@ -1160,7 +1166,7 @@ impl eframe::App for DemoApp {
                 ctx.request_repaint_after(delay);
             }
         }
-        self.feed_market_panels();
+        self.feed_market_panels(&ctx);
 
         for (_, _, feed) in &self.comparisons {
             feed.set_paused(self.live.paused() || self.replay.is_some());
@@ -1913,32 +1919,23 @@ impl DemoApp {
         }
     }
 
-    /// Feeds the watchlist its synthetic quotes, the chart symbol's from the live feed, the
-    /// details panel the chart symbol with its regular and extended-hours quotes and volume, and
-    /// time and sales the executions of the live feed. The demo has no audio: a filter's sound
-    /// shows as a notification.
-    fn feed_market_panels(&mut self) {
-        let now = chrono::Utc::now();
+    /// Publishes the quotes the watchlist subscribed to through the demo's quote service, and
+    /// passes the chart symbol's quote on to the details panel and the order ticket. Feeds time
+    /// and sales the executions of the live feed. The demo has no audio: a filter's sound shows
+    /// as a notification.
+    fn feed_market_panels(&mut self, ctx: &egui::Context) {
         let chart_symbol = self.chart.symbol().to_owned();
-        let chart_quote = live::watchlist_quote(&chart_symbol, now).map(|mut quote| {
-            if let Some((last, prev_close)) = self.live.day_change() {
-                quote.last = last;
-                quote.prev_close = prev_close;
-            }
-            quote
-        });
         let symbols: Vec<String> = self.watchlist.symbols().map(str::to_owned).collect();
         for symbol in symbols {
-            let quote = if symbol.eq_ignore_ascii_case(&chart_symbol) {
+            if symbol.eq_ignore_ascii_case(&chart_symbol) {
                 self.watchlist.set_selected(&symbol);
-                chart_quote
-            } else {
-                live::watchlist_quote(&symbol, now)
-            };
-            if let Some(quote) = quote {
-                self.watchlist.set_quote(&symbol, quote);
+            }
+            if let Some(decimals) = live::price_decimals(&symbol) {
+                self.watchlist.set_price_decimals(&symbol, decimals);
             }
         }
+        self.quotes.publish(chrono::Utc::now());
+        self.watchlist.poll(ctx);
         self.symbol_details.set_instrument(
             &self
                 .chart
@@ -1946,16 +1943,15 @@ impl DemoApp {
                 .cloned()
                 .unwrap_or_else(|| egui_charts::model::Instrument::new(&chart_symbol)),
         );
-        if let Some(mut quote) = chart_quote {
-            let (mut time, mut extended) = (now, None);
-            if let Some((regular, last, prev_close, after)) = self.live.regular_quote() {
-                (time, quote.last, quote.prev_close, extended) = (regular, last, prev_close, after);
-            }
-            self.symbol_details.set_quote(quote, time);
-            self.symbol_details.set_extended_hours(extended);
+        let quoted = (self.watchlist.symbols())
+            .find(|symbol| symbol.eq_ignore_ascii_case(&chart_symbol))
+            .unwrap_or(&chart_symbol);
+        if let Some(quote) = self.watchlist.quote(quoted).cloned() {
+            self.symbol_details.set_quote(quote.clone());
+            self.trading.set_quote(&chart_symbol, quote);
         }
-        let (volume, average) = self.live.daily_volume();
-        self.symbol_details.set_volume(volume, average);
+        self.symbol_details
+            .set_average_volume(self.live.daily_volume().1);
         let timezone = self.timeframe_toolbar.state.timezone.parse();
         self.symbol_details
             .set_timezone(timezone.unwrap_or_default());
