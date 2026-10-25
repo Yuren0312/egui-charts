@@ -108,6 +108,8 @@ fn study_input_summary(study: &dyn egui_charts::studies::Indicator) -> String {
 /// `usize` id space cleanly distinguishes indicators from drawings (which use
 /// small monotonic ids from the drawing manager). The main series reserves the last id.
 const MAIN_SERIES_ID: usize = usize::MAX;
+/// The sounds the settings offer for fills; the demo shows the chosen one as a notification.
+const DEMO_SOUNDS: [&str; 3] = ["Chime", "Bell", "Beep"];
 const INDICATOR_ID_BASE: usize = usize::MAX / 2;
 
 fn indicator_tree_id(id: SeriesId) -> usize {
@@ -527,7 +529,11 @@ impl DemoApp {
             widget_bar,
             indicator_dialog: IndicatorDialog::new(),
             indicator_settings: IndicatorSettingsDialog::default(),
-            settings_dialog: SettingsDialog::new(),
+            settings_dialog: {
+                let mut dialog = SettingsDialog::new();
+                dialog.execution_sounds = DEMO_SOUNDS.map(str::to_owned).to_vec();
+                dialog
+            },
             settings_state: ChartSettingsState::default(),
             symbol_search: SymbolSearchDialog::new(),
             compare_dialog: egui_charts::ui::top_toolbar::CompareSymbolsDialog::new(),
@@ -852,9 +858,13 @@ impl DemoApp {
     // --- selection / context helpers --------------------------------------
 
     fn open_chart_settings_dialog(&mut self) {
-        let alerts = self.settings_state.alerts.clone();
+        let (alerts, trading) = (
+            self.settings_state.alerts.clone(),
+            self.trading.display.clone(),
+        );
         self.settings_state = ChartSettingsState::from_chart(&self.chart);
         self.settings_state.alerts = alerts;
+        self.settings_state.trading = trading;
         self.settings_dialog.open(self.settings_state.clone());
     }
 
@@ -990,6 +1000,7 @@ impl DemoApp {
     fn apply_chart_settings(&mut self, state: ChartSettingsState) {
         self.chart.begin_user_action();
         self.settings_state = state.clone();
+        self.trading.display = state.trading.clone();
         apply_settings_state(&state, &mut self.chart, &mut self.timeframe_toolbar);
         self.chart.end_user_action();
     }
@@ -1151,6 +1162,17 @@ impl eframe::App for DemoApp {
             self.notifications.unread() as u32,
         );
         self.trading.poll(&ctx, &mut self.toasts);
+        // The demo has no audio: the sound chosen for fills shows as a notification.
+        if let Some(sound) = self.trading.take_execution_sound() {
+            self.notify(format!(
+                "Sound: {}",
+                if sound.is_empty() {
+                    DEMO_SOUNDS[0]
+                } else {
+                    &sound
+                }
+            ));
+        }
         self.poll_storage(&ctx);
         // The watchlist opens beside the chart by default, but a compact window starts with the
         // chart alone.
@@ -2368,14 +2390,19 @@ impl DemoApp {
                     }
                 }
                 if let Some(side) = self.chart.take_quote_action() {
-                    let side = match side {
-                        egui_charts::widget::QuoteSide::Buy => egui_charts::model::OrderSide::Buy,
-                        egui_charts::widget::QuoteSide::Sell => egui_charts::model::OrderSide::Sell,
-                    };
-                    if self.trading.is_connected() {
-                        self.trading.trade(self.chart.symbol().to_owned(), side);
-                    } else {
+                    if !self.trading.is_connected() {
                         self.broker_picker.open();
+                    } else if side == egui_charts::widget::QuoteSide::Ticket {
+                        self.trading.open_ticket(egui_charts::model::OrderRequest::new(
+                            self.chart.symbol(), egui_charts::model::OrderSide::Buy,
+                            self.trading.quantity, egui_charts::model::OrderType::Market));
+                    } else {
+                        let side = match side {
+                            egui_charts::widget::QuoteSide::Buy => egui_charts::model::OrderSide::Buy,
+                            egui_charts::widget::QuoteSide::Sell => egui_charts::model::OrderSide::Sell,
+                            egui_charts::widget::QuoteSide::Ticket => unreachable!(),
+                        };
+                        self.trading.trade(self.chart.symbol().to_owned(), side);
                     }
                 }
                 self.trading.show(ui, &mut self.chart);
@@ -2917,7 +2944,7 @@ mod tests {
         app.trading.set_service(app.paper.clone());
         app.start_replay();
         app.trading.poll(&ctx, &mut app.toasts);
-        app.trading.one_click = true;
+        app.trading.display.instant_orders = true;
         app.trading.trade(symbol.clone(), OrderSide::Buy);
         app.trading.poll(&ctx, &mut app.toasts);
         app.trading.trade(symbol.clone(), OrderSide::Buy);
@@ -2926,7 +2953,7 @@ mod tests {
             app.toasts
                 .toasts()
                 .iter()
-                .any(|t| t.message == "Filled: BUY 1 at 100.00")
+                .any(|t| t.message == format!("Filled: Buy 1 {symbol} at 100.00"))
         );
         app.handle_replay_control(ReplayControlAction::GoToEnd);
         app.trading.trade(symbol.clone(), OrderSide::Sell);
@@ -2935,7 +2962,7 @@ mod tests {
             app.toasts
                 .toasts()
                 .iter()
-                .any(|t| t.message == "Filled: SELL 1 at 110.00")
+                .any(|t| t.message == format!("Filled: Sell 1 {symbol} at 110.00"))
         );
         assert!(Arc::ptr_eq(&paper, &app.paper));
 
@@ -4054,7 +4081,12 @@ mod tests {
         state.margins.top_percent = 12.5;
         state.margins.bottom_percent = 7.5;
         state.margins.right_bars = 17;
-        apply_settings_state(&state, &mut app.chart, &mut app.timeframe_toolbar);
+        state.trading.show_poss = false;
+        state.trading.show_orders = false;
+        state.trading.show_executions = false;
+        state.trading.show_execution_labels = true;
+        app.apply_chart_settings(state.clone());
+        assert_eq!(app.trading.display, state.trading);
         assert_eq!(
             app.chart.config().background_style,
             BackgroundStyle::VerticalGradient {
@@ -4090,6 +4122,8 @@ mod tests {
         app.open_chart_settings_dialog();
         assert_eq!(app.settings_state.alerts, state.alerts);
         assert_eq!(app.settings_dialog.settings().alerts, state.alerts);
+        assert_eq!(app.settings_state.trading, state.trading);
+        assert_eq!(app.settings_dialog.settings().trading, state.trading);
         assert_eq!(app.settings_state.grid_lines, state.grid_lines);
         assert_eq!(app.settings_state.crosshair, state.crosshair);
         assert_eq!(app.settings_state.precision, state.precision);
@@ -5174,7 +5208,11 @@ mod tests {
                 egui_charts::scales::PriceScaleMode::Percentage;
             app.chart.price_scale_mut().set_range(-5.0, 5.0);
             *app.chart.config_mut() = config.clone();
+            // The ticket menu changes the live trading options before settings are reopened.
+            app.trading.display.instant_orders = true;
             app.handle_top_toolbar(&ctx, TopToolbarAction::OpenSettings);
+            assert!(app.settings_state.trading.instant_orders);
+            assert!(app.settings_dialog.settings().trading.instant_orders);
             let state = app.settings_state.clone();
             apply_settings_state(&state, &mut app.chart, &mut app.timeframe_toolbar);
             let applied = app.chart.config();

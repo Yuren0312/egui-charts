@@ -909,11 +909,11 @@ impl OrderTicket {
         );
         if let Some(exit) = request.take_profit {
             let reward = grouped((exit - entry).abs() * per_point, 2, false);
-            info(ui, "Reward", &reward, currency, theme.ui.success);
+            info(ui, "Reward", &reward, currency, theme.ui.take_profit);
         }
         if let Some(exit) = request.stop_loss {
             let risk = grouped((exit - entry).abs() * per_point, 2, false);
-            info(ui, "Risk", &risk, currency, theme.ui.error);
+            info(ui, "Risk", &risk, currency, theme.ui.stop_loss);
         }
     }
 
@@ -1265,13 +1265,7 @@ pub(super) fn order_quantity(quantity: f64, rules: &TradingRules) -> Result<f64,
     Ok(quantity)
 }
 
-/// The colour of a side: the accent for buys, the error colour for sells.
-pub(super) fn side_color(theme: &Theme, side: OrderSide) -> Color32 {
-    match side {
-        OrderSide::Buy => theme.ui.accent,
-        OrderSide::Sell => theme.ui.error,
-    }
-}
+pub(super) use crate::theme::trading_side_color as side_color;
 
 /// The fill of a button that places an order on a side, under white text.
 pub(super) fn side_fill(theme: &Theme, side: OrderSide) -> Color32 {

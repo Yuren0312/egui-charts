@@ -10,8 +10,7 @@ use super::Trading;
 use crate::chart::TradingLineAction;
 use crate::icons::icons;
 use crate::model::{
-    BalanceChange, Execution, JournalEntry, Order, OrderRequest, OrderSide, OrderStatus, OrderType,
-    Position,
+    BalanceChange, JournalEntry, Order, OrderRequest, OrderSide, OrderStatus, OrderType, Position,
 };
 use crate::scales::{CurrencyFormatter, PriceFormatter};
 use crate::services::AccountEvent;
@@ -74,7 +73,7 @@ pub struct AccountPanel {
     tab: Tab,
     hidden: HashSet<(Tab, &'static str)>,
     history: Vec<Order>,
-    executions: Vec<Execution>,
+    pub(super) fills: super::dom::Fills,
     show_executions: bool,
     balance: Vec<BalanceChange>,
     journal: Vec<JournalEntry>,
@@ -310,12 +309,15 @@ impl AccountPanel {
         {
             self.editing = None;
         }
+        if let AccountEvent::Order(order) = event {
+            self.fills.order(order);
+        }
         match event {
             AccountEvent::Order(order) if order.status != OrderStatus::Working => {
                 self.history.retain(|finished| finished.id != order.id);
                 self.history.push(order.clone());
             }
-            AccountEvent::Execution(fill) => self.executions.push(fill.clone()),
+            AccountEvent::Execution(fill) => self.fills.execution(fill),
             AccountEvent::Balance(change) => self.balance.push(change.clone()),
             AccountEvent::Journal(entry) => self.journal.push(entry.clone()),
             _ => {}
@@ -325,7 +327,7 @@ impl AccountPanel {
     /// Forgets the history, as a new stream from the broker starts from nothing.
     pub(super) fn clear(&mut self) {
         self.history.clear();
-        self.executions.clear();
+        self.fills = super::dom::Fills::default();
         self.balance.clear();
         self.journal.clear();
         self.editing = None;
@@ -744,18 +746,13 @@ impl Trading {
                 .collect(),
             Tab::Executions => self
                 .account_panel
+                .fills
                 .executions
                 .iter()
                 .rev()
                 .map(|fill| {
-                    let order = self
-                        .orders
-                        .iter()
-                        .chain(&self.account_panel.history)
-                        .find(|order| order.id == fill.order);
-                    let name = order
-                        .map(|order| order.request.symbol.as_str())
-                        .unwrap_or("");
+                    let order = self.account_panel.fills.orders.get(&fill.order);
+                    let name = order.map(|order| order.symbol.as_str()).unwrap_or("");
                     Row {
                         cells: vec![
                             symbol(name),
@@ -769,7 +766,7 @@ impl Trading {
                             plain(time(Some(fill.time))),
                             plain(fill.order.to_string()),
                         ],
-                        symbol: order.map(|order| order.request.symbol.clone()),
+                        symbol: order.map(|order| order.symbol.clone()),
                         edit: None,
                         close: None,
                     }
@@ -1207,6 +1204,7 @@ fn csv(columns: &[(usize, &Column)], rows: &[Row]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Execution;
 
     #[test]
     fn history_keeps_each_partial_fill_and_discards_stale_edits() {
@@ -1219,7 +1217,7 @@ mod tests {
         let fill = Execution::new(order.id.clone(), Utc::now(), OrderSide::Buy, 99.0, 1.0);
         panel.record(&AccountEvent::Execution(fill.clone()));
         panel.record(&AccountEvent::Execution(fill.clone()));
-        assert_eq!(panel.executions, vec![fill.clone(), fill]);
+        assert_eq!(panel.fills.executions, vec![fill.clone(), fill]);
         for event in [
             AccountEvent::Order({
                 let mut partial = order.clone();
@@ -1237,7 +1235,7 @@ mod tests {
             assert!(panel.editing.is_none());
         }
         panel.clear();
-        assert!(panel.executions.is_empty());
+        assert!(panel.fills.executions.is_empty());
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //! trade, the user's working orders at their prices, and orders placed, moved and cancelled from
 //! the ladder.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 
 use egui::{Align2, Color32, Rect, Sense, Stroke, Ui, pos2, vec2};
 
@@ -40,58 +40,32 @@ pub(super) struct Ladder {
     selected: Option<OrderId>,
 }
 
-/// Recent order identities associate fills with their symbol even after the order leaves the
-/// working list. Fills of unknown orders are never attributed to the current chart.
+/// The account's orders and executions, shared by the ladder, chart and account history.
 #[derive(Default)]
 pub(super) struct Fills {
-    orders: VecDeque<(OrderId, String)>,
-    latest: BTreeMap<String, Execution>,
-    pending: VecDeque<Execution>,
+    pub(super) orders: HashMap<OrderId, OrderRequest>,
+    pub(super) executions: Vec<Execution>,
 }
 
 impl Fills {
     pub(super) fn order(&mut self, order: &Order) {
-        self.orders.retain(|(id, _)| *id != order.id);
-        self.orders
-            .push_back((order.id.clone(), order.request.symbol.clone()));
-        let mut matched = Vec::new();
-        self.pending.retain(|fill| {
-            if fill.order == order.id {
-                matched.push(fill.clone());
-                false
-            } else {
-                true
-            }
-        });
-        for fill in matched {
-            self.execution(&fill);
-        }
-        // Bound the identity history independently of how long the account stays connected.
-        if self.orders.len() > 1024 {
-            self.orders.pop_front();
-        }
+        self.orders.insert(order.id.clone(), order.request.clone());
     }
 
     pub(super) fn execution(&mut self, fill: &Execution) {
-        let Some((_, symbol)) = self.orders.iter().find(|(id, _)| *id == fill.order) else {
-            // Brokers may publish an execution before its order update.
-            self.pending.push_back(fill.clone());
-            if self.pending.len() > 1024 {
-                self.pending.pop_front();
-            }
-            return;
-        };
-        if self
-            .latest
-            .get(symbol)
-            .is_none_or(|old| old.time <= fill.time)
-        {
-            self.latest.insert(symbol.clone(), fill.clone());
-        }
+        self.executions.push(fill.clone());
     }
 
     pub(super) fn price(&self, symbol: &str) -> Option<f64> {
-        self.latest.get(symbol).map(|fill| fill.price)
+        self.executions
+            .iter()
+            .filter(|fill| {
+                self.orders
+                    .get(&fill.order)
+                    .is_some_and(|order| order.symbol == symbol)
+            })
+            .max_by_key(|fill| fill.time)
+            .map(|fill| fill.price)
     }
 }
 
