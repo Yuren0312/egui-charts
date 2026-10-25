@@ -152,12 +152,17 @@ mod readout;
 mod replay;
 mod selection;
 mod series;
+#[cfg(feature = "ui")]
+mod snapshot;
+mod stored_drawings;
 pub use crate::chart::primitives::{
     PriceAxisLabel, Primitive, PrimitiveId, PrimitivePass, PrimitiveView, TimeAxisLabel,
 };
 pub use pane_layout::VisualOrder;
 pub use price_series::SeriesOptions;
 pub use series::{BarsInRange, MismatchDirection, PriceLineId};
+#[cfg(feature = "ui")]
+pub use snapshot::{ChartSnapshot, SavedLayout, SavedPane, SavedStudy};
 mod volume;
 pub use layout::{ChartLayout, ChartLayoutMode, ChartSyncOptions};
 pub(crate) mod sync;
@@ -315,6 +320,10 @@ pub struct Chart {
     /// The chart's drawings and the active drawing tool.
     pub(crate) drawings: DrawingManager,
     symbol_drawings: std::collections::HashMap<String, (DrawingManager, Vec<crate::model::Marker>)>,
+    /// Where each symbol's drawings are kept; see [`Chart::set_storage`].
+    drawing_store: Option<stored_drawings::DrawingStore>,
+    /// The id each study a snapshot saved has since [`Chart::restore`] added it again.
+    restored_studies: std::collections::HashMap<usize, usize>,
     /// Right-click box zoom state
     pub(crate) box_zoom: BoxZoomState,
     /// Whether zoom mode is currently active (controlled by zoom toolbar button)
