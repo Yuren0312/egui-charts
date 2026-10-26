@@ -80,6 +80,9 @@
 //!
 //! ## Embedding in an application
 //!
+//! The [`guide`] covers historical and streaming data, custom studies,
+//! drawing persistence, synchronized charts and host strategy or script results.
+//!
 //! A typical setup:
 //!
 //! 1. Add the crate to your dependencies:
@@ -131,6 +134,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::module_inception)]
 #![allow(clippy::needless_range_loop)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 // Engine code names colours as `egui::Color32`; without the widget that path
 // resolves to `ecolor`, the crate egui re-exports them from.
@@ -140,16 +144,21 @@ extern crate ecolor as egui;
 // ─── Core engine modules ─────────────────────────────────────────────────────
 
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
 pub mod chart;
 #[cfg(feature = "drawings")]
+#[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
+#[warn(missing_docs)]
 pub mod drawings;
 pub mod model;
 pub mod scales;
+#[warn(missing_docs)]
 pub mod studies;
 
 // ─── Configuration & data ────────────────────────────────────────────────────
 
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
 pub mod config;
 pub mod data;
 pub mod services;
@@ -157,19 +166,32 @@ pub mod services;
 // ─── Theme & design system ───────────────────────────────────────────────────
 
 #[cfg(feature = "ui")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ui")))]
+#[warn(missing_docs)]
 pub mod ext;
 #[cfg(feature = "icons")]
+#[cfg_attr(docsrs, doc(cfg(feature = "icons")))]
 pub mod icons;
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
 pub mod styles;
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
 pub mod theme;
 pub mod tokens;
 
 // ─── Widget layer ────────────────────────────────────────────────────────────
 
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
+#[warn(missing_docs)]
 pub mod widget;
+
+#[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
+#[doc = include_str!("../docs/builder-guide.md")]
+#[warn(missing_docs)]
+pub mod guide {}
 
 // ─── Application-level UI (feature-gated) ────────────────────────────────────
 
@@ -178,6 +200,7 @@ pub mod widget;
 /// These are domain-agnostic building blocks consumed by the [`ui`] module.
 /// Enable the `ui` feature to access them.
 #[cfg(feature = "ui")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ui")))]
 pub mod ui_kit;
 
 /// Application-level chart UI: drawing toolbar, top toolbar, timeframe bar,
@@ -186,12 +209,14 @@ pub mod ui_kit;
 /// Built on top of [`ui_kit`] primitives and the core chart engine. Enable the
 /// `ui` feature to access this module.
 #[cfg(feature = "ui")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ui")))]
 pub mod ui;
 
 // ─── Convenience re-exports ──────────────────────────────────────────────────
 
 pub use model::ChartType;
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
 pub use widget::{Chart, ChartBuilder, RightClickTarget};
 
 // Compiles and runs the README's Rust snippets as doctests.

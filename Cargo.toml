@@ -22,12 +22,17 @@ exclude = [
     ".github/",
     "tests/",
     "benches/",
-    "docs/",
+    "docs/*",
+    "!docs/builder-guide.md",
     "fuzz/",
     "*.png",
     "*.gif",
     "*.mp4",
 ]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 path = "src/lib.rs"
@@ -70,6 +75,30 @@ required-features = ["widget"]
 [[example]]
 name = "primitives"
 path = "examples/primitives.rs"
+required-features = ["widget"]
+
+[[example]]
+name = "custom_indicator"
+path = "examples/custom_indicator.rs"
+required-features = ["widget"]
+
+[[example]]
+name = "drawing_persistence"
+path = "examples/drawing_persistence.rs"
+required-features = ["drawings"]
+
+[[example]]
+name = "backtesting"
+path = "examples/backtesting.rs"
+
+[[example]]
+name = "scripting"
+path = "examples/scripting.rs"
+required-features = ["widget"]
+
+[[example]]
+name = "synchronized_charts"
+path = "examples/synchronized_charts.rs"
 required-features = ["widget"]
 
 [[bench]]
