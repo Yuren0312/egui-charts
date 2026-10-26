@@ -350,6 +350,11 @@ impl LiveFeed {
         self.state().paused = paused;
     }
 
+    /// The simulation clock, which stands still while the feed is paused.
+    pub(super) fn now(&self) -> DateTime<Utc> {
+        self.state().now
+    }
+
     /// Advance only when called by the scheduled frame. Pausing freezes simulation time.
     pub(super) fn advance(&self, now: DateTime<Utc>) -> std::time::Duration {
         let mut sim = self.state();
@@ -425,11 +430,16 @@ pub(super) fn watchlist_quote(symbol: &str, now: DateTime<Utc>) -> Option<Quote>
 
 /// The watchlist's quote service: the chart symbol's quote from the live feed, with its regular
 /// and extended-hours prices, session volume and best bid and ask, and a synthetic swing for the
-/// other catalog symbols. The demo has no background worker, so the controller publishes once
-/// per frame.
+/// other catalog symbols. The quotes follow the feed's simulation clock, which the pause freezes.
+/// The demo has no background worker, so the controller publishes once per frame — which makes a
+/// push that repeats the last one only wake the UI, so a quote is pushed again once its last price
+/// or previous close differs from the one pushed before.
 pub(super) struct DemoQuotes {
     live: Arc<LiveFeed>,
     stream: Mutex<Option<(Vec<String>, Events<(String, Quote)>)>>,
+    /// The last price and previous close pushed per symbol: all the watchlist draws, since its
+    /// change and change percent columns follow from them.
+    last_pushed: Mutex<BTreeMap<String, (f64, f64)>>,
 }
 
 impl DemoQuotes {
@@ -437,6 +447,7 @@ impl DemoQuotes {
         Self {
             live,
             stream: Mutex::default(),
+            last_pushed: Mutex::default(),
         }
     }
 
@@ -450,22 +461,34 @@ impl DemoQuotes {
 
     fn push(&self, symbols: &[String], events: &Events<(String, Quote)>, now: DateTime<Utc>) {
         let chart = self.live.state().symbol.clone();
+        let mut last_pushed = self.last_pushed.lock().unwrap_or_else(|e| e.into_inner());
         for symbol in symbols {
             let quote = if symbol.eq_ignore_ascii_case(&chart) {
                 self.live.quote(now)
             } else {
                 watchlist_quote(symbol, now)
             };
-            if let Some(quote) = quote {
-                events.push((symbol.clone(), quote));
+            let Some(quote) = quote else {
+                continue;
+            };
+            let pushed = (quote.last, quote.prev_close);
+            if last_pushed.get(symbol) == Some(&pushed) {
+                continue;
             }
+            last_pushed.insert(symbol.clone(), pushed);
+            events.push((symbol.clone(), quote));
         }
     }
 }
 
 impl Quotes for DemoQuotes {
     fn subscribe(&self, symbols: &[String], events: Events<(String, Quote)>) {
-        self.push(symbols, &events, chrono::Utc::now());
+        // A new stream starts from the current quotes, whatever was pushed to the one before.
+        self.last_pushed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.push(symbols, &events, self.live.now());
         *self.stream.lock().unwrap_or_else(|e| e.into_inner()) = Some((symbols.to_vec(), events));
     }
 }
@@ -1019,6 +1042,124 @@ mod tests {
             chart.bars(SeriesId::MAIN),
             bars,
             "resume must deliver executions"
+        );
+    }
+
+    /// The controller publishes the subscribed quotes once per frame, and the first push after a
+    /// drain wakes the UI. A push that repeats the last quote therefore kept the demo repainting
+    /// every frame forever, even paused with nothing on screen changing: #852. An unchanged
+    /// market must now leave the UI idle.
+    #[test]
+    fn an_unchanged_market_lets_the_demo_go_idle() {
+        use egui_charts::ui::widget_bar::{Watchlist, WatchlistPanel};
+        use std::time::Duration;
+        let ctx = egui::Context::default();
+        let now = "2026-10-23T19:07:05Z".parse().unwrap();
+        let live = Arc::new(LiveFeed::new("AAPL", now));
+        live.set_paused(true);
+        let quotes = Arc::new(DemoQuotes::new(live));
+        let mut panel = WatchlistPanel::new(vec![Watchlist::from_text("Watchlist", "MSFT,BTCUSD")]);
+        panel.set_service(quotes.clone());
+        let mut time = 0.0;
+        let mut delays = Vec::new();
+        for _ in 0..8 {
+            time += 1.0 / 60.0;
+            quotes.publish(now);
+            let out = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1440.0, 900.0),
+                    )),
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| {
+                    panel.poll(ui.ctx());
+                    panel.show(ui);
+                },
+            );
+            delays.push(out.viewport_output[&egui::ViewportId::ROOT].repaint_delay);
+            out.drop_without_applying_deltas();
+        }
+        // The first frame subscribes, which pushes the current quotes; egui then paints one more
+        // frame to let things settle, and the subscription stamps its quotes from the feed's
+        // clock, which differs from the fixed one of this test by one more push.
+        assert_eq!(
+            delays[0],
+            Duration::ZERO,
+            "the first frame subscribes and pushes"
+        );
+        for delay in &delays[2..] {
+            assert_eq!(
+                *delay,
+                Duration::MAX,
+                "publishing an unchanged quote only woke the UI"
+            );
+        }
+    }
+
+    /// The deduplication must not swallow a real move: once a subscribed symbol's rounded price
+    /// differs from the one pushed before, the push reaches the panel and wakes the UI.
+    #[test]
+    fn a_changed_quote_still_wakes_the_ui() {
+        use egui_charts::ui::widget_bar::{Watchlist, WatchlistPanel};
+        use std::time::Duration;
+        let ctx = egui::Context::default();
+        let now = "2026-10-23T19:07:05Z".parse().unwrap();
+        let live = Arc::new(LiveFeed::new("AAPL", now));
+        live.set_paused(true);
+        let quotes = Arc::new(DemoQuotes::new(live));
+        let mut panel = WatchlistPanel::new(vec![Watchlist::from_text("Watchlist", "MSFT,BTCUSD")]);
+        panel.set_service(quotes.clone());
+        let mut time = 0.0;
+        let mut frame = |quotes: &DemoQuotes, at: DateTime<Utc>, ctx: &egui::Context| {
+            time += 1.0 / 60.0;
+            quotes.publish(at);
+            let out = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1440.0, 900.0),
+                    )),
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| {
+                    panel.poll(ui.ctx());
+                    panel.show(ui);
+                },
+            );
+            let delay = out.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+            out.drop_without_applying_deltas();
+            delay
+        };
+        // The first two frames subscribe and settle, the third is idle.
+        assert_eq!(frame(&quotes, now, &ctx), Duration::ZERO);
+        frame(&quotes, now, &ctx);
+        assert_eq!(
+            frame(&quotes, now, &ctx),
+            Duration::MAX,
+            "an unchanged market must settle idle before the move"
+        );
+        let (moved, symbol) = (1..=120)
+            .map(|seconds| now + chrono::Duration::seconds(seconds))
+            .find_map(|at| {
+                ["MSFT", "BTCUSD"].iter().find_map(|symbol| {
+                    (watchlist_quote(symbol, now).map(|q| q.last)
+                        != watchlist_quote(symbol, at).map(|q| q.last))
+                    .then_some((at, *symbol))
+                })
+            })
+            .expect("the synthetic market moves within two minutes");
+        assert!(
+            frame(&quotes, moved, &ctx) < Duration::MAX,
+            "a changed price must wake the UI"
+        );
+        assert_eq!(
+            panel.quote(symbol).map(|quote| quote.last),
+            watchlist_quote(symbol, moved).map(|quote| quote.last),
+            "the panel shows the price that woke it"
         );
     }
 }
