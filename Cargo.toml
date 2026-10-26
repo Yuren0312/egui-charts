@@ -22,12 +22,16 @@ exclude = [
     ".github/",
     "tests/",
     "benches/",
-    "docs/",
+    "docs/capture/",
     "fuzz/",
     "*.png",
     "*.gif",
     "*.mp4",
 ]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 path = "src/lib.rs"

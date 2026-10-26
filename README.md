@@ -229,6 +229,12 @@ On Linux with glibc, freeing large tessellation buffers can cause heap trimming 
 
 ## Connect your data
 
+The [builder guide](docs/builder-guide.md), also included in the
+[API documentation](https://docs.rs/egui-charts/latest/egui_charts/guide/), covers
+history, streaming, custom studies, drawing persistence, synchronized charts and
+host strategy and script integration. docs.rs builds every feature; module badges
+show the feature needed to use each optional part.
+
 Implement `Datafeed` to connect any market data provider, as in the [terminal example](#a-terminal-around-it); only `history` is required. The chart calls the feed from `show` on the UI thread and never waits for it: answer through the `Reply` and push into the `Sink` from any thread, runtime or browser task. The chart asks for older pages as the user scrolls back, and unsubscribes when the symbol or timeframe changes. [`examples/live_feed.rs`](examples/live_feed.rs) serves history from memory and streams synthetic trades.
 
 ## Platform support
