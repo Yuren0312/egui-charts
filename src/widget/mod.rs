@@ -108,6 +108,7 @@ use crate::drawings::DrawingManager;
 use crate::model::ChartState;
 use crate::model::Timeframe;
 use crate::model::{ChartType, ChartTypeParams};
+
 use crate::scales::{PriceMap, PriceScale};
 use crate::studies::IndicatorRegistry;
 use chrono::{DateTime, Utc};
@@ -136,6 +137,7 @@ mod change_marks;
 #[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
 mod clipboard;
 mod crosshair;
+pub mod localization;
 #[cfg(feature = "ui")]
 pub(crate) use crosshair::menu_value;
 mod events;
