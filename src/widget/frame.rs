@@ -116,7 +116,7 @@ impl Chart {
                 crate::scales::TimezoneMode::Exchange(
                     self.instrument()
                         .and_then(|instrument| instrument.time_zone.as_ref())
-                        .map(crate::model::TimezoneId::tz)
+                        .cloned()
                         .unwrap_or_else(|| fallback.clone()),
                 )
             }
@@ -1265,7 +1265,7 @@ impl Chart {
             .filter(|instrument| instrument.session.is_none())
             .and_then(|instrument| instrument.time_zone.as_ref())
         {
-            bar_clock = bar_clock.with_timezone(zone.tz());
+            bar_clock = bar_clock.with_timezone(zone.clone());
         }
         let render_ctx = rendering::CandleDataContext {
             price_ctx: &clipped_price_ctx,
@@ -3505,7 +3505,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "timezones")]
     #[test]
     fn tpo_days_follow_the_instrument_zone_without_trading_hours() {
         use crate::model::{Bar, BarData, ChartType, Instrument, Timeframe, TimezoneId};
@@ -3520,7 +3519,7 @@ mod tests {
         let mut chart = crate::widget::Chart::new(BarData::from_bars(bars));
         chart.set_timeframe(Timeframe::Min30);
         chart.set_chart_type(ChartType::TimePriceOpportunity);
-        let new_york = TimezoneId::named("America/New_York").unwrap();
+        let new_york = TimezoneId::fixed_offset(-5 * 3600).unwrap();
         chart.set_instrument(Some(Instrument::new("FX").with_time_zone(new_york)));
         let painted = shapes(&egui::Context::default(), &mut chart, 0.0, vec![]);
         // One initial balance bar beside each profile
@@ -3815,7 +3814,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "timezones")]
     #[test]
     fn time_visibility_flags_reach_axis_and_crosshair() {
         use crate::model::{Bar, BarData, Timeframe};
@@ -3854,7 +3852,8 @@ mod tests {
             chart.chart_options.tooltip.enabled = false;
             // Each change after a frame, as the axis menu makes them, so the time labels follow.
             frame(&ctx, &mut chart, 0.0, vec![]);
-            chart.chart_options.time_scale.timezone = crate::scales::TimezoneMode::nyse();
+            chart.chart_options.time_scale.timezone =
+                crate::scales::TimezoneMode::Timezone("-05:00".parse().unwrap());
             frame(&ctx, &mut chart, 0.03, vec![]);
             let options = &mut chart.chart_options.time_scale;
             options.time_visible = time_visible;

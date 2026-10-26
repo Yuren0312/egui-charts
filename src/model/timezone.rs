@@ -52,10 +52,6 @@ impl TimezoneId {
         &self.name
     }
 
-    pub(crate) fn tz(&self) -> Self {
-        self.clone()
-    }
-
     fn offset(&self, fixed: FixedOffset) -> TimezoneOffset {
         TimezoneOffset {
             zone: self.clone(),

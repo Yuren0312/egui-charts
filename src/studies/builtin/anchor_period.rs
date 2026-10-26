@@ -71,7 +71,7 @@ impl ExchangeDays {
             .all(|pair| pair[0].time.date_naive() != pair[1].time.date_naive());
         let (zone, windows) = self.0.as_ref().map_or(
             (crate::model::TimezoneId::utc(), &[][..]),
-            |(zone, windows)| (zone.tz(), windows.as_slice()),
+            |(zone, windows)| (zone.clone(), windows.as_slice()),
         );
         data.iter()
             .map(|bar| {

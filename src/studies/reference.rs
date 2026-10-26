@@ -831,12 +831,10 @@ fn staple_studies_match_published_definitions() {
         ("AutoVWAP-LL", auto(AutoAnchor::LowestLow), bars.clone()),
         ("AutoVWAP-HV", auto(AutoAnchor::HighestVolume), bars.clone()),
     ]);
-    let available = |name: &str| {
-        cfg!(feature = "timezones")
-            || !matches!(
-                name,
-                "RVOL-chicago" | "Sessions-default" | "Sessions-overnight"
-            )
+    let available = |name: &str| match name {
+        "RVOL-chicago" | "Sessions-default" => cfg!(feature = "timezones"),
+        "Sessions-fixed" => !cfg!(feature = "timezones"),
+        _ => true,
     };
     studies.extend(time_studies(&bars));
     studies.retain(|(name, _, _)| available(name));
@@ -1118,7 +1116,11 @@ fn time_studies(bars: &[Bar]) -> Vec<(&'static str, Box<dyn Indicator>, Vec<Bar>
             seasons,
         ),
         (
-            "Sessions-default",
+            if cfg!(feature = "timezones") {
+                "Sessions-default"
+            } else {
+                "Sessions-fixed"
+            },
             Box::new(TradingSessions::new()),
             sessions.clone(),
         ),

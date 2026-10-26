@@ -843,13 +843,12 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "timezones")]
     #[test]
     fn sessions_follow_the_clock_and_combine_over_composites() {
         use crate::model::{Session, SessionWindow, TimezoneId};
         use chrono::{NaiveTime, Weekday::*};
         let at = |h, m| NaiveTime::from_hms_opt(h, m, 0).unwrap();
-        let new_york = TimezoneId::named("America/New_York").unwrap();
+        let new_york = TimezoneId::fixed_offset(-5 * 3600).unwrap();
         let weekdays = [Mon, Tue, Wed, Thu, Fri];
         // 18:00 to 17:00 New York, so a session spans the UTC midnight
         let overnight = BarClock::new(Timeframe::Min30).with_session(

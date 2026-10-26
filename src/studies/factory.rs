@@ -932,10 +932,8 @@ mod tests {
             if study.order_flow_input().is_some() {
                 continue;
             }
-            // External inputs and unavailable named sessions cannot distinguish calculations.
-            if !study.data_requests().is_empty()
-                || (!cfg!(feature = "timezones") && name == "Trading Sessions")
-            {
+            // External series have no values until the host supplies their distinct inputs.
+            if !study.data_requests().is_empty() {
                 continue;
             }
             // Fixed and anchored profiles include all history until a range is chosen.

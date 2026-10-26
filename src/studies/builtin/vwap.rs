@@ -323,8 +323,8 @@ impl Indicator for VolumeWeightedAvgPrice {
         let from = if daily != self.daily { 0 } else { from };
         self.daily = daily;
         let (zone, windows) = self.instrument_session.as_ref().map_or(
-            (self.time_zone.tz(), self.windows.as_slice()),
-            |(zone, windows)| (zone.tz(), windows.as_slice()),
+            (&self.time_zone, self.windows.as_slice()),
+            |(zone, windows)| (zone, windows.as_slice()),
         );
         self.stepper
             .run(data, from, &mut self.values, |state, bar| {
@@ -338,7 +338,7 @@ impl Indicator for VolumeWeightedAvgPrice {
                 let day = if daily {
                     bar.time.date_naive()
                 } else {
-                    trading_day(bar.time, &zone, windows)
+                    trading_day(bar.time, zone, windows)
                 };
                 let current = Some(self.anchor.period(day));
                 let events = if self.anchor == VwapAnchor::Events {

@@ -16,7 +16,6 @@
 //!
 //! # Example
 //! ```
-//! # #[cfg(feature = "timezones")] {
 //! use chrono::{TimeZone, Utc};
 //! use egui_charts::model::Bar;
 //! use egui_charts::studies::{Indicator, TradingSessions};
@@ -31,7 +30,6 @@
 //! assert_eq!(sessions.values().value(0, 0), Some(1.0));
 //! assert_eq!(sessions.values().value(1, 0), None);
 //! assert_eq!(sessions.values().value(1, 1), Some(1.0));
-//! # }
 //! ```
 
 use crate::model::session::local_time;
@@ -53,7 +51,7 @@ pub struct TradingSessions {
     start: [usize; 3],
     /// Session end, in minutes after midnight in the session's time zone.
     end: [usize; 3],
-    zones: [Option<TimezoneId>; 3],
+    zones: [TimezoneId; 3],
     /// Whether the chart interval is a day or longer.
     daily: bool,
     values: IndicatorValues,
@@ -63,10 +61,13 @@ pub struct TradingSessions {
 
 impl TradingSessions {
     /// Tokyo 09:00 to 15:00, London 08:30 to 16:30 and New York 09:30 to 16:00, each in
-    /// its exchange time zone. Without `timezones` these named sessions stay unavailable;
-    /// supply explicit fixed offsets with [`with_session`](Self::with_session).
+    /// its exchange time zone. Without `timezones`, these use fixed standard-time offsets
+    /// of +09:00, +00:00 and -05:00. Override them with [`with_session`](Self::with_session).
     pub fn new() -> Self {
-        let zone = TimezoneId::named;
+        let zone = |name, hours| {
+            TimezoneId::named(name)
+                .unwrap_or_else(|| TimezoneId::fixed_offset(hours * 3600).unwrap())
+        };
         let tint =
             |color: Color32| Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 38);
         Self {
@@ -75,9 +76,9 @@ impl TradingSessions {
             start: [9 * 60, 8 * 60 + 30, 9 * 60 + 30],
             end: [15 * 60, 16 * 60 + 30, 16 * 60],
             zones: [
-                zone("Asia/Tokyo"),
-                zone("Europe/London"),
-                zone("America/New_York"),
+                zone("Asia/Tokyo", 9),
+                zone("Europe/London", 0),
+                zone("America/New_York", -5),
             ],
             daily: false,
             values: IndicatorValues::new(),
@@ -105,7 +106,7 @@ impl TradingSessions {
             self.names[slot] = name.into();
             self.start[slot] = minutes(start);
             self.end[slot] = minutes(end);
-            self.zones[slot] = Some(zone);
+            self.zones[slot] = zone;
         }
         self
     }
@@ -171,9 +172,7 @@ impl Indicator for TradingSessions {
         }
         for slot in (0..3).filter(|&slot| self.show[slot]) {
             let (start, end) = (self.start[slot] as u32 * 60, self.end[slot] as u32 * 60);
-            let Some(zone) = self.zones[slot].as_ref() else {
-                continue;
-            };
+            let zone = &self.zones[slot];
             for (i, bar) in data.iter().enumerate() {
                 let second = local_time(zone.clone(), bar.time).num_seconds_from_midnight();
                 let inside = match start.cmp(&end) {

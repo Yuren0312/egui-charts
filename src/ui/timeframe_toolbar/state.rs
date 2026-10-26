@@ -153,7 +153,7 @@ impl TimeframeToolbarState {
     }
 }
 
-#[cfg(all(test, feature = "timezones"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -161,11 +161,14 @@ mod tests {
     fn clock_converts_the_named_zone_and_falls_back_to_utc() {
         for (instant, zone, expected) in [
             ("2026-01-15T13:00:00Z", "UTC", "13:00:00 UTC"),
+            ("2026-01-15T13:00:00Z", "+05:45", "18:45:00 +05:45"),
+            #[cfg(feature = "timezones")]
             (
                 "2026-01-15T13:00:00Z",
                 "America/New_York",
                 "08:00:00 America/New_York",
             ),
+            #[cfg(feature = "timezones")]
             (
                 "2026-07-15T13:00:00Z",
                 "America/New_York",
