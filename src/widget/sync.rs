@@ -63,11 +63,12 @@ impl Chart {
         let scale = self.state.time_scale();
         let bars = self.state.shown();
         // Keep fractional indices in f64: a rounded edge can move minutes across a session gap.
-        let right = scale.base_idx() as f64 + f64::from(scale.right_offset()) + 0.5;
-        let left = right - (f64::from(scale.width()) - 1.0) / f64::from(scale.bar_spacing());
         Some(VisibleTimeRange {
-            from: time_at(bars, left)?,
-            to: time_at(bars, right)?,
+            from: time_at(bars, scale.coord_to_idx_precise(0.0, 0.0, scale.width()))?,
+            to: time_at(
+                bars,
+                scale.coord_to_idx_precise(scale.width() - 1.0, 0.0, scale.width()),
+            )?,
         })
     }
 
@@ -87,7 +88,7 @@ impl Chart {
             return false;
         }
         scale.set_bar_spacing(((scale.width() - 1.0) as f64 / (to - from)) as f32);
-        scale.set_right_offset((to - scale.base_idx() as f64 - 0.5) as f32);
+        scale.set_right_offset(to - scale.base_idx() as f64 - 0.5);
         self.tracking_mode_active = false;
         self.kinetic_scroll = super::state::KineticScrollState::new();
         true
