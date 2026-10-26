@@ -284,6 +284,7 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- Chart panning includes the first movement after a pointer press, so a drag completed in one movement frame moves by its full distance. Headless widget tests check the complete pan, pointer-anchored wheel zoom and finite, bounded frames for empty, single-bar and flat histories. ([#245](https://github.com/userFRM/egui-charts/issues/245))
 - Waiting for a higher study interval to close treats the latest chart bar as forming. Its scheduled end no longer confirms a source bar early; historical chart bars retain their close-time alignment. ([#175](https://github.com/userFRM/egui-charts/issues/175))
 - VWAP uses the chart interval to distinguish intraday exchange sessions from UTC-labelled daily bars, retaining timestamp inference only without an interval. Changing the interval recalculates existing studies. The inferred Daily flag is hidden from inputs; saved legacy values remain accepted and are ignored. Hosts should supply the interval through `Indicator::set_timeframe` or `Chart::set_timeframe`. ([#672](https://github.com/userFRM/egui-charts/issues/672))
 

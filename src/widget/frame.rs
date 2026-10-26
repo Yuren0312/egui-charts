@@ -2801,6 +2801,71 @@ mod tests {
     use crate::widget::test_frames::{chart, frame, shapes};
     use egui::{Event, Pos2, Rect, Shape};
 
+    /// Empty, one-bar and flat histories must produce finite, bounded tessellated output.
+    #[test]
+    fn degenerate_histories_paint_bounded_frames() {
+        use crate::model::{Bar, BarData, ChartType};
+        for count in [0, 1, 128] {
+            for kind in [
+                ChartType::Candles,
+                ChartType::Line,
+                ChartType::Area,
+                ChartType::Heikin,
+            ] {
+                let bars = (0..count)
+                    .map(|i| {
+                        let time =
+                            chrono::DateTime::from_timestamp(1_700_000_000 + i * 60, 0).unwrap();
+                        Bar::new(time, 100.0, 100.0, 100.0, 100.0, 0.0)
+                    })
+                    .collect();
+                let mut chart = crate::widget::Chart::new(BarData::from_bars(bars));
+                chart.set_chart_type(kind);
+                let ctx = egui::Context::default();
+                for i in 0..3 {
+                    let mut out = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(Rect::from_min_size(
+                                Pos2::ZERO,
+                                egui::vec2(800.0, 600.0),
+                            )),
+                            time: Some(i as f64 / 60.0),
+                            ..Default::default()
+                        },
+                        |ui| {
+                            chart.show(ui);
+                        },
+                    );
+                    assert!(
+                        !out.shapes.is_empty() && out.shapes.len() < 2_000,
+                        "{count} bars, {kind:?}"
+                    );
+                    let meshes =
+                        ctx.tessellate(std::mem::take(&mut out.shapes), out.pixels_per_point);
+                    let mut vertices = 0;
+                    for primitive in meshes {
+                        assert!(primitive.clip_rect.is_finite());
+                        if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
+                            assert!(mesh.is_valid());
+                            vertices += mesh.vertices.len();
+                            assert!(
+                                mesh.vertices.iter().all(|v| v.pos.is_finite()
+                                    && v.pos.x.abs() < 1_600.0
+                                    && v.pos.y.abs() < 1_200.0),
+                                "{count} bars, {kind:?}: geometry exceeds two screen dimensions"
+                            );
+                        }
+                    }
+                    assert!(
+                        vertices > 0 && vertices < 100_000,
+                        "{count} bars, {kind:?}: {vertices} vertices"
+                    );
+                    out.drop_without_applying_deltas();
+                }
+            }
+        }
+    }
+
     #[test]
     fn countdown_uses_feed_calendar_and_session_trading_dates() {
         use crate::data::{Datafeed, HistoryPage, HistoryRequest, Reply};
