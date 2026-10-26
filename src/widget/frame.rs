@@ -920,6 +920,51 @@ impl Chart {
 
         // Get visible range
         let (start_idx, end_idx) = self.state.visible_range();
+        let (registry, bars) = if self.chart_type.is_time_independent() {
+            (
+                &mut self.element_studies.studies,
+                &self.element_studies.bars[..],
+            )
+        } else {
+            (&mut self.studies, self.state.data().bars.as_slice())
+        };
+        let mut changed: Vec<_> = registry
+            .indicators_mut()
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(at, study)| study.set_visible_range(start_idx..end_idx).then_some(at))
+            .collect();
+        if !changed.is_empty() {
+            let requests = registry
+                .indicators()
+                .iter()
+                .flat_map(|study| study.data_requests())
+                .collect();
+            let sources = self.study_data.data(requests, &self.symbol, self.timeframe);
+            for at in super::studies::order(registry.indicators(), &self.study_ids) {
+                if let Some(crate::studies::StudySource::Study { id, .. }) =
+                    registry.indicators()[at].source()
+                    && let Some(parent) = self
+                        .study_ids
+                        .iter()
+                        .position(|candidate| candidate.0 == id)
+                    && changed.contains(&parent)
+                    && !changed.contains(&at)
+                {
+                    changed.push(at);
+                }
+                if changed.contains(&at) {
+                    super::studies::update(
+                        registry.indicators_mut(),
+                        &self.study_ids,
+                        at,
+                        bars,
+                        0,
+                        &sources,
+                    );
+                }
+            }
+        }
         self.start_idx = start_idx;
 
         // Capture near_live status for button
@@ -2224,6 +2269,20 @@ impl Chart {
                 self.cursor_modes.render(ui, price_rect);
             } else {
                 self.cursor_modes.move_pointer(None);
+            }
+        }
+        let mut table_rect = price_rect;
+        for (id, study) in self
+            .study_ids
+            .iter()
+            .zip(self.rendered_studies().indicators())
+            .filter(|(_, study)| study.is_visible() && study.is_overlay())
+        {
+            if let Some(table) = study.table() {
+                table_rect.max.y =
+                    crate::studies::table::paint(ui, table_rect, table, ui.scope_id().with(id))
+                        .top()
+                        - 8.0;
             }
         }
         let hover_rect =

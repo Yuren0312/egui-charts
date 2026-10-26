@@ -140,6 +140,16 @@ pub struct StudyPane {
 /// contain it without a value. The chart's datafeed drops such bars before they reach a
 /// study, so this matters to direct callers of [`calculate`](Indicator::calculate).
 pub trait Indicator: Send {
+    /// Sparse projected price bands, with fractional endpoints in future whitespace.
+    fn projections(&self) -> &[super::StudyProjection] {
+        &[]
+    }
+
+    /// A labelled table of the latest study statistics, drawn independently of the plots.
+    fn table(&self) -> Option<&super::StudyTable> {
+        None
+    }
+
     /// Whether this study stores presentation edits itself. Charts wrap other studies once.
     fn has_settings(&self) -> bool {
         false
@@ -207,6 +217,13 @@ pub trait Indicator: Send {
     ) -> Result<(), &'static str> {
         let _ = (inputs, settings);
         Err("wrap the study in ConfiguredStudy to edit its presentation")
+    }
+
+    /// Visible source bars, end exclusive, supplied after pan, zoom and resize and before
+    /// autoscaling. Returns whether values need recalculation. Direct callers may supply it too.
+    fn set_visible_range(&mut self, range: std::ops::Range<usize>) -> bool {
+        let _ = range;
+        false
     }
 
     /// The chart's current interval, supplied when added and when the interval changes.

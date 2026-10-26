@@ -319,6 +319,7 @@ impl IndicatorRenderer {
             coords,
         );
         crate::studies::plots::paint_zones(&painter, indicator, price_scale, coords);
+        crate::studies::projection::paint(&painter, indicator, coords, price_scale);
 
         // Handle multi-line indicators
         let line_cnt = indicator.line_cnt();

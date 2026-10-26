@@ -138,6 +138,14 @@ impl ConfiguredStudy {
 }
 
 impl Indicator for ConfiguredStudy {
+    fn projections(&self) -> &[super::StudyProjection] {
+        self.study.projections()
+    }
+
+    fn table(&self) -> Option<&super::StudyTable> {
+        self.study.table()
+    }
+
     fn has_settings(&self) -> bool {
         true
     }
@@ -374,6 +382,9 @@ impl Indicator for ConfiguredStudy {
         if self.calculation_symbol.is_empty() && self.calculation_timeframe.is_none() {
             self.study.set_timeframe(timeframe);
         }
+    }
+    fn set_visible_range(&mut self, range: std::ops::Range<usize>) -> bool {
+        self.study.set_visible_range(range)
     }
     fn set_bar_clock(&mut self, clock: &crate::model::BarClock) -> bool {
         self.clock = clock.clone();
