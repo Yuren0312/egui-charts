@@ -66,7 +66,9 @@
 //! The chart computes, updates and draws its studies and drawings itself:
 //!
 //! ```rust
+//! # #[cfg(all(feature = "drawings", feature = "studies"))]
 //! # use egui_charts::{drawings::DrawingToolType, studies::{EMA, RSI}, widget::Chart};
+//! # #[cfg(all(feature = "drawings", feature = "studies"))]
 //! # fn example(chart: &mut Chart, ui: &mut egui::Ui) {
 //! let ema = chart.add_indicator(Box::new(EMA::new(20))); // on the main pane
 //! chart.add_indicator(Box::new(RSI::new(14))); // in a pane below it
@@ -94,12 +96,14 @@
 //! - [`builder`] -- Constructor and configuration methods for [`Chart`]
 //! - [`indicator_pane`] -- Separate indicator panels (RSI, MACD, Stochastic)
 
+#[cfg(feature = "drawings")]
 use crate::chart::cursor_modes::CursorModeState;
 use crate::chart::renderers::ChartMapping;
 use crate::chart::selection::SelectionState;
 use crate::chart::series::SeriesSettings;
 use crate::config::{ChartConfig, ChartOptions};
 use crate::data::FeedState;
+#[cfg(feature = "drawings")]
 use crate::drawings::DrawingManager;
 use crate::model::ChartState;
 use crate::model::Timeframe;
@@ -122,9 +126,11 @@ pub use indicator_pane::{
 // Re-export from logic layer
 use crate::chart::state;
 
+#[cfg(feature = "drawings")]
 mod anchors;
 pub mod builder;
 mod change_marks;
+#[cfg(feature = "drawings")]
 mod clipboard;
 mod crosshair;
 #[cfg(feature = "ui")]
@@ -154,6 +160,7 @@ mod selection;
 mod series;
 #[cfg(feature = "ui")]
 mod snapshot;
+#[cfg(feature = "drawings")]
 mod stored_drawings;
 pub use crate::chart::primitives::{
     PriceAxisLabel, Primitive, PrimitiveId, PrimitivePass, PrimitiveView, TimeAxisLabel,
@@ -169,6 +176,7 @@ pub(crate) mod sync;
 mod time_scale;
 use feed::FeedLink;
 pub use sync::VisibleTimeRange;
+#[cfg(feature = "drawings")]
 pub(crate) mod tool_interaction;
 
 pub use keyboard::{ShortcutMap, ShortcutRequest};
@@ -318,11 +326,17 @@ pub struct Chart {
     /// Id of the next primitive attached.
     next_primitive: u64,
     /// The chart's drawings and the active drawing tool.
+    #[cfg(feature = "drawings")]
     pub(crate) drawings: DrawingManager,
+    #[cfg(feature = "drawings")]
     symbol_drawings: std::collections::HashMap<String, (DrawingManager, Vec<crate::model::Marker>)>,
+    #[cfg(not(feature = "drawings"))]
+    symbol_markers: std::collections::HashMap<String, Vec<crate::model::Marker>>,
     /// Where each symbol's drawings are kept; see [`Chart::set_storage`].
+    #[cfg(feature = "drawings")]
     drawing_store: Option<stored_drawings::DrawingStore>,
     /// The id each study a snapshot saved has since [`Chart::restore`] added it again.
+    #[cfg(feature = "drawings")]
     restored_studies: std::collections::HashMap<usize, usize>,
     /// Right-click box zoom state
     pub(crate) box_zoom: BoxZoomState,
@@ -372,6 +386,7 @@ pub struct Chart {
     /// The feed the chart loads from, if it was built with one.
     pub(crate) feed_link: Option<FeedLink>,
     /// Cursor mode state (Demonstration, Magic, Eraser effects)
+    #[cfg(feature = "drawings")]
     pub(crate) cursor_modes: CursorModeState,
     /// The main series' last value, price line, base line, autoscale and click tolerance.
     pub(crate) main_series_style: crate::model::SeriesStyle,
@@ -474,7 +489,7 @@ pub enum RightClickTarget {
         price: f64,
     },
     /// A drawing object was hit. The drawing is identified by its
-    /// [`crate::drawings::DrawingManager`] id.
+    /// drawing id.
     Drawing {
         /// Id of the hit drawing within the drawing manager.
         drawing_id: usize,
@@ -991,6 +1006,7 @@ impl Chart {
     }
 
     /// The chart's drawings and drawing tools.
+    #[cfg(feature = "drawings")]
     pub fn drawings(&self) -> &DrawingManager {
         &self.drawings
     }
@@ -998,6 +1014,7 @@ impl Chart {
     /// The chart's drawings and drawing tools, to set the active tool or to save and load the
     /// drawings. Direct host edits do not enter chart history; wrap UI-originated edits in
     /// [`Self::user_action`]. The manager's own history is for standalone drawing use.
+    #[cfg(feature = "drawings")]
     pub fn drawings_mut(&mut self) -> &mut DrawingManager {
         &mut self.drawings
     }
