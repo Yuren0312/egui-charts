@@ -41,6 +41,18 @@ where
         return None;
     }
 
+    if let Some(bar_idx) = crate::chart::renderers::volume_profile::hit_profile(
+        click_pos,
+        indicator,
+        coords,
+        &price_to_y,
+    ) {
+        return Some(IndicatorHitResult {
+            indicator_idx,
+            bar_idx,
+        });
+    }
+
     let line_cnt = indicator.line_cnt();
 
     // Test each line of the indicator
@@ -224,6 +236,18 @@ pub fn hit_test_pane_indicator(
     // Ensure click is within chart area
     if !chart_rect.contains(click_pos) {
         return None;
+    }
+
+    if let Some(bar_idx) = crate::chart::renderers::volume_profile::hit_profile(
+        click_pos,
+        indicator,
+        coords,
+        &|price| coords.price_to_y(price),
+    ) {
+        return Some(IndicatorHitResult {
+            indicator_idx,
+            bar_idx,
+        });
     }
 
     let line_cnt = indicator.line_cnt();

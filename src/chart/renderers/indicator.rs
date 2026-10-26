@@ -293,6 +293,18 @@ impl IndicatorRenderer {
             crate::studies::plots::paint_candles(context, indicator, price_scale, coords);
             return;
         }
+        let visible = super::volume_profile::profile_range(coords);
+        for plot in indicator.volume_profiles(visible) {
+            super::volume_profile::paint_profile(
+                &context.painter.with_clip_rect(context.rect),
+                &plot.profile,
+                plot.config,
+                plot.color,
+                super::volume_profile::profile_span(&plot, coords),
+                plot.right_aligned,
+                &|price| price_scale.price_to_y(price),
+            );
+        }
         let values = indicator.values();
         let painter = context.painter.with_clip_rect(context.rect);
         let display_start = coords

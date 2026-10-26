@@ -54,9 +54,8 @@ macro_rules! register_builtins {
 ///
 /// On construction, every built-in indicator is registered under its canonical
 /// [`Indicator::name`] (e.g. `"SMA"`, `"RSI"`, `"MACD"`, `"SuperTrend"`) using
-/// its conventional default parameters. Each name is a distinct study: names
-/// that computed the same values as another under their defaults are not
-/// registered. Additional indicators can be registered at runtime with
+/// its conventional default parameters. Each name selects a distinct calculation
+/// or source range. Additional indicators can be registered at runtime with
 /// [`register`](Self::register).
 pub struct IndicatorFactory {
     constructors: HashMap<String, (&'static str, IndicatorConstructor)>,
@@ -215,6 +214,10 @@ impl IndicatorFactory {
                 KlingerOscillator,
                 VolProfileVisible,
                 VolProfileFixed,
+                VolProfileSession,
+                VolProfilePeriodic,
+                VolProfileAnchored,
+                VolProfileAutoAnchored,
                 TimePriceOpportunity,
                 NetVolume,
                 VolumePriceTrend,
@@ -422,7 +425,7 @@ mod tests {
     }
 
     /// Each registered name is a study of its own: on one series, no two names give the same
-    /// values on every bar, even with their lines in another order.
+    /// values on every bar, even with their lines in another order. Fixed profiles use a saved end.
     #[test]
     fn no_two_names_compute_the_same_study() {
         use crate::model::Bar;
@@ -457,11 +460,21 @@ mod tests {
         let mut duplicates = Vec::new();
         for name in names {
             let mut study = factory.create(&name).unwrap();
+            // Fixed and anchored profiles include all history until a range is chosen.
+            if name == "Vol Profile FR" {
+                study
+                    .set_input(
+                        "end_time",
+                        InputValue::Number(bars[599].time.timestamp_millis() as f64),
+                    )
+                    .unwrap();
+            }
             study.calculate(&bars);
             // Studies that draw only shapes differ by their zones or profile.
             let shapes = vec![
                 format!("{:?}", study.zones()),
                 study.tpo().is_some().to_string(),
+                format!("{:?}", study.volume_profiles(200..400)),
             ];
             #[cfg(feature = "drawings")]
             let shapes = shapes
@@ -623,6 +636,10 @@ mod tests {
             Box::new(CVD::new()),
             Box::new(VolProfileVisible::new(l(0))),
             Box::new(VolProfileFixed::new(l(0))),
+            Box::new(VolProfileSession::new(l(0))),
+            Box::new(VolProfilePeriodic::new(l(0))),
+            Box::new(VolProfileAnchored::new(l(0))),
+            Box::new(VolProfileAutoAnchored::new(l(0))),
             Box::new(TimePriceOpportunity::default()),
             Box::new(NetVolume::new()),
             Box::new(VolumePriceTrend::new()),
@@ -926,8 +943,7 @@ mod tests {
         }
 
         // Every value has one entry per declared line and every line a name; a study of
-        // several lines never emits `Single`. The volume profiles emit a histogram per bar
-        // instead of lines (#167).
+        // several lines never emits `Single`.
         let fits = |v: &IndicatorValue, lines: usize| match v {
             IndicatorValue::Single(_) => lines == 1,
             IndicatorValue::Multiple(xs) => xs.len() == lines,
@@ -950,7 +966,6 @@ mod tests {
                             study.name(),
                             bars.len()
                         )),
-                        Ok(_) if study.name().starts_with("Vol Profile") => {}
                         Ok(_) => {
                             let lines = study.line_cnt();
                             if study.line_names().len() != lines {

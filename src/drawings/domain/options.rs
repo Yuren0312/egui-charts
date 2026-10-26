@@ -10,7 +10,6 @@
 pub use crate::model::LineStyle;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::ops::RangeInclusive;
 
 /// Identifies a selection handle position on a drawing.
 ///
@@ -333,61 +332,7 @@ impl FibonacciConfig {
     }
 }
 
-/// Settings of the fixed range and anchored volume profile drawings.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(try_from = "VolumeProfileFields")]
-pub struct VolumeProfileConfig {
-    rows: usize,
-    value_area: f64,
-}
-
-/// Stored settings of a volume profile, checked by [`VolumeProfileConfig::new`] on load.
-#[derive(Deserialize)]
-struct VolumeProfileFields {
-    rows: usize,
-    value_area: f64,
-}
-
-impl TryFrom<VolumeProfileFields> for VolumeProfileConfig {
-    type Error = &'static str;
-
-    fn try_from(fields: VolumeProfileFields) -> Result<Self, Self::Error> {
-        Self::new(fields.rows, fields.value_area).ok_or("volume profile settings out of bounds")
-    }
-}
-
-impl VolumeProfileConfig {
-    /// Price rows a profile may have.
-    pub const ROWS: RangeInclusive<usize> = 1..=1000;
-
-    /// A profile of `rows` equal price rows whose value area holds the
-    /// `value_area` share of its volume (above 0, at most 1); `None` when
-    /// either is out of bounds.
-    pub fn new(rows: usize, value_area: f64) -> Option<Self> {
-        (Self::ROWS.contains(&rows) && value_area > 0.0 && value_area <= 1.0)
-            .then_some(Self { rows, value_area })
-    }
-
-    /// Number of price rows.
-    pub fn rows(&self) -> usize {
-        self.rows
-    }
-
-    /// Share of the volume inside the value area.
-    pub fn value_area(&self) -> f64 {
-        self.value_area
-    }
-}
-
-impl Default for VolumeProfileConfig {
-    /// 24 rows and a value area of 70% of the volume.
-    fn default() -> Self {
-        Self {
-            rows: 24,
-            value_area: 0.7,
-        }
-    }
-}
+pub use crate::studies::{ProfileDisplay, VolumeProfileConfig};
 
 /// Settings of the regression trend drawing.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -514,6 +459,13 @@ mod tests {
         assert!(VolumeProfileConfig::new(1000, 0.01).is_some());
         for (rows, value_area) in [(0, 0.7), (1001, 0.7), (24, 0.0), (24, 1.01), (24, f64::NAN)] {
             assert!(VolumeProfileConfig::new(rows, value_area).is_none());
+        }
+        for height in [0.0, -1.0, f64::INFINITY, f64::NAN] {
+            assert!(
+                VolumeProfileConfig::default()
+                    .with_row_size(Some(height))
+                    .is_none()
+            );
         }
         assert!(RegressionTrendConfig::new(10.0).is_some());
         for deviations in [0.0, -1.0, 10.5, f64::INFINITY, f64::NAN] {
