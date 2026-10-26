@@ -297,6 +297,11 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- `SettingsStore::flush` retries unchanged settings after a failed save and confirms them only after a successful acknowledgement. Edits made during a pending save keep the latest choice; repeated failures are reported once until a write succeeds. ([#907](https://github.com/userFRM/egui-charts/issues/907))
+- The account panel keeps the newest 1,000 entries per completed-history category and releases expired order metadata. Active orders, cumulative partial fills and the latest fill per symbol survive eviction; older history remains host-owned. ([#902](https://github.com/userFRM/egui-charts/issues/902))
+- `PaperAccount` checks placement, modification and gap fills against account-wide equity, position margin, working orders and commissions. Refused modifications leave the order intact; reductions and position exits remain available with insufficient funds. Account summaries use the current marks and reserve working-order costs. ([#905](https://github.com/userFRM/egui-charts/issues/905))
+- `PaperAccount` accepts only good-till-cancelled orders until session boundaries are available. Migration: direct callers set `OrderRequest::time_in_force` to `TimeInForce::GoodTillCancelled`. The ticket and confirmed position actions use the broker's symbol rules, including for positions outside the chart's symbol. ([#906](https://github.com/userFRM/egui-charts/issues/906))
+
 - Studies sourced from another study continue refreshing during continuous ticks, within the existing full-recompute budget. ([#911](https://github.com/userFRM/egui-charts/issues/911))
 
 - Native trackpad pinches zoom around the pointer and stop tracking and kinetic scrolling. Contact input takes precedence when both are reported, and wheel zoom remains applied once. ([#918](https://github.com/userFRM/egui-charts/issues/918))
