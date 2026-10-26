@@ -299,6 +299,18 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- Replay resets clear remote-symbol, alternate-interval and metric study histories, tick-origin bookkeeping, errors and paging state before merging the new position, and invalidate dependent calculations. ([#900](https://github.com/userFRM/egui-charts/issues/900))
+- Study sources retry recoverable resolve and history failures with exponential backoff capped at 60 seconds, honoring longer rate-limit delays. Retries retain the original page boundary and count, success clears the error, and paused or replaced sources cancel pending recovery. Replies from superseded requests are ignored. ([#908](https://github.com/userFRM/egui-charts/issues/908))
+
+- Live subscriptions retain at most 100,000 undrained bar slots independently of raw trade capacity. Overflow evicts the oldest slots, increments `FeedState::rejected_bars` and reports `InvalidData` through `last_error`, asking the host to reload history. Explicit historical execution batches retain their complete output. ([#901](https://github.com/userFRM/egui-charts/issues/901))
+- Time-based streams reject executions older than the last accepted execution, including inside the forming candle and across frame drains, so delayed trades cannot overwrite the chronological close. `aggregate_trades` enforces the same ordering contract. Equal timestamps remain valid and replay seeks reset the watermark. ([#903](https://github.com/userFRM/egui-charts/issues/903))
+
+- Drawing saves retain the nanosecond remainder after each millisecond, preserving distinct execution-bar anchors when restored immediately, before history loads, through drawing paste or when older placements gain editable controls. Millisecond-only documents remain readable. Migration: `StoredCoord` literals add `subms_ns: 0`, or use `StoredCoord::new` for millisecond coordinates. ([#899](https://github.com/userFRM/egui-charts/issues/899))
+
+- Watchlist service pushes and `set_quote` reject older timestamps and non-finite required or supplied numeric fields, retaining the last usable quote for the watchlist and host consumers. Equal timestamps can still correct prices. ([#904](https://github.com/userFRM/egui-charts/issues/904))
+
+- Depth snapshots resolve duplicate tick prices before removing zero sizes, so the last supplied level removes earlier liquidity on either side. ([#909](https://github.com/userFRM/egui-charts/issues/909))
+
 - `SettingsStore::flush` retries unchanged settings after a failed save and confirms them only after a successful acknowledgement. Edits made during a pending save keep the latest choice; repeated failures are reported once until a write succeeds. ([#907](https://github.com/userFRM/egui-charts/issues/907))
 - The account panel keeps the newest 1,000 entries per completed-history category and releases expired order metadata. Active orders, cumulative partial fills and the latest fill per symbol survive eviction; older history remains host-owned. ([#902](https://github.com/userFRM/egui-charts/issues/902))
 - `PaperAccount` checks placement, modification and gap fills against account-wide equity, position margin, working orders and commissions. Refused modifications leave the order intact; reductions and position exits remain available with insufficient funds. Account summaries use the current marks and reserve working-order costs. ([#905](https://github.com/userFRM/egui-charts/issues/905))
