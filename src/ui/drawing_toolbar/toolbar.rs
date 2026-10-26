@@ -832,6 +832,14 @@ impl DrawingToolbar {
         current_color: [u8; 4],
     ) -> Option<[u8; 4]> {
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(swatch_size), Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::Role::RadioButton,
+                response.enabled(),
+                current_color == color_val,
+                name,
+            )
+        });
         crate::styles::focus::draw_focus_ring(ui, &response, DESIGN_TOKENS.rounding.sm);
 
         let c =
@@ -921,6 +929,7 @@ impl DrawingToolbar {
         let mut new_selection = None;
 
         egui::Area::new(egui::Id::unique("floating_drawing_toolbar"))
+            .enabled(ui.is_enabled())
             .fixed_pos(position)
             .show(ui.ctx(), |ui| {
                 egui::Frame::new()
@@ -944,6 +953,14 @@ impl DrawingToolbar {
                                     Vec2::splat(DESIGN_TOKENS.sizing.button_md),
                                     Sense::click(),
                                 );
+                                response.widget_info(|| {
+                                    egui::WidgetInfo::selected(
+                                        egui::Role::Button,
+                                        response.enabled(),
+                                        is_sel,
+                                        tool.as_str(),
+                                    )
+                                });
                                 crate::styles::focus::draw_focus_ring(
                                     ui,
                                     &response,
@@ -985,6 +1002,14 @@ impl DrawingToolbar {
                                 Vec2::splat(DESIGN_TOKENS.sizing.button_md),
                                 Sense::click(),
                             );
+                            response.widget_info(|| {
+                                egui::WidgetInfo::selected(
+                                    egui::Role::Button,
+                                    response.enabled(),
+                                    self.state.magnet_mode,
+                                    "Magnet Mode",
+                                )
+                            });
                             crate::styles::focus::draw_focus_ring(
                                 ui,
                                 &response,
@@ -1027,7 +1052,9 @@ impl DrawingToolbar {
                                         }
                                     });
                                 }
-                            });
+                            })
+                            .response
+                            .accessible_name("More drawing tools");
                         });
                     });
             });

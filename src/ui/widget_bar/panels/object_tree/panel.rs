@@ -274,7 +274,8 @@ impl ObjectTreePanel {
                             ui.selectable_value(&mut self.state.filter_type, source_type, label);
                         }
                     },
-                );
+                )
+                .accessible_name("Object type");
             });
         });
     }

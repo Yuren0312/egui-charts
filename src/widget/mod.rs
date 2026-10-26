@@ -126,6 +126,7 @@ pub use indicator_pane::{
 // Re-export from logic layer
 use crate::chart::state;
 
+mod accessibility;
 #[cfg(feature = "drawings")]
 mod anchors;
 pub mod builder;

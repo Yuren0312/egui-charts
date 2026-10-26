@@ -6,7 +6,12 @@ use super::watchlist::ROW_HEIGHT;
 use crate::icons::icons;
 use crate::theme::ThemeExt;
 
-pub(super) fn dropdown(ui: &mut Ui, id: &str, text: &str, contents: impl FnOnce(&mut Ui)) {
+pub(super) fn dropdown(
+    ui: &mut Ui,
+    id: &str,
+    text: &str,
+    contents: impl FnOnce(&mut Ui),
+) -> Response {
     ui.push_id(id, |ui| {
         let button = ui.add(
             egui::Button::new((text, icons::CHEVRON_DOWN.as_image_square(16.0)))
@@ -20,7 +25,9 @@ pub(super) fn dropdown(ui: &mut Ui, id: &str, text: &str, contents: impl FnOnce(
                 .max_height(ui.spacing().combo_height)
                 .show(ui, contents);
         });
-    });
+        button
+    })
+    .inner
 }
 
 pub(super) fn row(ui: &mut Ui) -> (Rect, Response) {
