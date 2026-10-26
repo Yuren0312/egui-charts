@@ -65,6 +65,7 @@ pub mod factory;
 mod format;
 pub mod helpers;
 mod indicator_trait;
+pub mod palette;
 pub use format::StudyScale;
 mod inputs;
 mod metric;
