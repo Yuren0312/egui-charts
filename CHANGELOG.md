@@ -797,6 +797,7 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Changed
 
+- CI runs default, all-feature and headless library tests on stable and Rust 1.95.0 on Linux, macOS and Windows. Headless Chrome also runs the widget's pan, pointer zoom, drawing selection and degenerate-history tests with all features and with the widget alone. ([#254](https://github.com/userFRM/egui-charts/issues/254))
 - Ordinary solid study lines draw each uninterrupted run as one joined path instead of a separate shape for every pair of bars, reducing painting and tessellation work on charts with many studies while keeping gaps, colours and stroke widths. Directional colours and gradient fills retain their segment rendering. The README links performance notes with application-owned glibc allocator settings for large native charts. ([#472](https://github.com/userFRM/egui-charts/issues/472))
 - Replay no longer holds a separate simulated balance or position. Migration: use `services::PaperAccount` through `Broker` instead of `TradingSimulationState`, `ReplayState::trading_sim`, the simulation actions on `ReplayAction`, or the trading fields on `ReplayBehavior`. ([#221](https://github.com/userFRM/egui-charts/issues/221))
 

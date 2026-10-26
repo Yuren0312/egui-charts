@@ -811,7 +811,8 @@ mod tests {
     /// A wheel notch over the chart zooms the time axis, also with the zoom modifier (Ctrl, or
     /// Cmd on macOS) held, which egui leaves out of its smoothed scroll delta.
     /// While the right bar stays on scroll, the zoom keeps the right offset.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn wheel_zooms_the_time_axis_with_and_without_the_zoom_modifier() {
         for (modifiers, right_bar_stays, fraction) in [
             (Modifiers::NONE, false, 0.25),
@@ -899,7 +900,8 @@ mod tests {
     }
 
     /// A grabbed bar follows the entire horizontal drag, including its first movement frame.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn chart_drag_keeps_the_grabbed_bar_under_the_pointer() {
         for steps in [1, 10] {
             for distance in [-60.0, 60.0] {

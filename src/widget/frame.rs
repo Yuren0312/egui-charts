@@ -2802,7 +2802,8 @@ mod tests {
     use egui::{Event, Pos2, Rect, Shape};
 
     /// Empty, one-bar and flat histories must produce finite, bounded tessellated output.
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn degenerate_histories_paint_bounded_frames() {
         use crate::model::{Bar, BarData, ChartType};
         for count in [0, 1, 128] {
