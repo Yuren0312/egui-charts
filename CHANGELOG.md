@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Standalone examples cover custom studies, timestamped drawing save/load, a host-run backtest, host script evaluation and UTC chart synchronization across intervals. The historical examples share one generated OHLCV helper, and existing CI checks compile every declared example. The demo retains its execution-based history. Data feeds, durable storage, strategy execution and scripting runtimes remain host-owned. ([#249](https://github.com/userFRM/egui-charts/issues/249))
+
 - docs.rs builds all features and labels optional modules with their feature requirements. The builder guide is published in rustdoc and covers history, streaming, custom studies, drawing persistence, chart synchronization and host strategy and script integration. Missing documentation is linted in `drawings`, `widget`, `ext` and the guide. ([#248](https://github.com/userFRM/egui-charts/issues/248))
 
 - `data::ReplayClock` merges trades, quotes and depth for multiple symbols by timestamp and sequence, advances at a host-selected speed and seeks depth from periodic snapshots. `ReplayEvent::push_to` uses the live feed path; `Sink::reset_replay` clears future bars, order flow, streaming study values and their heartbeat on rewind. `RecordingWriter` and `RecordingReader` persist compact versioned binary events through host-owned streams, preserving nanosecond times, ids and conditions. See `docs/order-flow-replay.md` for routing, recording and seek integration. ([#240](https://github.com/userFRM/egui-charts/issues/240))

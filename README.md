@@ -237,6 +237,28 @@ show the feature needed to use each optional part.
 
 Implement `Datafeed` to connect any market data provider, as in the [terminal example](#a-terminal-around-it); only `history` is required. The chart calls the feed from `show` on the UI thread and never waits for it: answer through the `Reply` and push into the `Sink` from any thread, runtime or browser task. The chart asks for older pages as the user scrolls back, and unsubscribes when the symbol or timeframe changes. [`examples/live_feed.rs`](examples/live_feed.rs) serves history from memory and streams synthetic trades.
 
+## Workflow examples
+
+Run each with `cargo run --example <name>`. CI compiles them through the existing
+`--all-targets` checks. The standalone historical examples share generated OHLCV
+data in `examples/support`; the demo separately builds its history from executions.
+
+| Example | Workflow |
+|---|---|
+| [basic_chart](examples/basic_chart.rs) | Historical bars, a price line and click events |
+| [live_feed](examples/live_feed.rs) | Paged history and a cancellable stream of executions |
+| [with_indicators](examples/with_indicators.rs) | Built-in overlays and study panes |
+| [custom_indicator](examples/custom_indicator.rs) | A calculation closure with explicit warm-up values |
+| [drawing_tools](examples/drawing_tools.rs) | Programmatic and interactive annotations |
+| [drawing_persistence](examples/drawing_persistence.rs) | Save and load timestamped drawing JSON, reporting errors |
+| [backtesting](examples/backtesting.rs) | A host buy-and-hold run, fees, equity and strategy metrics; also runs with `--no-default-features` |
+| [scripting](examples/scripting.rs) | A minimal host expression evaluator connected to a custom study |
+| [synchronized_charts](examples/synchronized_charts.rs) | Crosshairs and viewports shared by UTC across 1-hour and 4-hour charts |
+
+The host owns market data, durable storage, strategy execution and its scripting
+runtime. The scripting example accepts only `close - close[N]`; it demonstrates
+the adapter and error handling, and adds no language support to the library.
+
 ## Platform support
 
 | Target | Status |

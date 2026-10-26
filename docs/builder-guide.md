@@ -133,3 +133,21 @@ return their per-bar results through `CustomIndicator`, with missing values for
 unavailable observations. Recalculate when the source bars or script inputs change;
 report compilation and execution errors in the host UI. A closure may capture an
 `Arc` holding the host evaluator; its calculation must be `Send + Sync`.
+
+## Runnable examples
+
+Run `cargo run --example <name>` from the repository. All use the public API and
+generated sample data, and CI compiles each through its `--all-targets` checks.
+
+| Name | Workflow |
+|---|---|
+| `live_feed` | Paged historical bars and streaming executions |
+| `custom_indicator` | Ten-bar price change with explicit warm-up values |
+| `drawing_persistence` | Editable drawing JSON, save/load and error reporting |
+| `backtesting` | Host buy-and-hold run, fees, equity and strategy metrics |
+| `scripting` | Minimal host evaluator for `close - close[N]`, applied as a custom study |
+| `synchronized_charts` | UTC crosshair and viewport sharing across different intervals |
+
+The backtest also runs without egui: `cargo run --example backtesting
+--no-default-features`. The demo's execution-based history remains separate from
+the standalone examples' shared OHLCV generator.
