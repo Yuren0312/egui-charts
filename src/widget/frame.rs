@@ -61,7 +61,7 @@ impl Chart {
                 }
                 zone => last
                     .time
-                    .with_timezone(&zone.to_tz().unwrap_or(chrono_tz::UTC))
+                    .with_timezone(&zone.to_tz().unwrap_or(crate::model::TimezoneId::utc()))
                     .date_naive(),
             };
             date.and_hms_opt(0, 0, 0)?.and_utc()
@@ -116,8 +116,8 @@ impl Chart {
                 crate::scales::TimezoneMode::Exchange(
                     self.instrument()
                         .and_then(|instrument| instrument.time_zone.as_ref())
-                        .map(crate::model::TimezoneId::tz)
-                        .unwrap_or(*fallback),
+                        .cloned()
+                        .unwrap_or_else(|| fallback.clone()),
                 )
             }
             timezone => timezone.clone(),
@@ -1265,7 +1265,7 @@ impl Chart {
             .filter(|instrument| instrument.session.is_none())
             .and_then(|instrument| instrument.time_zone.as_ref())
         {
-            bar_clock = bar_clock.with_timezone(zone.tz());
+            bar_clock = bar_clock.with_timezone(zone.clone());
         }
         let render_ctx = rendering::CandleDataContext {
             price_ctx: &clipped_price_ctx,
@@ -2801,6 +2801,7 @@ mod tests {
     use crate::widget::test_frames::{chart, frame, shapes};
     use egui::{Event, Pos2, Rect, Shape};
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn countdown_uses_feed_calendar_and_session_trading_dates() {
         use crate::data::{Datafeed, HistoryPage, HistoryRequest, Reply};
@@ -2858,7 +2859,7 @@ mod tests {
             let mut chart = chart(&[100.0], &[110.0]);
             chart.timeframe = Some(timeframe);
             chart.chart_options.time_scale.timezone =
-                crate::scales::TimezoneMode::Exchange(chrono_tz::Europe::Zurich);
+                crate::scales::TimezoneMode::Exchange("Europe/Zurich".parse().unwrap());
             chart.attach_feed(std::sync::Arc::new(Feed), 1);
             let mut instrument =
                 Instrument::new("TEST").with_time_zone(TimezoneId::named("Europe/Zurich").unwrap());
@@ -3518,7 +3519,7 @@ mod tests {
         let mut chart = crate::widget::Chart::new(BarData::from_bars(bars));
         chart.set_timeframe(Timeframe::Min30);
         chart.set_chart_type(ChartType::TimePriceOpportunity);
-        let new_york = TimezoneId::named("America/New_York").unwrap();
+        let new_york = TimezoneId::fixed_offset(-5 * 3600).unwrap();
         chart.set_instrument(Some(Instrument::new("FX").with_time_zone(new_york)));
         let painted = shapes(&egui::Context::default(), &mut chart, 0.0, vec![]);
         // One initial balance bar beside each profile
@@ -3533,6 +3534,7 @@ mod tests {
         assert_eq!(profiles, 2);
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn configured_sessions_reach_breaks_and_extended_shading() {
         use crate::model::{Bar, BarData, Timeframe};
@@ -3850,7 +3852,8 @@ mod tests {
             chart.chart_options.tooltip.enabled = false;
             // Each change after a frame, as the axis menu makes them, so the time labels follow.
             frame(&ctx, &mut chart, 0.0, vec![]);
-            chart.chart_options.time_scale.timezone = crate::scales::TimezoneMode::nyse();
+            chart.chart_options.time_scale.timezone =
+                crate::scales::TimezoneMode::Timezone("-05:00".parse().unwrap());
             frame(&ctx, &mut chart, 0.03, vec![]);
             let options = &mut chart.chart_options.time_scale;
             options.time_visible = time_visible;
@@ -4023,6 +4026,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn hover_times_share_the_chart_zone_through_dst() {
         use crate::model::{Bar, BarData, Timeframe};
