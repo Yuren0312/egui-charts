@@ -221,9 +221,11 @@ egui-charts = { version = "0.2", default-features = false, features = ["studies"
 
 `locales` names months and weekdays and the AM/PM marker in the language given to `Chart::set_locale` or `LocaleTimeFormatter`, from chrono's locale tables; the builds above with `default-features = false` leave it out and write those names in English unless they list it. `serde` (off by default) adds `Serialize` and `Deserialize` to `Theme`. `theme::apply_to_egui` installs the bundled Roboto ahead of the application's proportional fonts. To replace it, call `egui::Context::set_fonts` after applying the theme. eframe enables egui's `default_fonts` as fallbacks by default. Since egui 0.37 those fonts have no emoji, which need egui's `monochrome_emoji_fonts` feature or fonts the application installs. The chart installs no image loader other than SVG; an application that shows PNG, JPEG, file or HTTP images calls `egui_extras::install_image_loaders` with the loader features it needs.
 
-`cargo bench --bench bare_chart --no-default-features --features widget` measures the frame cost of the bare chart example.
+## Performance
 
-<!-- performance slot: binary size and frame time of the bare-chart build, quoted only once CI tracks them -->
+`cargo bench --bench bare_chart --no-default-features --features widget` measures the frame cost of the bare chart example. `cargo bench --bench frame_time` covers large histories and multiple charts with studies.
+
+On Linux with glibc, freeing large tessellation buffers can cause heap trimming and page faults on every frame. In the reported 5,000,000-bar workload, setting both `M_MMAP_THRESHOLD` to 64 MiB and `M_TRIM_THRESHOLD` to 256 MiB reduced the frame from about 5.8 ms to 3.9 ms, within 2% of egui 0.33. Setting either threshold alone did not remove the overhead. Applications can instead raise `M_TOP_PAD` to 16 MiB or choose another global allocator. The library leaves process-wide allocation policy to the host. See [performance notes](docs/performance.md) for the `GLIBC_TUNABLES` commands, measurements and memory tradeoffs.
 
 ## Connect your data
 
