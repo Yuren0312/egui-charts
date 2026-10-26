@@ -931,8 +931,10 @@ mod tests {
             if study.order_flow_input().is_some() {
                 continue;
             }
-            // External series have no values until the host supplies their distinct inputs.
-            if !study.data_requests().is_empty() {
+            // External inputs and unavailable named sessions cannot distinguish calculations.
+            if !study.data_requests().is_empty()
+                || (!cfg!(feature = "timezones") && name == "Trading Sessions")
+            {
                 continue;
             }
             // Fixed and anchored profiles include all history until a range is chosen.
@@ -1274,7 +1276,7 @@ mod tests {
             Box::new(
                 VolumeWeightedAvgPrice::new()
                     .with_anchor(VwapAnchor::Week)
-                    .with_time_zone(TimezoneId::named("Asia/Tokyo").unwrap()),
+                    .with_time_zone(TimezoneId::fixed_offset(9 * 3600).unwrap()),
             )
         };
         let mut studies = builtins_with(|k| 3 + 2 * k, |v| v);

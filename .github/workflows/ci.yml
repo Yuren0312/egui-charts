@@ -76,6 +76,8 @@ jobs:
         run: cargo test --all-features --lib
       - name: Run library tests (no default features)
         run: cargo test --no-default-features --lib
+      - name: Run library tests (UI without named time zones)
+        run: cargo test --no-default-features --features ui --lib
       - name: Run doc tests (all features)
         run: cargo test --doc --all-features
 
@@ -213,7 +215,7 @@ jobs:
           studies=$(cargo tree --locked -e normal --no-default-features --features studies --prefix none)
           banned=$(grep -E '^(rustls|ureq|ehttp|image) v' <<< "$default" | sort -u || true)
           if [ -n "$banned" ]; then echo "::error::default features depend on: $banned"; exit 1; fi
-          banned=$(grep -E '^(egui|egui_extras|epaint|winit) v' <<< "$headless" | sort -u || true)
+          banned=$(grep -E '^(egui|egui_extras|epaint|winit|chrono-tz) v' <<< "$headless" | sort -u || true)
           if [ -n "$banned" ]; then echo "::error::--no-default-features depends on: $banned"; exit 1; fi
           banned=$(grep -E '^(egui_extras|thiserror) v' <<< "$widget" | sort -u || true)
           if [ -n "$banned" ]; then echo "::error::--features widget depends on: $banned"; exit 1; fi
@@ -221,6 +223,11 @@ jobs:
           if [ -n "$banned" ]; then echo "::error::--features studies depends on: $banned"; exit 1; fi
           # The deployed demo must build the versions its committed lockfile pins.
           (cd examples/demo && cargo tree --locked > /dev/null)
+      - name: Check duplicate versions and licences
+        run: |
+          cargo install cargo-deny --locked --version 0.19.0
+          cargo deny --all-features --locked check bans licenses
+          cargo deny --manifest-path examples/demo/Cargo.toml --all-features --locked check bans licenses
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Audit dependencies

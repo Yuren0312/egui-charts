@@ -139,8 +139,8 @@ impl TimeframeToolbarState {
     pub fn formatted_time(&self) -> String {
         let zone = self
             .timezone
-            .parse::<chrono_tz::Tz>()
-            .unwrap_or(chrono_tz::UTC);
+            .parse::<crate::model::TimezoneId>()
+            .unwrap_or(crate::model::TimezoneId::utc());
         match &self.curr_time {
             Some(time) => format!("{} {zone}", time.with_timezone(&zone).format("%H:%M:%S")),
             None => format!("--:--:-- {zone}"),
@@ -153,7 +153,7 @@ impl TimeframeToolbarState {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "timezones"))]
 mod tests {
     use super::*;
 

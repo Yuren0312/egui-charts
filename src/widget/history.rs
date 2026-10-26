@@ -601,6 +601,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn interleaved_interval_type_and_settings_follow_action_order() {
         let mut chart = Chart::new(BarData::new());
@@ -706,6 +707,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn display_options_restore_applied_spacing_but_keep_pan_for_timezone_edits() {
         let mut chart = chart(&[10.0], &[20.0]);

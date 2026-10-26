@@ -821,6 +821,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn cached_profiles_draw_intraday_splits_and_cross_day_composites() {
         use crate::model::{Session, SessionWindow, TimezoneId};
@@ -891,6 +892,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn unchanged_sessions_reuse_profiles_and_changed_inputs_rebuild() {
         let mut bars: Vec<_> = [0, 30, 1440]
@@ -953,7 +955,7 @@ mod tests {
                 "letters" => config.custom_letters = Some("xy".into()),
                 "grid" => config.tick_size = 2.0,
                 "global span" => bars.last_mut().unwrap().high = 2103.0,
-                "zone" => clock = clock.with_timezone(chrono_tz::Asia::Tokyo),
+                "zone" => clock = clock.with_timezone("Asia/Tokyo".parse().unwrap()),
                 _ => unreachable!(),
             }
             let current = cached_profiles(

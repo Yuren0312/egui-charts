@@ -869,6 +869,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn time_marks_keep_boundaries_and_only_survivors_are_formatted() {
         use super::super::time_formatter::CustomTimeFormatter;

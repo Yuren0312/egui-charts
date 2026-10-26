@@ -302,7 +302,7 @@ fn source_clock(chart: &egui_charts::Chart, interval: Timeframe) -> BarClock {
                 .instrument()
                 .and_then(|instrument| instrument.time_zone.as_ref())
                 .and_then(|zone| zone.name().parse().ok())
-                .unwrap_or(*fallback),
+                .unwrap_or_else(|| fallback.clone()),
         ),
         zone => zone
             .to_tz()

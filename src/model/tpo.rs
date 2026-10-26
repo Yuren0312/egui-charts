@@ -843,6 +843,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn sessions_follow_the_clock_and_combine_over_composites() {
         use crate::model::{Session, SessionWindow, TimezoneId};

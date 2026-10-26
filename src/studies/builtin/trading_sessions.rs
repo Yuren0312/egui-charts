@@ -16,6 +16,7 @@
 //!
 //! # Example
 //! ```
+//! # #[cfg(feature = "timezones")] {
 //! use chrono::{TimeZone, Utc};
 //! use egui_charts::model::Bar;
 //! use egui_charts::studies::{Indicator, TradingSessions};
@@ -30,6 +31,7 @@
 //! assert_eq!(sessions.values().value(0, 0), Some(1.0));
 //! assert_eq!(sessions.values().value(1, 0), None);
 //! assert_eq!(sessions.values().value(1, 1), Some(1.0));
+//! # }
 //! ```
 
 use crate::model::session::local_time;
@@ -51,7 +53,7 @@ pub struct TradingSessions {
     start: [usize; 3],
     /// Session end, in minutes after midnight in the session's time zone.
     end: [usize; 3],
-    zones: [TimezoneId; 3],
+    zones: [Option<TimezoneId>; 3],
     /// Whether the chart interval is a day or longer.
     daily: bool,
     values: IndicatorValues,
@@ -61,9 +63,10 @@ pub struct TradingSessions {
 
 impl TradingSessions {
     /// Tokyo 09:00 to 15:00, London 08:30 to 16:30 and New York 09:30 to 16:00, each in
-    /// its exchange time zone.
+    /// its exchange time zone. Without `timezones` these named sessions stay unavailable;
+    /// supply explicit fixed offsets with [`with_session`](Self::with_session).
     pub fn new() -> Self {
-        let zone = |name| TimezoneId::named(name).expect("a zone of the bundled database");
+        let zone = TimezoneId::named;
         let tint =
             |color: Color32| Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 38);
         Self {
@@ -102,7 +105,7 @@ impl TradingSessions {
             self.names[slot] = name.into();
             self.start[slot] = minutes(start);
             self.end[slot] = minutes(end);
-            self.zones[slot] = zone;
+            self.zones[slot] = Some(zone);
         }
         self
     }
@@ -168,9 +171,11 @@ impl Indicator for TradingSessions {
         }
         for slot in (0..3).filter(|&slot| self.show[slot]) {
             let (start, end) = (self.start[slot] as u32 * 60, self.end[slot] as u32 * 60);
-            let zone = self.zones[slot].tz();
+            let Some(zone) = self.zones[slot].as_ref() else {
+                continue;
+            };
             for (i, bar) in data.iter().enumerate() {
-                let second = local_time(zone, bar.time).num_seconds_from_midnight();
+                let second = local_time(zone.clone(), bar.time).num_seconds_from_midnight();
                 let inside = match start.cmp(&end) {
                     std::cmp::Ordering::Less => (start..end).contains(&second),
                     std::cmp::Ordering::Greater => second >= start || second < end,

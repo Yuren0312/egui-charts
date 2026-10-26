@@ -590,6 +590,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn right_controls_stay_at_the_edge_when_text_sizes_or_visibility_change() {
         for (theme, width, font_size, timezone) in [

@@ -127,7 +127,7 @@ pub enum SessionBreakType {
 
 /// Daily session provider with a configurable break hour.
 ///
-/// Detects day boundaries at the break hour and minute, in its zone (UTC by default). Use [`nyse`](Self::nyse) for a preset
+/// Detects day boundaries at the break hour and minute, in its zone (UTC by default). Use `nyse` (with `timezones`) for a preset
 /// matching NYSE regular-session close in exchange time, or [`continuous`](Self::continuous)
 /// for 24/7 markets (midnight UTC).
 #[derive(Debug, Clone)]
@@ -157,6 +157,7 @@ impl DailySessionProvider {
     }
 
     /// Create provider for NYSE regular session (9:30 AM - 4:00 PM ET)
+    #[cfg(feature = "timezones")]
     pub fn nyse() -> Self {
         Self {
             time_zone: TimezoneId::named("America/New_York").unwrap(),
@@ -768,6 +769,7 @@ mod tests {
         ]
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn test_daily_session_break() {
         for (provider, before, at) in [
@@ -807,6 +809,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "timezones")]
     #[test]
     fn exchange_dates_follow_dst_windows_and_holidays() {
         use crate::model::SessionWindow;
