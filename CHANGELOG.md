@@ -297,6 +297,12 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- Studies sourced from another study continue refreshing during continuous ticks, within the existing full-recompute budget. ([#911](https://github.com/userFRM/egui-charts/issues/911))
+
+- Native trackpad pinches zoom around the pointer and stop tracking and kinetic scrolling. Contact input takes precedence when both are reported, and wheel zoom remains applied once. ([#918](https://github.com/userFRM/egui-charts/issues/918))
+
+- Touch panning respects its horizontal and vertical permissions independently of mouse dragging and pinch scaling, including two-finger translation and the transition back to one finger. Price and time axis drags use their own scaling permissions even when plot panning is disabled and retain the gesture after leaving the axis; disabled axis gestures do not pan the plot. ([#919](https://github.com/userFRM/egui-charts/issues/919), [#920](https://github.com/userFRM/egui-charts/issues/920))
+
 - Small pans and anchored zooms retain fractional movement on large histories. Synchronized UTC ranges, added series and pointer actions keep sub-bar precision. `Chart::visible_time_range` retains double-precision fractional bar indices at plot edges, avoiding magnified UTC rounding errors inside session gaps after long histories; the synchronization reference table covers one-day ranges inside a three-day gap. Scroll offsets retain double precision even far into history. Migration: `ChartMapping::right_offset`, `IndicatorCoordParams::right_offset` and `ZoomState::right_offset` are now `f64`; convert stored `f32` values with `.into()` in struct literals. Existing constructors accept both types, and `TimeScale::right_offset_precise` returns the retained offset alongside the legacy `f32` getter. ([#916](https://github.com/userFRM/egui-charts/issues/916))
 - Main and comparison series use the same ordinary-price fallback when their percentage or indexed reference is zero or unavailable, keeping drawable comparison coordinates finite. ([#913](https://github.com/userFRM/egui-charts/issues/913))
 - Logarithmic autoscaling filters drawable positive OHLC prices before reducing their extrema, including opens and closes of bars whose lows cross zero, on the main and added series. ([#914](https://github.com/userFRM/egui-charts/issues/914))
