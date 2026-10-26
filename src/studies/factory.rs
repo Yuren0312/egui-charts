@@ -262,6 +262,11 @@ impl IndicatorFactory {
                 TradingSessions,
                 Gaps,
             ],
+            "Market breadth" => [
+                AdvanceDeclineRatio,
+                AdvanceDeclineLine,
+                CumulativeVolumeIndex,
+            ],
             "Patterns" => [
                 CandlestickPatterns,
             ],
@@ -460,6 +465,10 @@ mod tests {
         let mut duplicates = Vec::new();
         for name in names {
             let mut study = factory.create(&name).unwrap();
+            // External series have no values until the host supplies their distinct inputs.
+            if !study.data_requests().is_empty() {
+                continue;
+            }
             // Fixed and anchored profiles include all history until a range is chosen.
             if name == "Vol Profile FR" {
                 study
@@ -706,6 +715,9 @@ mod tests {
             Box::new(ChaikinOscillator::new(l(0), l(1))),
             Box::new(BullBearPower::new(l(0))),
             Box::new(AdvanceDeclineRatioBars::new(l(0))),
+            Box::new(AdvanceDeclineRatio::default()),
+            Box::new(AdvanceDeclineLine::default()),
+            Box::new(CumulativeVolumeIndex::default()),
             Box::new(UlcerIndex::new(l(0))),
             Box::new(DetrendedPriceOscillator::new(l(0)).with_centered(true)),
             Box::new(TradingSessions::new()),

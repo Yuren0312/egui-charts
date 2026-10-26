@@ -134,6 +134,9 @@ impl Chart {
     /// A removed main series stays paused.
     pub fn set_feed_paused(&mut self, paused: bool) {
         let paused = paused || !self.main_series_present || self.replay.is_some();
+        if paused {
+            self.study_data.pause();
+        }
         if let Some(link) = &mut self.feed_link
             && link.paused != paused
         {
@@ -145,6 +148,8 @@ impl Chart {
                     link.feed.unsubscribe(id);
                 }
                 link.pending.clear();
+            } else {
+                self.study_data.clear_feed();
             }
         }
     }
@@ -247,6 +252,9 @@ impl Chart {
             self.drawings.curr_timeframe = timeframe.as_str().into_owned();
         }
         if changed {
+            self.pending_from.fill(Some(0));
+            self.next_refresh.fill(f64::NEG_INFINITY);
+            self.element_studies.dirty = true;
             self.apply_replay_window();
         }
     }
@@ -257,6 +265,7 @@ impl Chart {
     pub fn set_extended_hours(&mut self, extended_hours: bool) {
         if self.extended_hours != extended_hours {
             self.extended_hours = extended_hours;
+            self.study_data.clear_feed();
             if let Some(link) = &mut self.feed_link {
                 link.reload_pending = true;
             }
@@ -266,6 +275,7 @@ impl Chart {
     /// Reloads the current feed key on the next frame, retaining drawings and chart history.
     /// Use after changing host-side feed settings or to retry a permanent request failure.
     pub fn reload_feed(&mut self) {
+        self.study_data.clear_feed();
         if let Some(link) = &mut self.feed_link {
             link.reload_pending = true;
         }
@@ -386,6 +396,10 @@ impl Chart {
         if self.feed_link.as_ref().is_some_and(|link| link.paused) {
             return;
         }
+        self.pump_study_data(
+            ctx,
+            self.feed_link.as_ref().map(|link| Arc::clone(&link.feed)),
+        );
         let clock = self.bar_clock();
         let Some(mut link) = self.feed_link.take() else {
             return;
