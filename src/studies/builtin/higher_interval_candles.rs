@@ -380,6 +380,7 @@ mod tests {
                     None,
                     false,
                     None,
+                    None,
                     std::iter::empty(),
                     std::iter::empty(),
                 );
