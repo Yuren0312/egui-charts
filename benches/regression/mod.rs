@@ -46,10 +46,10 @@ pub fn run(name: &str, frames: usize) {
         },
         min_bar_spacing: 0.5,
     });
-    let initial_studies: Vec<_> = chart.indicators().map(|(id, _)| id).collect();
-    for id in initial_studies {
-        chart.remove_series(id);
-    }
+    chart.update_config(egui_charts::config::ChartConfig {
+        show_volume: false,
+        ..chart.config().clone()
+    });
     if name.ends_with("-studies") {
         chart.add_indicator(Box::new(SMA::new(20)));
         chart.add_indicator(Box::new(EMA::new(20)));
@@ -76,4 +76,9 @@ pub fn run(name: &str, frames: usize) {
         });
     });
     black_box(samples);
+    assert_eq!(
+        chart.indicators().count(),
+        if name.ends_with("-studies") { 3 } else { 0 },
+        "the workload must contain only the requested studies"
+    );
 }

@@ -21,7 +21,6 @@ use egui_charts::widget::Chart;
 #[expect(dead_code, reason = "the bench draws only the example's sample bars")]
 mod example;
 mod frame;
-#[path = "regression/mod.rs"]
 mod regression;
 
 /// A scenario: its name, how many bars each chart has and shows, and how many charts.
