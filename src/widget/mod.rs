@@ -128,10 +128,12 @@ use crate::chart::state;
 
 mod accessibility;
 #[cfg(feature = "drawings")]
+#[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
 mod anchors;
 pub mod builder;
 mod change_marks;
 #[cfg(feature = "drawings")]
+#[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
 mod clipboard;
 mod crosshair;
 #[cfg(feature = "ui")]
@@ -164,6 +166,7 @@ mod series;
 #[cfg(feature = "ui")]
 mod snapshot;
 #[cfg(feature = "drawings")]
+#[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
 mod stored_drawings;
 mod studies;
 mod studies_data;
