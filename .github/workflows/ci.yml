@@ -161,6 +161,41 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$fail"
 
+  performance:
+    name: Chart performance regressions
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: performance-base
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            performance-base -> target
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+      - name: Build the same workloads against both libraries
+        run: |
+          cp -r benches/frame benches/regression performance-base/benches/
+          cp benches/frame_time.rs performance-base/benches/frame_time.rs
+          cp examples/bare_chart.rs performance-base/examples/bare_chart.rs
+          cargo build --release --locked --bench frame_time --message-format=json-render-diagnostics > performance-head.json
+          cargo build --release --locked --manifest-path performance-base/Cargo.toml --bench frame_time --message-format=json-render-diagnostics > performance-base.json
+      - name: Reject instruction growth over five percent
+        run: |
+          base=$(jq -r 'select(.target.name == "frame_time" and .executable) | .executable' performance-base.json)
+          head=$(jq -r 'select(.target.name == "frame_time" and .executable) | .executable' performance-head.json)
+          set -o pipefail
+          bash benches/check-regressions.sh "$base" "$head" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
   native-demo:
     name: Native demo (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
