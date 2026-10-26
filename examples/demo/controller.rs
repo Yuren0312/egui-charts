@@ -933,6 +933,8 @@ impl DemoApp {
         if let Some(id) = self.quick_search.show(ctx) {
             self.execute_search_command(ctx, &id);
         }
+        self.indicator_dialog
+            .set_metric_source(Some(self.live.clone()), self.chart.symbol());
         // Indicators: add the study the dialog created.
         if let IndicatorDialogAction::AddIndicator(study) =
             self.indicator_dialog.show(ctx, &self.theme)
@@ -3076,6 +3078,8 @@ mod tests {
                 .any(|t| t.message == format!("Filled: Sell 1 {symbol} at 110.00"))
         );
         assert!(Arc::ptr_eq(&paper, &app.paper));
+        app.trading.display.show_execution_labels = true;
+        app.chart.fit_content();
 
         // A live quote must not price the ticket while the broker follows replay closes.
         for side in [OrderSide::Buy, OrderSide::Sell] {
@@ -3092,6 +3096,7 @@ mod tests {
                     egui_charts::model::OrderType::Market,
                 ));
             let mut value = false;
+            let mut marked = false;
             for _ in 0..3 {
                 let output = ctx.run_ui(Default::default(), |ui| {
                     app.trading.show_ticket(ui, &app.chart);
@@ -3104,9 +3109,14 @@ mod tests {
                     })
                 };
                 value |= has_text("Trade value") && has_text("110.00");
+                marked |= has_text("1 @ 100.00") && has_text("1 @ 110.00");
                 output.drop_without_applying_deltas();
             }
             assert!(value, "{side:?} ticket must use the replay close");
+            assert!(
+                marked,
+                "replay fills must be marked on their historical bars"
+            );
         }
     }
 
