@@ -3,9 +3,9 @@
 use crate::config::KeyboardAction;
 use crate::data::FeedError;
 use crate::data::inbox::Inbox;
+use crate::localization as l10n;
 use crate::services::{Storage, StoreKind};
 use crate::theme::ThemeExt;
-use crate::tokens::DESIGN_TOKENS;
 use crate::widget::SavedLayout;
 use egui::Ui;
 use std::collections::VecDeque;
@@ -15,6 +15,7 @@ use std::time::Duration;
 /// Configuration for layout menu
 #[derive(Debug, Clone)]
 pub struct LayoutMenuConfig {
+    /// Menu width, in egui logical points.
     pub menu_width: f32,
 }
 
@@ -26,7 +27,9 @@ impl Default for LayoutMenuConfig {
 
 /// Action from layout menu
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum LayoutAction {
+    /// No action requested.
     None,
     /// Select a tiled or tabbed chart arrangement.
     SelectGrid(crate::widget::ChartLayoutMode),
@@ -34,7 +37,9 @@ pub enum LayoutAction {
     Save,
     /// Save the current layout under a new name, which becomes current (Save layout as).
     SaveAs(String),
+    /// Request a chart image download.
     DownloadImage,
+    /// Request a new layout.
     CreateNew,
     /// Open the named layout.
     Open(String),
@@ -345,9 +350,10 @@ impl LayoutMenu {
 
     /// Width of the named trigger.
     pub fn width(&self, ui: &Ui) -> f32 {
+        let label = l10n::text(ui.ctx(), self.curr_layout.as_deref().unwrap_or("Unnamed"));
         ui.fonts_mut(|f| {
             f.layout_no_wrap(
-                self.curr_layout.as_deref().unwrap_or("Unnamed").to_owned(),
+                label,
                 egui::FontId::proportional(14.0),
                 ui.visuals().text_color(),
             )
@@ -365,7 +371,7 @@ impl LayoutMenu {
         if button.hovered() {
             ui.painter().rect_filled(
                 rect,
-                DESIGN_TOKENS.rounding.button,
+                ui.active_theme().radius.sm,
                 ui.visuals().widgets.hovered.bg_fill,
             );
         }
@@ -377,7 +383,7 @@ impl LayoutMenu {
             .text(
                 rect.left_center() + egui::vec2(4.0, 0.0),
                 egui::Align2::LEFT_CENTER,
-                self.curr_layout.as_deref().unwrap_or("Unnamed"),
+                l10n::text(ui.ctx(), self.curr_layout.as_deref().unwrap_or("Unnamed")),
                 egui::FontId::proportional(14.0),
                 ui.visuals().text_color(),
             );
@@ -391,10 +397,11 @@ impl LayoutMenu {
                 ),
             );
         let mut action = LayoutAction::None;
+        let translated_label = l10n::text(ui.ctx(), "Named layouts");
         button.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Named layouts")
+            egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &translated_label)
         });
-        crate::styles::focus::draw_focus_ring(ui, &button, DESIGN_TOKENS.rounding.button);
+        crate::styles::focus::draw_focus_ring(ui, &button, ui.active_theme().radius.sm);
         egui::Popup::menu(&button)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| {
@@ -420,7 +427,7 @@ impl LayoutMenu {
                 || KeyboardAction::SaveLayout.shortcut(),
                 |map| map.shortcut(KeyboardAction::SaveLayout),
             );
-        let save = egui::Button::new("Save layout").shortcut_text(
+        let save = egui::Button::new(l10n::text(ui.ctx(), "Save layout")).shortcut_text(
             shortcut
                 .map(|s| ctx.format_shortcut(&s))
                 .unwrap_or_default(),
@@ -430,8 +437,8 @@ impl LayoutMenu {
             ui.close();
         }
         let curr = self.curr_layout.clone().unwrap_or_default();
-        let rename = ui.button("Rename…").clicked();
-        let save_as = ui.button("Save layout as…").clicked();
+        let rename = ui.button(l10n::text(ui.ctx(), "Rename…")).clicked();
+        let save_as = ui.button(l10n::text(ui.ctx(), "Save layout as…")).clicked();
         if rename {
             self.editing = Some(true);
             self.new_name = curr.clone();
@@ -444,13 +451,13 @@ impl LayoutMenu {
             ("New layout", LayoutAction::CreateNew),
             ("Download chart image", LayoutAction::DownloadImage),
         ] {
-            if ui.button(label).clicked() {
+            if ui.button(l10n::text(ui.ctx(), label)).clicked() {
                 action = value;
                 ui.close();
             }
         }
         ui.toggle_value(&mut self.autosave, "Autosave")
-            .on_hover_text("Save the layout after each change");
+            .on_hover_text(l10n::text(ui.ctx(), "Save the layout after each change"));
         if let Some(is_rename) = self.editing {
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.new_name).desired_width(ui.available_width()),
@@ -460,7 +467,9 @@ impl LayoutMenu {
             }
             let name = self.new_name.trim();
             let valid = !name.is_empty() && !self.layouts.iter().any(|l| l == name);
-            if ui.add_enabled(valid, egui::Button::new("Apply")).clicked()
+            if ui
+                .add_enabled(valid, egui::Button::new(l10n::text(ui.ctx(), "Apply")))
+                .clicked()
                 || (valid && response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             {
                 action = if is_rename {
@@ -479,7 +488,10 @@ impl LayoutMenu {
             return action;
         }
         ui.separator();
-        ui.colored_label(ui.active_theme().ui.text_secondary, "Layouts");
+        ui.colored_label(
+            ui.active_theme().ui.text_secondary,
+            l10n::text(ui.ctx(), "Layouts"),
+        );
         egui::ScrollArea::vertical()
             .max_height(ui.available_height().clamp(0.0, 240.0))
             .show(ui, |ui| {
@@ -491,12 +503,12 @@ impl LayoutMenu {
                                     (ui.available_width() - 28.0).max(0.0),
                                     ui.spacing().interact_size.y,
                                 ),
-                                egui::Button::new(layout)
+                                egui::Button::new(l10n::text(ui.ctx(), layout))
                                     .selected(self.curr_layout.as_deref() == Some(layout.as_str()))
                                     .frame(false)
                                     .truncate(),
                             )
-                            .on_hover_text(layout)
+                            .on_hover_text(l10n::text(ui.ctx(), layout))
                             .clicked()
                         {
                             action = LayoutAction::Open(layout.clone());
@@ -504,7 +516,7 @@ impl LayoutMenu {
                         }
                         if ui
                             .small_button("×")
-                            .on_hover_text("Delete layout")
+                            .on_hover_text(l10n::text(ui.ctx(), "Delete layout"))
                             .clicked()
                         {
                             action = LayoutAction::Delete(layout.clone());

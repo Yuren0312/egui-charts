@@ -88,8 +88,9 @@
 //! ```
 
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// How [`CandlestickPatterns`] decides whether a bar is in a downtrend or an uptrend.
@@ -570,11 +571,7 @@ impl CandlestickPatterns {
             patterns: [true; PATTERNS.len()],
             found: Vec::new(),
             values: IndicatorValues::new(),
-            colors: [
-                DESIGN_TOKENS.semantic.extended.info,
-                DESIGN_TOKENS.semantic.extended.error,
-                DESIGN_TOKENS.semantic.extended.gray,
-            ],
+            colors: [palette::BLUE, palette::RED, palette::GRAY],
             visible: true,
         }
     }
@@ -610,20 +607,6 @@ impl Default for CandlestickPatterns {
     fn default() -> Self {
         Self::new(PatternTrend::Sma50)
     }
-}
-
-/// SMA of `xs` over `n` values, NaN before the window fills.
-fn sma(xs: &[f64], n: usize) -> Vec<f64> {
-    let mut sum = 0.0;
-    (0..xs.len())
-        .map(|i| {
-            sum += xs[i];
-            if i >= n {
-                sum -= xs[i - n];
-            }
-            if i + 1 >= n { sum / n as f64 } else { f64::NAN }
-        })
-        .collect()
 }
 
 impl Indicator for CandlestickPatterns {
@@ -680,7 +663,7 @@ impl Indicator for CandlestickPatterns {
         crate::studies::PlotStyle {
             color: self.colors[line.min(2)],
             width: 1.0,
-            pattern: crate::studies::PlotPattern::Solid,
+            pattern: crate::model::LineStyle::Solid,
             plot_type: match line {
                 0 => crate::studies::PlotType::TriangleUp,
                 1 => crate::studies::PlotType::TriangleDown,
@@ -729,8 +712,8 @@ impl Indicator for CandlestickPatterns {
             .iter()
             .map(|&i| (data[i].close - data[i].open).abs())
             .collect();
-        let (sma50, sma200) = (sma(&close, 50), sma(&close, 200));
-        let mut average = sma(&body, BODY_AVERAGE);
+        let (sma50, sma200) = (helpers::sma(&close, 50), helpers::sma(&close, 200));
+        let mut average = helpers::sma(&body, BODY_AVERAGE);
         let alpha = 2.0 / (BODY_AVERAGE + 1) as f64;
         for i in BODY_AVERAGE..average.len() {
             average[i] = average[i - 1] + alpha * (body[i] - average[i - 1]);

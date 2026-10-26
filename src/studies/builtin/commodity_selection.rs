@@ -1,7 +1,7 @@
 use super::{clamp_param, over_finite_bars};
 use crate::model::Bar;
+use crate::studies::palette;
 use crate::studies::{ADX, ATR, Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Commodity Selection Index (CSI), J. Welles Wilder, New Concepts in Technical Trading Systems (1978).
@@ -25,6 +25,7 @@ pub struct CommoditySelectionIndex {
 }
 
 impl CommoditySelectionIndex {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
@@ -32,7 +33,7 @@ impl CommoditySelectionIndex {
             margin: 1.0,
             commission: 0.0,
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.brown, // Brown
+            color: palette::BROWN, // Brown
             visible: true,
         }
     }
@@ -55,6 +56,7 @@ impl CommoditySelectionIndex {
         self
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -164,15 +166,17 @@ pub struct TrendDetectionIndex {
 }
 
 impl TrendDetectionIndex {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.info, // Indigo (using INFO blue as closest match)
+            color: palette::BLUE, // Indigo (using INFO blue as closest match)
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

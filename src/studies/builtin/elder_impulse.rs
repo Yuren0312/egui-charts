@@ -1,10 +1,8 @@
 use super::over_finite_bars;
 use crate::model::Bar;
-/// Elder Impulse System
-/// Combines EMA slope and MACD histogram for trend signals
-/// Green = bullish, Red = bearish, Blue = neutral
+use crate::studies::helpers;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Signal state for Elder Impulse
@@ -18,6 +16,9 @@ pub enum ImpulseSignal {
     Neutral,
 }
 
+/// Elder Impulse System
+/// Combines EMA slope and MACD histogram for trend signals
+/// Green = bullish, Red = bearish, Blue = neutral
 #[derive(Clone)]
 pub struct ElderImpulseSystem {
     /// EMA period (typically 13)
@@ -35,6 +36,8 @@ pub struct ElderImpulseSystem {
 }
 
 impl ElderImpulseSystem {
+    /// Create with `ema_period`, `macd_fast`, `macd_slow`, `macd_signal` in bars, each clamped
+    /// to at least one.
     pub fn new(ema_period: usize, macd_fast: usize, macd_slow: usize, macd_signal: usize) -> Self {
         Self {
             ema_period: ema_period.max(1),
@@ -43,34 +46,18 @@ impl ElderImpulseSystem {
             macd_signal: macd_signal.max(1),
             values: IndicatorValues::new(),
             colors: vec![
-                DESIGN_TOKENS.semantic.extended.success, // Green - Bullish
-                DESIGN_TOKENS.semantic.extended.error,   // Red - Bearish
-                DESIGN_TOKENS.semantic.extended.info,    // Blue - Neutral
+                palette::GREEN, // Green - Bullish
+                palette::RED,   // Red - Bearish
+                palette::BLUE,  // Blue - Neutral
             ],
             visible: true,
         }
     }
 
+    /// Set plot colors in the order returned by [`Indicator::line_names`].
     pub fn with_colors(mut self, colors: Vec<Color32>) -> Self {
         self.colors = colors;
         self
-    }
-
-    fn ema(data: &[f64], period: usize) -> Vec<f64> {
-        let mut result = Vec::with_capacity(data.len());
-        if data.is_empty() || period == 0 {
-            return result;
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        result.push(data[0]);
-
-        for i in 1..data.len() {
-            let ema = (data[i] - result[i - 1]) * multiplier + result[i - 1];
-            result.push(ema);
-        }
-
-        result
     }
 }
 
@@ -98,18 +85,18 @@ impl ElderImpulseSystem {
         let closes: Vec<f64> = data.iter().map(|b| b.close).collect();
 
         // Calculate EMA for slope
-        let ema = Self::ema(&closes, self.ema_period);
+        let ema = helpers::ema(&closes, self.ema_period);
 
         // Calculate MACD
-        let ema_fast = Self::ema(&closes, self.macd_fast);
-        let ema_slow = Self::ema(&closes, self.macd_slow);
+        let ema_fast = helpers::ema(&closes, self.macd_fast);
+        let ema_slow = helpers::ema(&closes, self.macd_slow);
 
         let mut macd: Vec<f64> = Vec::with_capacity(data.len());
         for i in 0..data.len() {
             macd.push(ema_fast[i] - ema_slow[i]);
         }
 
-        let signal = Self::ema(&macd, self.macd_signal);
+        let signal = helpers::ema(&macd, self.macd_signal);
 
         let mut histogram: Vec<f64> = Vec::with_capacity(data.len());
         for i in 0..data.len() {

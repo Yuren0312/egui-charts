@@ -1,13 +1,13 @@
 use super::clamp_param;
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Accumulation Swing Index (ASI)
 /// Developed by Welles Wilder
 /// Cumulative sum of swing index values
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct AccumulationSwingIndex {
     /// Limit move (typically high value for stocks, actual limit for futures)
@@ -24,11 +24,12 @@ impl AccumulationSwingIndex {
         Self {
             limit_move: clamp_param(limit_move, f64::EPSILON, f64::MAX),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.bullish, // Teal
+            color: palette::UP, // Teal
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

@@ -4,6 +4,7 @@
 //! clipboard operations, chart management, and navigation options.
 
 use super::tpo_context_menu::TpoMenu;
+use crate::localization as l10n;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -32,13 +33,19 @@ use egui::{
 
 /// Action triggered by selecting a context menu item
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ContextMenuAction {
     /// No action
     None,
     /// Copy price value to clipboard
     CopyPrice(f64),
     /// Add a price alert on a symbol
-    AddAlert { symbol: String, price: f64 },
+    AddAlert {
+        /// Instrument identifier used by the host.
+        symbol: String,
+        /// Price under the pointer when the menu opened.
+        price: f64,
+    },
     /// A limit or stop order at the clicked price, for the user to confirm in the order ticket
     /// ([`Trading::open_ticket`](crate::ui::trading::Trading::open_ticket)).
     Order(OrderRequest),
@@ -71,17 +78,22 @@ pub enum ContextMenuAction {
 /// The chart, series and drawing menus all build their rows from this type.
 #[derive(Clone)]
 pub struct MenuItem<A = ContextMenuAction> {
+    /// Text displayed by the component.
     pub label: String,
     /// Shown right-aligned, formatted for the platform with [`Context::format_shortcut`].
     pub shortcut: Option<KeyboardShortcut>,
+    /// Glyph displayed by the component.
     pub icon: Option<&'static Icon>,
+    /// Action returned when this entry is activated.
     pub action: A,
+    /// Whether the entry can be activated.
     pub enabled: bool,
     /// Destructive rows paint in the theme's danger colours.
     pub danger: bool,
 }
 
 impl<A> MenuItem<A> {
+    /// Create an enabled menu entry with a label and the action it returns.
     pub fn new(label: impl Into<String>, action: A) -> Self {
         Self {
             label: label.into(),
@@ -93,16 +105,19 @@ impl<A> MenuItem<A> {
         }
     }
 
+    /// Set the keyboard shortcut displayed beside the label.
     pub fn with_shortcut(mut self, shortcut: impl Into<Option<KeyboardShortcut>>) -> Self {
         self.shortcut = shortcut.into();
         self
     }
 
+    /// Set the entry's icon.
     pub fn with_icon(mut self, icon: &'static Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// Prevent this entry from being activated.
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self
@@ -299,8 +314,11 @@ fn draw_menu<A: Clone>(
     let pad = t.item_padding_h - theme.spacing.sm;
 
     let layout = |text: String, size: f32, max_width: f32| {
-        let mut job =
-            LayoutJob::simple_singleline(text, FontId::proportional(size), Color32::PLACEHOLDER);
+        let mut job = LayoutJob::simple_singleline(
+            l10n::text(ctx, text),
+            FontId::proportional(size),
+            Color32::PLACEHOLDER,
+        );
         job.wrap = TextWrapping::truncate_at_width(max_width);
         ctx.fonts_mut(|f| f.layout_job(job))
     };
@@ -487,11 +505,12 @@ fn draw_item<A>(
         },
     );
     crate::styles::focus::draw_focus_ring(ui, &response, theme.radius.sm);
+    let translated_label = l10n::text(ui.ctx(), &item.label);
     response.widget_info(|| {
         WidgetInfo::labeled(
             egui::Role::MenuItem,
             response.enabled() && item.enabled,
-            &item.label,
+            &translated_label,
         )
     });
 
@@ -605,6 +624,7 @@ impl Default for ChartContextMenu {
 }
 
 impl ChartContextMenu {
+    /// Create a closed chart context menu with default options.
     pub fn new() -> Self {
         Self {
             is_open: false,
@@ -626,6 +646,7 @@ impl ChartContextMenu {
         }
     }
 
+    /// Open the menu at `pos`, retaining the clicked `price` for its actions.
     pub fn open(&mut self, pos: Pos2, price: f64) {
         self.is_open = true;
         self.position = pos;
@@ -634,10 +655,12 @@ impl ChartContextMenu {
         self.just_opened = true; // Skip close detection on first frame
     }
 
+    /// Close the menu.
     pub fn close(&mut self) {
         self.is_open = false;
     }
 
+    /// Whether the menu is currently visible.
     pub fn is_open(&self) -> bool {
         self.is_open
     }
@@ -904,6 +927,7 @@ impl HostMenuEntry {
 /// action enum. [`ChartMenus::show`] returns this unified value so a host can match a single
 /// type.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ChartContextAction {
     /// A registered host entry, with the original click context.
     Host {
@@ -1005,7 +1029,7 @@ impl ChartMenus {
                 | RightClickTarget::Background { pos, .. } => pos,
             };
             let mapping = chart.get_chart_mapping();
-            let index = mapping.x_to_idx_f32(pos.x).round();
+            let index = mapping.x_to_idx_f64(pos.x).round();
             let time = (index >= 0.0)
                 .then(|| chart.state().shown().get(index as usize))
                 .flatten()
@@ -2111,6 +2135,11 @@ mod tests {
             pick(&mut chart, &mut menus, sma, &["Add indicator on SMA"]),
             A::AddIndicator
         );
+        assert_eq!(
+            chart.take_indicator_source_request(),
+            Some(crate::studies::StudySource::Study { id: sma.0, plot: 0 })
+        );
+        assert_eq!(chart.take_indicator_source_request(), None);
         let A::AddToFavorites(name) = pick(
             &mut chart,
             &mut menus,
@@ -2166,6 +2195,18 @@ mod tests {
                 Hour1, Hour4
             ]
         );
+        chart.set_timeframe(Timeframe::Custom(
+            std::num::NonZeroU64::new(7 * 3600).unwrap(),
+        ));
+        assert!(
+            !study(&chart, sma).unwrap().is_visible(),
+            "custom intervals obey the saved lower bound"
+        );
+        chart.set_timeframe(Timeframe::Custom(
+            std::num::NonZeroU64::new(2 * 86400).unwrap(),
+        ));
+        assert!(study(&chart, sma).unwrap().is_visible());
+        chart.set_timeframe(Timeframe::Day1);
         pick(
             &mut chart,
             &mut menus,
@@ -2242,10 +2283,33 @@ mod tests {
             &mut chart,
             &mut menus,
             sma,
-            &["Pin to scale (now no scale)", "Pin to new left scale"],
+            &["Pin to scale (now no scale)", "Pin to new scale"],
         );
-        assert_eq!(study(&chart, sma).unwrap().scale(), StudyScale::Independent);
+        assert_eq!(
+            study(&chart, sma).unwrap().scale(),
+            StudyScale::Shared(crate::model::SeriesScale::Separate(0))
+        );
 
+        let volume = chart
+            .indicators()
+            .find(|(_, study)| study.is_volume())
+            .unwrap()
+            .0;
+        for (label, scale) in [
+            ("Pin to left scale", crate::model::SeriesScale::Left),
+            ("Pin to right scale", crate::model::SeriesScale::Right),
+        ] {
+            let now = if label.contains("left") {
+                "Pin to scale (now no scale)"
+            } else {
+                "Pin to scale (now left)"
+            };
+            pick(&mut chart, &mut menus, volume, &[now, label]);
+            assert_eq!(
+                study(&chart, volume).unwrap().scale(),
+                StudyScale::Shared(scale)
+            );
+        }
         assert_eq!(pick(&mut chart, &mut menus, sma, &["Copy"]), A::Copy);
         pick(&mut chart, &mut menus, sma, &["Hide"]);
         assert!(!study(&chart, sma).unwrap().is_visible());

@@ -370,6 +370,7 @@ pub fn render_footprint_statistics(
 /// Stacks and naked POCs extend to their first revisit or the last displayed bar; local
 /// annotations remain inside their originating bar. Prices use the aggregation's row step.
 #[cfg(feature = "studies")]
+#[cfg_attr(docsrs, doc(cfg(feature = "studies")))]
 pub fn render_footprint_studies(
     painter: &Painter,
     mapping: &ChartMapping,
@@ -454,7 +455,7 @@ pub fn render_footprint_studies(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{BarClock, Tick, Timeframe, TradeSide};
+    use crate::model::{BarClock, OrderSide, Tick, Timeframe};
     use crate::scales::{PriceMap, PriceRange, PriceTransform};
 
     #[test]
@@ -462,9 +463,9 @@ mod tests {
         let time = "2026-01-05T10:00:00Z".parse().unwrap();
         let mut flow = Footprint::new(BarClock::new(Timeframe::Min1), 0.25, 1).unwrap();
         for (price, size, side) in [
-            (100.0, 2.0, TradeSide::Sell),
-            (100.0, 3.0, TradeSide::Buy),
-            (100.25, 4.0, TradeSide::Buy),
+            (100.0, 2.0, OrderSide::Sell),
+            (100.0, 3.0, OrderSide::Buy),
+            (100.25, 4.0, OrderSide::Buy),
         ] {
             flow.push(&Tick::new(time, price, size, Some(side)))
                 .unwrap();
@@ -526,10 +527,10 @@ mod tests {
         // Both diagonals can dominate at the same price; keep both side colours.
         let mut dual = Footprint::new(BarClock::new(Timeframe::Min1), 0.25, 1).unwrap();
         for (price, size, side) in [
-            (100.0, 1.0, TradeSide::Sell),
-            (100.25, 9.0, TradeSide::Sell),
-            (100.25, 12.0, TradeSide::Buy),
-            (100.5, 2.0, TradeSide::Buy),
+            (100.0, 1.0, OrderSide::Sell),
+            (100.25, 9.0, OrderSide::Sell),
+            (100.25, 12.0, OrderSide::Buy),
+            (100.5, 2.0, OrderSide::Buy),
         ] {
             dual.push(&Tick::new(time, price, size, Some(side)))
                 .unwrap();
@@ -565,10 +566,10 @@ mod tests {
         // Fractional executions must not be labelled as zero in any display mode.
         let mut small = Footprint::new(BarClock::new(Timeframe::Min1), 0.25, 1).unwrap();
         small
-            .push(&Tick::new(time, 100.0, 0.125, Some(TradeSide::Sell)))
+            .push(&Tick::new(time, 100.0, 0.125, Some(OrderSide::Sell)))
             .unwrap();
         small
-            .push(&Tick::new(time, 100.0, 0.375, Some(TradeSide::Buy)))
+            .push(&Tick::new(time, 100.0, 0.375, Some(OrderSide::Buy)))
             .unwrap();
         for (mode, expected) in [
             (FootprintMode::BidAsk, "0.125 × 0.375"),

@@ -11,11 +11,13 @@
 //! cargo run --example live_feed
 //! ```
 
+mod support;
+
 use chrono::{DurationRound, TimeDelta, Utc};
 use egui_charts::ChartBuilder;
 use egui_charts::chart::overlays::VolumeBubblesConfig;
 use egui_charts::data::{Datafeed, HistoryPage, HistoryRequest, Reply, Subscription};
-use egui_charts::model::{Bar, Tick, Timeframe, TradeSide};
+use egui_charts::model::{Bar, OrderSide, Tick, Timeframe};
 use egui_charts::theme::Theme;
 use egui_charts::widget::Chart;
 use rand::RngExt;
@@ -75,19 +77,8 @@ struct SyntheticFeed {
 
 impl SyntheticFeed {
     fn new(count: usize) -> Self {
-        let mut rng = rand::rng();
         let now = Utc::now().duration_trunc(TimeDelta::minutes(1)).unwrap();
-        let mut price = 100.0_f64;
-        let bars = (0..count)
-            .map(|i| {
-                let open = price;
-                price *= 1.0 + rng.random_range(-0.004..0.004);
-                let high = open.max(price) * (1.0 + rng.random_range(0.0..0.002));
-                let low = open.min(price) * (1.0 - rng.random_range(0.0..0.002));
-                let time = now - TimeDelta::minutes((count - i) as i64);
-                Bar::new(time, open, high, low, price, rng.random_range(10.0..500.0))
-            })
-            .collect();
+        let bars = support::sample_bars(count, 100.0, TimeDelta::minutes(1), now);
         Self { bars }
     }
 }
@@ -115,7 +106,7 @@ impl Datafeed for SyntheticFeed {
             while sink.is_active() {
                 price *= 1.0 + rng.random_range(-0.0005..0.0005);
                 let size = rng.random_range(0.1..5.0);
-                let side = [TradeSide::Buy, TradeSide::Sell][rng.random_range(0..2)];
+                let side = [OrderSide::Buy, OrderSide::Sell][rng.random_range(0..2)];
                 sink.push_tick(Tick::new(Utc::now(), price, size, Some(side)));
                 std::thread::sleep(Duration::from_millis(100));
             }

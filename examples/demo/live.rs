@@ -3,12 +3,14 @@
 use chrono::{DateTime, TimeDelta, Utc};
 use egui_charts::data::{
     CalendarEvent, CalendarQuery, Datafeed, FeedError, FeedStatus, HistoryPage, HistoryRequest,
-    HotlistEntry, HotlistQuery, NewsQuery, NewsStory, Reply, ScreenerQuery, ScreenerRow,
-    Subscription, SubscriptionId, SymbolDetails, aggregate_trades, resample,
+    HotlistEntry, HotlistQuery, MetricPage, MetricPoint, MetricRequest, MetricSeries,
+    MetricSubscription, NewsQuery, NewsStory, OptionsVolume, OptionsVolumeQuery, OptionsVolumeSink,
+    Reply, ScreenerQuery, ScreenerRow, Subscription, SubscriptionId, SymbolDetails,
+    aggregate_trades, resample,
 };
 use egui_charts::model::{
-    Bar, BarClock, DataStatus, ExtendedHoursQuote, ExtendedSession, Instrument, Level1Quote, Quote,
-    Tick, Timeframe, TradeSide,
+    Bar, BarClock, DataStatus, ExtendedHoursQuote, ExtendedSession, Instrument, Level1Quote,
+    OrderSide, Quote, Tick, Timeframe,
 };
 use egui_charts::model::{Direction, Signal, SignalId, SignalShape};
 use egui_charts::services::{Events, Quotes, SignalEvent, Signals};
@@ -45,6 +47,8 @@ struct Simulation {
     adjusted: bool,
     subscription: Option<Subscription>,
     signals: Vec<Events<SignalEvent>>,
+    options: Vec<(OptionsVolumeQuery, OptionsVolumeSink)>,
+    metrics: Vec<MetricSubscription>,
     /// The order book of the subscription, around the last price it was shown.
     market: Option<Market>,
 }
@@ -75,6 +79,8 @@ impl LiveFeed {
             adjusted: false,
             subscription: None,
             signals: Vec::new(),
+            options: Vec::new(),
+            metrics: Vec::new(),
             market: None,
         };
         while sim.next_trade <= now {
@@ -108,6 +114,8 @@ impl LiveFeed {
             adjusted: sim.adjusted,
             subscription: None,
             signals: Vec::new(),
+            options: Vec::new(),
+            metrics: Vec::new(),
             market: None,
         }))
     }
@@ -123,6 +131,7 @@ impl LiveFeed {
             let paused = sim.paused;
             let continuous = sim.continuous;
             let adjusted = sim.adjusted;
+            let options = std::mem::take(&mut sim.options);
             *sim = Self::new(symbol, sim.now)
                 .0
                 .into_inner()
@@ -130,6 +139,10 @@ impl LiveFeed {
             sim.paused = paused;
             sim.continuous = continuous;
             sim.adjusted = adjusted;
+            sim.options = options;
+            for (query, sink) in &sim.options {
+                sink.push(sim.options_volume(query));
+            }
         }
     }
 
@@ -361,6 +374,14 @@ impl LiveFeed {
         if sim.paused {
             return std::time::Duration::from_secs(1);
         }
+        let metric_changed = sim.now.timestamp().div_euclid(300) != now.timestamp().div_euclid(300);
+        if metric_changed {
+            sim.metrics.retain(|sub| sub.sink.is_active());
+            for sub in &sim.metrics {
+                sub.sink.set_server_time(now);
+                sub.sink.push_metric(open_interest(now));
+            }
+        }
         let second_changed = sim.now.timestamp() != now.timestamp();
         sim.now = now;
         if let Some(sub) = &sim.subscription {
@@ -372,6 +393,12 @@ impl LiveFeed {
         }
         while sim.next_trade <= now {
             sim.trade();
+        }
+        if second_changed {
+            sim.options.retain(|(_, sink)| sink.is_active());
+            for (query, sink) in &sim.options {
+                sink.push(sim.options_volume(query));
+            }
         }
         if second_changed && let Some(sub) = &sim.subscription {
             sub.sink.set_server_time(now);
@@ -494,6 +521,27 @@ impl Quotes for DemoQuotes {
 }
 
 impl Simulation {
+    fn options_volume(&self, query: &OptionsVolumeQuery) -> Vec<OptionsVolume> {
+        if query.symbol != self.symbol || query.expiries.is_empty() {
+            return Vec::new();
+        }
+        let price = self.price_ticks as f64 * self.tick_size;
+        let step = 10_f64.powf((price.abs().max(1.0) * 0.002).log10().floor());
+        let center = (price / step).round();
+        let expiries = (*query.expiries.end() - *query.expiries.start()).num_days() as f64 + 1.0;
+        (-12..=12)
+            .map(|offset| {
+                let weight = (13 - i32::abs(offset)) as f64;
+                let live = (self.id % 100) as f64;
+                OptionsVolume {
+                    strike: (center + offset as f64) * step,
+                    calls: expiries * (weight * (30 + offset) as f64 + live),
+                    puts: expiries * (weight * (30 - offset) as f64 + live / 2.0),
+                }
+            })
+            .collect()
+    }
+
     fn session(&self, extended_hours: bool) -> SessionType {
         if self.continuous {
             SessionType::Full24x7
@@ -564,9 +612,9 @@ impl Simulation {
         let u = (self.random() % 1000 + 1) as f64 / 1001.0;
         let size = (10.0 / u.sqrt()).round();
         let side = if step >= 0 {
-            TradeSide::Buy
+            OrderSide::Buy
         } else {
-            TradeSide::Sell
+            OrderSide::Sell
         };
         let trade = Tick::new(
             self.next_trade,
@@ -713,8 +761,71 @@ impl Signals for LiveFeed {
     }
 }
 
+fn open_interest(time: DateTime<Utc>) -> MetricPoint {
+    let slot = time.timestamp().div_euclid(300) * 300;
+    MetricPoint {
+        time: DateTime::from_timestamp(slot, 0).unwrap(),
+        value: 100_000.0 + (slot as f64 / 3600.0).sin() * 8_000.0,
+    }
+}
+
 impl Datafeed for LiveFeed {
-    fn price_targets(&self, symbol: &str, reply: Reply<egui_charts::services::PriceTargets>) {
+    fn options_volume(&self, query: OptionsVolumeQuery, sink: OptionsVolumeSink) {
+        let mut sim = self.state();
+        sink.push(sim.options_volume(&query));
+        sim.options.push((query, sink));
+    }
+
+    fn metrics(&self, symbol: &str, reply: Reply<Vec<MetricSeries>>) {
+        let metrics = if symbol == self.state().symbol {
+            vec![MetricSeries {
+                id: "open_interest".into(),
+                name: "Open interest".into(),
+                unit: "contracts".into(),
+                format: egui_charts::scales::StudyFormat::Volume,
+            }]
+        } else {
+            Vec::new()
+        };
+        reply.send(Ok(metrics));
+    }
+
+    fn metric_history(&self, request: MetricRequest, reply: Reply<MetricPage>) {
+        let sim = self.state();
+        if request.symbol != sim.symbol || request.metric != "open_interest" {
+            reply.send(Err(FeedError::NotSupported));
+            return;
+        }
+        let oldest = sim.history.first().map_or(sim.now, |bar| bar.time);
+        let mut points: Vec<_> = (0..=(sim.now - oldest).num_seconds().max(0) / 300)
+            .map(|i| open_interest(oldest + TimeDelta::seconds(i * 300)))
+            .filter(|point| request.before.is_none_or(|before| point.time < before))
+            .collect();
+        // Include the developing five-minute point even when the oldest bar has an offset.
+        let current = open_interest(sim.now);
+        if request.before.is_none_or(|before| current.time < before)
+            && points.last().is_none_or(|point| point.time != current.time)
+        {
+            points.push(current);
+        }
+        let start = points.len().saturating_sub(request.count);
+        reply.send(Ok(MetricPage {
+            points: points.split_off(start),
+            end_of_history: start == 0,
+        }));
+    }
+
+    fn subscribe_metric(&self, subscription: MetricSubscription) {
+        let mut sim = self.state();
+        if subscription.symbol != sim.symbol || subscription.metric != "open_interest" {
+            return;
+        }
+        subscription.sink.set_server_time(sim.now);
+        subscription.sink.push_metric(open_interest(sim.now));
+        sim.metrics.push(subscription);
+    }
+
+    fn price_targets(&self, symbol: &str, reply: Reply<egui_charts::data::PriceTargets>) {
         if symbol != "SAMPLE" {
             reply.send(Err(FeedError::NotSupported));
             return;
@@ -722,7 +833,7 @@ impl Datafeed for LiveFeed {
         let sim = self.state();
         let close = sim.price_ticks as f64 * sim.tick_size;
         let published = sim.now.date_naive();
-        reply.send(Ok(egui_charts::services::PriceTargets {
+        reply.send(Ok(egui_charts::data::PriceTargets {
             high: close * 1.20,
             average: close * 1.08,
             low: close * 0.85,
@@ -784,6 +895,7 @@ impl Datafeed for LiveFeed {
 
     fn unsubscribe(&self, id: SubscriptionId) {
         let mut sim = self.state();
+        sim.metrics.retain(|sub| sub.id != id);
         if sim.subscription.as_ref().is_some_and(|sub| sub.id == id) {
             sim.subscription = None;
             sim.market = None;
@@ -859,8 +971,33 @@ impl Datafeed for LiveFeed {
 mod tests {
     use super::*;
     use egui_charts::ChartBuilder;
-    use egui_charts::chart::selection::SeriesId;
+    use egui_charts::widget::SeriesId;
     use std::sync::Arc;
+
+    #[test]
+    fn options_queries_resume_after_switching_back_to_the_underlying() {
+        use egui_charts::studies::{Indicator, OptionsVolumeProfile};
+
+        let now = "2026-10-23T19:07:05Z".parse().unwrap();
+        let feed = LiveFeed::new("SAMPLE", now);
+        let expiry = now.date_naive() + TimeDelta::days(30);
+        let study = OptionsVolumeProfile::new(
+            &feed,
+            OptionsVolumeQuery {
+                symbol: "SAMPLE".into(),
+                expiries: expiry..=expiry,
+            },
+            1.0,
+            || {},
+        )
+        .unwrap();
+        assert!(!study.volume_profiles(0..10).is_empty());
+        for (seconds, symbol, shown) in [(1, "AAPL", false), (2, "SAMPLE", true)] {
+            feed.set_symbol(symbol);
+            feed.advance(now + TimeDelta::seconds(seconds));
+            assert_eq!(study.volume_profiles(0..10).is_empty(), !shown, "{symbol}");
+        }
+    }
 
     /// Minute volume must reflect clustered arrivals and the daily activity profile.
     #[test]

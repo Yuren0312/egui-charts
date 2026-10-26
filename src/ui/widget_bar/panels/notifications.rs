@@ -1,5 +1,6 @@
 //! The host's log of alert triggers and other events, newest first.
 
+use crate::localization as l10n;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ const KEPT: usize = 1_000;
 
 /// An action the host performs for the notifications panel.
 #[derive(Clone, Debug, PartialEq, Default)]
+#[non_exhaustive]
 pub enum NotificationsAction {
     /// No host action.
     #[default]
@@ -119,15 +121,18 @@ impl NotificationsPanel {
                                 ui.set_width(ui.available_width());
                                 ui.set_min_height(26.0);
                                 ui.label(
-                                    RichText::new(
+                                    RichText::new(l10n::text(
+                                        ui.ctx(),
                                         entry.time.format("%b %-d, %H:%M:%S UTC").to_string(),
-                                    )
+                                    ))
                                     .size(theme.text.small)
                                     .color(theme.ui.text_secondary),
                                 );
-                                ui.label(RichText::new(&entry.title).strong());
+                                ui.label(
+                                    RichText::new(l10n::text(ui.ctx(), &entry.title)).strong(),
+                                );
                                 if !entry.body.is_empty() {
-                                    ui.label(&entry.body);
+                                    ui.label(l10n::text(ui.ctx(), &entry.body));
                                 }
                                 if let Some(symbol) = &entry.symbol
                                     && Button::new(symbol).small().show(ui).clicked()

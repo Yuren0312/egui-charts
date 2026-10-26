@@ -1,19 +1,30 @@
-//! The contract between a chart and its market data.
+//! Historical and streaming market data contracts, aggregation and order flow data.
 //!
-//! A host implements [`Datafeed`] to connect a chart to its backend, whether the data comes from
-//! a WebSocket stream, a REST API, a local file or an in-memory buffer, and gives it to the chart
-//! with `ChartBuilder::with_feed`. Only [`Datafeed::history`] is required. The chart calls the
-//! feed on the UI thread and never waits for it: the feed answers each request once through a
-//! [`Reply`] and pushes live bars, trades, depth and status into the [`Sink`] of each
-//! [`Subscription`], from any thread, runtime or browser task. Best bid/ask quotes use
-//! [`Sink::push_quote`]; executions read through `Chart::trades` can feed [`Footprint`], and
-//! `Chart::depth_history` keeps the order book over time in a [`DepthHistory`].
+//! Implement [`Datafeed`] to connect a chart to your backend, or use the data
+//! containers and aggregation functions independently of a widget.
 //!
-//! Symbol search is not part of the feed: it is the separate
-//! [`SymbolSearch`](crate::services::SymbolSearch) service. Connect it to the symbol dialogs,
-//! which otherwise search their supplied list.
+//! # Connecting a feed
 //!
-//! [`resample`] aggregates bars into a longer timeframe.
+//! Attach a feed with `ChartBuilder::with_feed`. Only [`Datafeed::history`] is
+//! required. The chart calls the feed on the UI thread; implementations should
+//! return promptly, answer each request once through [`Reply`] and push live updates
+//! into the [`Sink`] of a [`Subscription`]. Replies and pushes can come from another
+//! thread, runtime or browser task. No network connection or data provider is built in.
+//!
+//! [`Subscription::clock`] and [`HistoryRequest::clock`] carry the same bar boundaries
+//! so history and streaming aggregation agree. Symbol search is a separate
+//! [`SymbolSearch`](crate::services::SymbolSearch) service.
+//!
+//! # Order flow and derived data
+//!
+//! Push executions, quotes and book updates through [`Sink`]. [`Footprint`] holds
+//! executed volume at price; [`DepthHistory`] holds the book over time.
+//! [`ReplayClock`] coordinates host-supplied recorded events. [`resample`] aggregates
+//! bars into a longer interval, and [`VolumeProfile`] describes volume by price.
+//!
+//! The optional feed methods provide auxiliary study data and records for host UI,
+//! including news, calendars, hotlists and screener rows. Unsupported requests use
+//! [`FeedError::NotSupported`].
 
 pub use crate::model::Bar;
 pub use crate::model::Timeframe;
@@ -32,15 +43,21 @@ mod footprint;
 )]
 pub(crate) mod inbox;
 mod market;
+mod metrics;
+pub use metrics::{MetricPage, MetricPoint, MetricRequest, MetricSeries, MetricSubscription};
 #[cfg_attr(
     not(any(test, feature = "widget")),
     expect(dead_code, reason = "only the chart widget consumes a feed")
 )]
 pub(crate) mod merge;
+mod options_volume;
+mod order_flow;
 mod orders;
 mod recording;
 mod replay;
 mod resample;
+mod targets;
+mod volume_profile;
 pub use depth_history::{DepthColumn, DepthHistory, DepthHistoryConfig};
 pub use footprint::{Footprint, FootprintBar, FootprintLevel};
 pub use market::{
@@ -48,6 +65,9 @@ pub use market::{
     NewsStory, ScreenerColumn, ScreenerColumnSet, ScreenerFilter, ScreenerOp, ScreenerQuery,
     ScreenerRow,
 };
+#[cfg(feature = "studies")]
+pub(crate) use options_volume::OptionsVolumeSource;
+pub use options_volume::{OptionsVolume, OptionsVolumeQuery, OptionsVolumeSink};
 #[cfg_attr(
     not(any(test, feature = "widget")),
     expect(dead_code, reason = "only the chart widget consumes a feed")
@@ -55,13 +75,16 @@ pub use market::{
 pub(crate) mod trades;
 
 pub use inbox::{Reply, Sink, aggregate_trades, aggregate_trades_with_tick_size};
+pub use order_flow::{OrderFlowInput, OrderFlowKind};
 pub use orders::{OrderEvent, OrderQueue, RestingOrder};
 pub use recording::{RecordingReader, RecordingWriter};
 pub use replay::{MarketEvent, ReplayClock, ReplayEvent};
 #[cfg(feature = "studies")]
 pub(crate) use resample::resample_periods;
 pub use resample::{resample, resample_with_session};
+pub use targets::PriceTargets;
 pub use trades::{CombinedTrade, combine_trades};
+pub use volume_profile::{ProfileDisplay, StudyProfile, VolumeProfile, VolumeProfileConfig};
 
 /// `Send + Sync` on native targets. No bound on wasm32, where feeds hold JavaScript handles.
 #[cfg(not(target_arch = "wasm32"))]
@@ -143,6 +166,14 @@ pub trait Datafeed: MaybeSend + 'static {
         reply.send(Err(FeedError::NotSupported));
     }
 
+    /// Push complete options-volume snapshots for the underlying and inclusive expiry range.
+    /// Each push replaces the previous figures, including an empty snapshot. Sum contracts
+    /// across the requested expiries at each strike. Stop when `sink.is_active()` is false.
+    /// The default supplies none; the library never fetches options data itself.
+    fn options_volume(&self, query: OptionsVolumeQuery, sink: OptionsVolumeSink) {
+        let _ = (query, sink);
+    }
+
     /// One page of recorded depth on the requested grid. The default answers
     /// [`FeedError::NotSupported`]; live-only feeds need not implement this method.
     fn depth_history(&self, request: DepthRequest, reply: Reply<DepthPage>) {
@@ -150,9 +181,27 @@ pub trait Datafeed: MaybeSend + 'static {
         reply.send(Err(FeedError::NotSupported));
     }
 
+    /// Metrics offered for `symbol`, in display order. The default offers none.
+    /// The host publishes the values; the library computes no instrument metrics.
+    fn metrics(&self, symbol: &str, reply: Reply<Vec<MetricSeries>>) {
+        let _ = symbol;
+        reply.send(Ok(Vec::new()));
+    }
+
+    /// Metric history. The default answers [`FeedError::NotSupported`].
+    fn metric_history(&self, request: MetricRequest, reply: Reply<MetricPage>) {
+        let _ = request;
+        reply.send(Err(FeedError::NotSupported));
+    }
+
+    /// Start publishing metric points until [`Self::unsubscribe`]. The default does nothing.
+    fn subscribe_metric(&self, subscription: MetricSubscription) {
+        let _ = subscription;
+    }
+
     /// Analyst price targets for `symbol`. The default answers [`FeedError::NotSupported`],
     /// which leaves the chart without targets and shows no error.
-    fn price_targets(&self, symbol: &str, reply: Reply<crate::services::PriceTargets>) {
+    fn price_targets(&self, symbol: &str, reply: Reply<crate::data::PriceTargets>) {
         let _ = symbol;
         reply.send(Err(FeedError::NotSupported));
     }
@@ -212,7 +261,9 @@ pub trait Datafeed: MaybeSend + 'static {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct HistoryRequest {
+    /// Instrument identifier used by the host.
     pub symbol: String,
+    /// Bar interval requested from the feed.
     pub timeframe: Timeframe,
     /// Calendar boundaries selected by the chart, shared by historical and streaming aggregation.
     pub clock: BarClock,
@@ -244,6 +295,7 @@ pub struct HistoryPage {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct TradeRequest {
+    /// Instrument identifier used by the host.
     pub symbol: String,
     /// Only trades strictly before this instant. `None` asks for the latest trades.
     pub before: Option<DateTime<Utc>>,
@@ -364,13 +416,17 @@ impl SymbolDetails {
 /// A live subscription: push its updates into `sink` until [`Datafeed::unsubscribe`] gets `id`.
 #[non_exhaustive]
 pub struct Subscription {
+    /// Identifier passed back to the feed when unsubscribing.
     pub id: SubscriptionId,
+    /// Instrument identifier used by the host.
     pub symbol: String,
+    /// Bar interval requested from the feed.
     pub timeframe: Timeframe,
     /// The same calendar boundaries supplied to history requests.
     pub clock: BarClock,
     /// Include the instrument's extended trading hours, as well as regular hours.
     pub extended_hours: bool,
+    /// Destination for updates; stop publishing when it becomes inactive.
     pub sink: Sink,
 }
 
@@ -382,8 +438,11 @@ pub struct SubscriptionId(u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FeedStatus {
+    /// A connection attempt is in progress.
     Connecting,
+    /// The feed reports live data.
     Live,
+    /// The connection is closed.
     Disconnected,
 }
 
@@ -393,14 +452,20 @@ pub enum FeedStatus {
 pub enum FeedError {
     /// The feed or service does not offer this request.
     NotSupported,
+    /// The service could not find the requested instrument.
     SymbolNotFound(String),
+    /// The service has limited the request rate.
     RateLimited {
+        /// Suggested delay before retrying, when supplied by the service.
         retry_after: Option<Duration>,
     },
+    /// A transport error with a service-supplied message.
     Network(String),
+    /// Invalid input or data, described by the service.
     InvalidData(String),
     /// The feed or service dropped a [`Reply`] without answering.
     Unanswered,
+    /// A service error outside the other categories.
     Other(String),
 }
 
@@ -441,14 +506,18 @@ pub struct FeedState {
     pub status: Option<FeedStatus>,
     /// Catalog-change notifications received for this subscription, for host search refreshes.
     pub symbol_catalog_revision: u64,
+    /// Whether a historical page is currently being requested.
     pub loading_history: bool,
+    /// Whether the feed has reported that no older history remains.
     pub history_complete: bool,
+    /// Most recent feed error, when present.
     pub last_error: Option<FeedError>,
     /// Bars and ticks dropped by validation: non-finite values, a high or low on the wrong side of
     /// the open and close, negative volume, a tick that would overflow its bar's volume, a time
-    /// too far ahead of the feed's clock (see `Sink::set_server_time`).
+    /// too far ahead of the feed's clock (see `Sink::set_server_time`), or pending bar slots
+    /// evicted after overflow (also reported in `last_error`).
     pub rejected_bars: u64,
-    /// Trades older than the forming bar, dropped.
+    /// Trades older than the last accepted execution or forming bar, dropped.
     pub late_ticks: u64,
     /// Trades whose id is among those of the last trades the subscription folded, as many as its
     /// trade store holds, dropped: a feed replaying its last trades after a reconnect.

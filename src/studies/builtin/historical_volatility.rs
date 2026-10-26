@@ -1,12 +1,12 @@
 use super::{clamp_param, over_finite_bars};
 use crate::model::Bar;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Historical Volatility (HV)
 /// Measures the annualized standard deviation of log returns
 /// Used for options pricing and risk assessment
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct HistoricalVolatility {
     /// Lookback period (typically 20 or 30)
@@ -19,12 +19,13 @@ pub struct HistoricalVolatility {
 }
 
 impl HistoricalVolatility {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             trading_days: 252.0, // Default for stocks
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.warning, // Deep Orange
+            color: palette::ORANGE, // Deep Orange
             visible: true,
         }
     }
@@ -36,11 +37,13 @@ impl HistoricalVolatility {
         self
     }
 
+    /// Annualize over 365 bars instead of the default 252.
     pub fn for_crypto(mut self) -> Self {
         self.trading_days = 365.0;
         self
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -130,8 +133,8 @@ impl Indicator for HistoricalVolatility {
         trading_days: number("Trading days", 0.0, f64::MAX)
     ; {});
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Percent
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Percent
     }
 
     fn name(&self) -> &str {

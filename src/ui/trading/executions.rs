@@ -1,10 +1,10 @@
 //! The account's fills on the chart: one mark per side and bar, an arrow under the bar's low for
 //! buys and over its high for sells, with a chevron for each fill.
 
+use crate::localization as l10n;
 use egui::{FontId, Rect, Sense, Shape, Stroke, Ui, pos2};
 
 use crate::model::{Execution, OrderSide};
-use crate::styles::typography;
 use crate::theme::ThemeExt;
 use crate::widget::Chart;
 
@@ -37,9 +37,20 @@ pub(super) fn show(
     decimals: usize,
 ) {
     // A bar spans from its time to the next bar's, so a fill belongs to the bar at or before it.
+    let bars = chart.state.shown();
     let mut marks: Vec<(f64, OrderSide, Vec<&Execution>)> = Vec::new();
     for fill in fills {
-        let Some(index) = chart.time_to_index(fill.time).map(f64::floor) else {
+        let index = if let Some(cutoff) = chart.replay_time() {
+            if fill.time >= cutoff {
+                continue;
+            }
+            bars.partition_point(|bar| bar.time <= fill.time)
+                .checked_sub(1)
+                .map(|index| index as f64)
+        } else {
+            chart.time_to_index(fill.time).map(f64::floor)
+        };
+        let Some(index) = index else {
             continue;
         };
         match marks
@@ -54,7 +65,6 @@ pub(super) fn show(
     let mapping = chart.get_chart_mapping();
     let theme = ui.ctx().active_theme();
     let painter = ui.painter().with_clip_rect(mapping.rect);
-    let bars = chart.state.shown();
     // Coalesce neighbouring runs whose labels would overlap horizontally. Use the newest
     // bar as the anchor and retain every fill for the weighted label and hover details.
     if labels {
@@ -69,7 +79,7 @@ pub(super) fn show(
                     painter
                         .layout_no_wrap(
                             format!("{quantity} @ {price:.decimals$}"),
-                            FontId::proportional(typography::SM_MD),
+                            FontId::proportional(ui.active_theme().text.label),
                             chart.config().text_color,
                         )
                         .size()
@@ -142,7 +152,7 @@ pub(super) fn show(
         if labels {
             let label = painter.layout_no_wrap(
                 format!("{quantity} @ {price:.decimals$}"),
-                FontId::proportional(typography::SM_MD),
+                FontId::proportional(ui.active_theme().text.label),
                 chart.config().text_color,
             );
             let size = label.size();
@@ -187,7 +197,7 @@ pub(super) fn show(
                     .with(("execution", side_name(*side), index.to_bits())),
                 Sense::hover(),
             )
-            .on_hover_text(text);
+            .on_hover_text(l10n::text(ui.ctx(), text));
         }
     }
 }

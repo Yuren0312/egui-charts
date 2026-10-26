@@ -1,12 +1,13 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Volume Oscillator
 /// Measures the difference between two volume moving avgs
 /// Similar to MACD but for volume
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct VolumeOscillator {
     /// Short EMA period (typically 5)
@@ -19,44 +20,21 @@ pub struct VolumeOscillator {
 }
 
 impl VolumeOscillator {
+    /// Create with `short_period`, `long_period` in bars, each clamped to at least one.
     pub fn new(short_period: usize, long_period: usize) -> Self {
         Self {
             short_period: short_period.max(1),
             long_period: long_period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.info, // Blue
+            color: palette::BLUE, // Blue
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
-    }
-
-    fn calculate_ema(data: &[f64], period: usize) -> Vec<f64> {
-        if data.is_empty() || period == 0 {
-            return Vec::new();
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        let mut ema = Vec::with_capacity(data.len());
-
-        // First value is SMA
-        let first_sma: f64 = data.iter().take(period).sum::<f64>() / period as f64;
-
-        for i in 0..data.len() {
-            if i < period - 1 {
-                ema.push(f64::NAN);
-            } else if i == period - 1 {
-                ema.push(first_sma);
-            } else {
-                let prev = ema[i - 1];
-                ema.push((data[i] - prev) * multiplier + prev);
-            }
-        }
-
-        ema
     }
 
     /// The values over `data`, every bar of which has a finite volume.
@@ -74,8 +52,8 @@ impl VolumeOscillator {
         let volumes: Vec<f64> = data.iter().map(|b| b.volume).collect();
 
         // Calculate short and long EMAs
-        let short_ema = Self::calculate_ema(&volumes, self.short_period);
-        let long_ema = Self::calculate_ema(&volumes, self.long_period);
+        let short_ema = helpers::ema_sma(&volumes, self.short_period);
+        let long_ema = helpers::ema_sma(&volumes, self.long_period);
 
         // Calculate oscillator as percentage
         for i in 0..data.len() {
@@ -104,8 +82,8 @@ impl Indicator for VolumeOscillator {
         long_period: length("Long period", 1, usize::MAX)
     ; {});
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Percent
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Percent
     }
 
     fn name(&self) -> &str {

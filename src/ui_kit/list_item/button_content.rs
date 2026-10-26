@@ -1,5 +1,6 @@
 //! ButtonContent - Clickable button content for list items
 
+use crate::localization as l10n;
 use egui::{Color32, Response, Role, Ui, Vec2, WidgetInfo};
 
 use crate::icons::Icon;
@@ -193,11 +194,12 @@ impl<'a> ButtonContent<'a> {
 impl<'a> ListItemContent for ButtonContent<'a> {
     fn ui(self, ui: &mut Ui, context: &ContentContext<'_>) -> Response {
         let response = context.response;
+        let translated_label = l10n::text(ui.ctx(), self.label.as_deref().unwrap_or_default());
         response.widget_info(|| {
             WidgetInfo::labeled(
                 Role::Button,
                 !self.disabled && ui.is_enabled(),
-                self.label.as_deref().unwrap_or_default(),
+                &translated_label,
             )
         });
 
@@ -208,7 +210,7 @@ impl<'a> ListItemContent for ButtonContent<'a> {
             // The fill covers the whole row, like the list item's own hover fill.
             if bg_color != Color32::TRANSPARENT {
                 ui.painter()
-                    .rect_filled(response.rect, DESIGN_TOKENS.rounding.sm, bg_color);
+                    .rect_filled(response.rect, ui.active_theme().radius.sm, bg_color);
             }
 
             let content_rect = context.rect;
@@ -225,14 +227,14 @@ impl<'a> ListItemContent for ButtonContent<'a> {
             // Draw label if present
             if let Some(label) = &self.label {
                 let text_pos = egui::pos2(
-                    content_rect.min.x + self.icon_size + DESIGN_TOKENS.spacing.sm,
+                    content_rect.min.x + self.icon_size + ui.active_theme().spacing.sm,
                     content_rect.center().y,
                 );
 
                 ui.painter().text(
                     text_pos,
                     egui::Align2::LEFT_CENTER,
-                    label,
+                    l10n::text(ui.ctx(), label),
                     egui::TextStyle::Body.resolve(ui.style()),
                     text_color,
                 );

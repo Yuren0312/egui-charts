@@ -21,8 +21,9 @@
 
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Triple Exponential Moving Avg indicator
@@ -43,7 +44,7 @@ impl TEMA {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.pink, // Pink
+            color: palette::PINK, // Pink
             visible: true,
         }
     }
@@ -52,27 +53,6 @@ impl TEMA {
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
-    }
-
-    /// EMA of the values that exist in `data` (NaN lead-in), seeded with the mean of the first
-    /// `period` of them.
-    fn calculate_ema(data: &[f64], period: usize) -> Vec<f64> {
-        let mut ema = vec![f64::NAN; data.len()];
-        let Some(first) = data.iter().position(|v| !v.is_nan()) else {
-            return ema;
-        };
-        if data.len() - first < period {
-            return ema;
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        let seed = first + period - 1;
-        ema[seed] = data[first..=seed].iter().sum::<f64>() / period as f64;
-        for i in seed + 1..data.len() {
-            ema[i] = (data[i] - ema[i - 1]) * multiplier + ema[i - 1];
-        }
-
-        ema
     }
 
     /// The values over `data`, every bar of which has a finite close.
@@ -87,13 +67,13 @@ impl TEMA {
         let closes: Vec<f64> = data.iter().map(|b| b.close).collect();
 
         // Calculate first EMA
-        let ema1 = Self::calculate_ema(&closes, self.period);
+        let ema1 = helpers::ema_sma(&closes, self.period);
 
         // Calculate second EMA (EMA of EMA)
-        let ema2 = Self::calculate_ema(&ema1, self.period);
+        let ema2 = helpers::ema_sma(&ema1, self.period);
 
         // Calculate third EMA (EMA of EMA of EMA)
-        let ema3 = Self::calculate_ema(&ema2, self.period);
+        let ema3 = helpers::ema_sma(&ema2, self.period);
 
         // Calculate TEMA = 3 * EMA1 - 3 * EMA2 + EMA3
         for i in 0..data.len() {
@@ -157,7 +137,7 @@ impl Indicator for TEMA {
         true
     }
 
-    fn line_cnt(&self) -> usize {
+    fn line_count(&self) -> usize {
         1
     }
 

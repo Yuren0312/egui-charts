@@ -1,31 +1,43 @@
 //! Text equivalent of the chart's series and cursor readout.
 
 use super::Chart;
+use crate::localization as l10n;
 use egui::{Role, WidgetInfo};
 use std::fmt::Write;
 
 impl Chart {
-    pub(super) fn accessibility_info(&self, enabled: bool) -> WidgetInfo {
+    pub(super) fn accessibility_info(&self, ctx: &egui::Context, enabled: bool) -> WidgetInfo {
         let mut info = WidgetInfo::labeled(
             Role::GraphicsDocument,
             enabled,
-            format!("{} chart", self.symbol()).trim(),
+            l10n::format_text(
+                ctx,
+                "{symbol} chart",
+                &[("symbol", self.symbol().to_owned())],
+            )
+            .trim(),
         );
         let bars = self.state.shown();
-        let mut text = self.chart_type.as_str().to_owned();
+        let mut text = l10n::text(ctx, self.chart_type.as_str());
         if let Some(timeframe) = self.timeframe() {
             let _ = write!(text, ", {timeframe}");
         }
-        let _ = write!(text, ". {} bars", bars.len());
+        text.push_str(&l10n::format_text(
+            ctx,
+            ". {count} bars",
+            &[("count", bars.len().to_string())],
+        ));
         if let Some((first, last)) = bars.first().zip(bars.last()) {
-            let _ = write!(
-                text,
-                ", {} to {}",
-                first.time.to_rfc3339(),
-                last.time.to_rfc3339()
-            );
+            text.push_str(&l10n::format_text(
+                ctx,
+                ", {first} to {last}",
+                &[
+                    ("first", first.time.to_rfc3339()),
+                    ("last", last.time.to_rfc3339()),
+                ],
+            ));
         } else {
-            text.push_str(". No data");
+            text.push_str(&l10n::text(ctx, ". No data"));
         }
         let hovered = self
             .last_hover_bar_idx
@@ -37,38 +49,47 @@ impl Chart {
             let _ = write!(
                 text,
                 ". {}: {}",
-                if hovered.is_some() {
-                    "Hovered bar"
-                } else {
-                    "Latest bar"
-                },
+                l10n::text(
+                    ctx,
+                    if hovered.is_some() {
+                        "Hovered bar"
+                    } else {
+                        "Latest bar"
+                    }
+                ),
                 bar.time.to_rfc3339()
             );
             if self.main_series_visible && bar.is_whitespace() {
-                text.push_str(". No value");
+                text.push_str(&l10n::text(ctx, ". No value"));
             } else if self.main_series_visible {
                 let decimals = self
                     .instrument()
                     .and_then(crate::scales::instrument_price_precision)
                     .map_or(2, usize::from);
-                let _ = write!(
-                    text,
-                    ". Open {:.decimals$}, high {:.decimals$}, low {:.decimals$}, close {:.decimals$}, volume {}",
-                    bar.open, bar.high, bar.low, bar.close, bar.volume
-                );
+                text.push_str(&l10n::format_text(
+                    ctx,
+                    ". Open {open}, high {high}, low {low}, close {close}, volume {volume}",
+                    &[
+                        ("open", format!("{:.decimals$}", bar.open)),
+                        ("high", format!("{:.decimals$}", bar.high)),
+                        ("low", format!("{:.decimals$}", bar.low)),
+                        ("close", format!("{:.decimals$}", bar.close)),
+                        ("volume", bar.volume.to_string()),
+                    ],
+                ));
             } else {
-                text.push_str(". Main series hidden");
+                text.push_str(&l10n::text(ctx, ". Main series hidden"));
             }
             for study in self.study_values_at(index) {
                 let value = if study.value.is_some_and(f64::is_finite) {
                     study.formatted_value()
                 } else {
-                    "No value".to_owned()
+                    l10n::text(ctx, "No value")
                 };
                 let _ = write!(text, ". {}: {value}", study.label());
             }
         } else if !bars.is_empty() {
-            text.push_str(". No values");
+            text.push_str(&l10n::text(ctx, ". No values"));
         }
         info.current_text_value = Some(text);
         info
@@ -84,6 +105,86 @@ mod tests {
         Harness,
         kittest::{NodeT, Queryable},
     };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[test]
+    fn summary_translation_runs_only_when_consumed() {
+        let ctx = egui::Context::default();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let lookup_calls = calls.clone();
+        let lookup_ctx = ctx.clone();
+        l10n::set_translator(&ctx, move |english| {
+            let _ = lookup_ctx.global_style();
+            if english == "{symbol} chart" {
+                lookup_calls.fetch_add(1, Ordering::Relaxed);
+                Some("Graphique {symbol}".into())
+            } else {
+                None
+            }
+        });
+        let mut chart = super::super::test_frames::chart(&[10.0], &[12.0]);
+        chart.set_symbol("TEST");
+        let mut draw = |events| {
+            ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 600.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    #[cfg(debug_assertions)]
+                    {
+                        ui.style_mut().debug.show_interactive_widgets = false;
+                    }
+                    chart.show(ui);
+                },
+            )
+        };
+        draw(Vec::new()).drop_without_applying_deltas();
+        draw(Vec::new()).drop_without_applying_deltas();
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+
+        let pos = egui::pos2(300.0, 200.0);
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        draw(vec![egui::Event::PointerMoved(pos)]).drop_without_applying_deltas();
+        draw(vec![button(true)]).drop_without_applying_deltas();
+        let output = draw(vec![button(false)]);
+        assert!(output.platform_output.events.iter().any(|event| {
+            matches!(event, egui::output::OutputEvent::Clicked(info)
+                if info.label.as_deref() == Some("Graphique TEST")
+                    && info.current_text_value.as_deref().is_some_and(|text| text.contains("100 bars")))
+        }));
+        output.drop_without_applying_deltas();
+        assert!(calls.swap(0, Ordering::Relaxed) > 0);
+
+        draw(Vec::new()).drop_without_applying_deltas();
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        ctx.enable_accesskit();
+        draw(Vec::new()).drop_without_applying_deltas();
+        assert!(calls.swap(0, Ordering::Relaxed) > 0);
+        ctx.disable_accesskit();
+        draw(Vec::new()).drop_without_applying_deltas();
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+
+        #[cfg(debug_assertions)]
+        {
+            ctx.global_style_mut(|style| style.debug.show_interactive_widgets = true);
+            draw(Vec::new()).drop_without_applying_deltas();
+            assert!(calls.load(Ordering::Relaxed) > 0);
+        }
+        l10n::clear_translator(&ctx);
+    }
 
     #[test]
     fn chart_summary_tracks_hover_updates_and_empty_history() {
@@ -193,6 +294,23 @@ mod tests {
                 harness.run();
                 assert!(summary(&harness).contains("0 bars. No data"));
                 assert!(!summary(&harness).contains("Open"));
+                l10n::set_translator(&harness.ctx, |english| match english {
+                    "{symbol} chart" => Some("Graphique {symbol}".into()),
+                    ". {count} bars" => Some(". {count} barres".into()),
+                    ". No data" => Some(". Aucune donnee".into()),
+                    _ => None,
+                });
+                harness.run();
+                let chart =
+                    harness.get_by_role_and_label(egui::Role::GraphicsDocument, "Graphique TEST");
+                assert!(
+                    chart
+                        .accesskit_node()
+                        .value()
+                        .unwrap()
+                        .contains("0 barres. Aucune donnee")
+                );
+                l10n::clear_translator(&harness.ctx);
             }
         }
     }

@@ -1,8 +1,8 @@
 //! Indicator factory for dynamic indicator creation by name.
 //!
 //! The [`IndicatorFactory`] provides a registry of constructor functions
-//! keyed by indicator name strings. Every built-in indicator is
-//! pre-registered under its canonical [`Indicator::name`] key and a category,
+//! keyed by indicator name strings. The built-in catalogue is
+//! registered under its canonical [`Indicator::name`] key and a category,
 //! and users can add their own at runtime. It is the catalogue of studies: a
 //! picker lists [`list`](IndicatorFactory::list), describes each entry with
 //! [`Indicator::desc`] and [`category`](IndicatorFactory::category), and
@@ -22,6 +22,7 @@
 //! factory.register("MySMA", || Box::new(egui_charts::studies::SMA::new(42)));
 //! ```
 
+use crate::data::OrderFlowKind;
 use crate::studies::*;
 use std::collections::HashMap;
 
@@ -52,7 +53,7 @@ macro_rules! register_builtins {
 
 /// A factory that creates [`Indicator`] instances by name.
 ///
-/// On construction, every built-in indicator is registered under its canonical
+/// On construction, catalogue studies are registered under their canonical
 /// [`Indicator::name`] (e.g. `"SMA"`, `"RSI"`, `"MACD"`, `"SuperTrend"`) using
 /// its conventional default parameters. Each name selects a distinct calculation
 /// or source range. Additional indicators can be registered at runtime with
@@ -65,7 +66,7 @@ impl IndicatorFactory {
     /// The category of every indicator added with [`register`](Self::register).
     pub const CUSTOM: &'static str = "Custom";
 
-    /// Create a new factory pre-loaded with every built-in indicator.
+    /// Create a factory with the built-in catalogue enabled by the current features.
     pub fn new() -> Self {
         let mut factory = Self {
             constructors: HashMap::new(),
@@ -372,6 +373,7 @@ impl Default for IndicatorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::OrderFlowKind;
     use crate::model::{Bar, TimezoneId};
     use chrono::{Duration, TimeZone, Utc};
 
@@ -558,6 +560,7 @@ mod tests {
                 0,
                 &[StudyData {
                     request: StudyDataRequest {
+                        metric: None,
                         symbol: String::new(),
                         timeframe: Some(timeframe),
                     },
@@ -773,7 +776,8 @@ mod tests {
         #[cfg(feature = "widget")]
         {
             use crate::chart::{coords::ChartMapping, indicators::hit_test_indicator};
-            use crate::model::{BarData, ChartState};
+            use crate::model::BarData;
+            use crate::studies::ChartState;
             use egui::{Rect, pos2, vec2};
 
             let mut bars = bars;
@@ -875,7 +879,7 @@ mod tests {
             })
             .collect();
         let colours = |study: &ConfiguredStudy| -> Vec<_> {
-            (0..study.line_cnt())
+            (0..study.line_count())
                 .flat_map(|line| {
                     let style = study.plot_style(line).color;
                     (0..bars.len()).map(move |bar| study.plot_color(line, bar).unwrap_or(style))
@@ -1274,7 +1278,7 @@ mod tests {
             Box::new(
                 VolumeWeightedAvgPrice::new()
                     .with_anchor(VwapAnchor::Week)
-                    .with_time_zone(TimezoneId::named("Asia/Tokyo").unwrap()),
+                    .with_time_zone(TimezoneId::fixed_offset(9 * 3600).unwrap()),
             )
         };
         let mut studies = builtins_with(|k| 3 + 2 * k, |v| v);
@@ -1461,7 +1465,7 @@ mod tests {
                             bars.len()
                         )),
                         Ok(_) => {
-                            let lines = study.line_cnt();
+                            let lines = study.line_count();
                             if study.line_names().len() != lines {
                                 failures.push(format!(
                                     "{}: {lines} lines with names {:?}",

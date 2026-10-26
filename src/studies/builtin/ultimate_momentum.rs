@@ -1,11 +1,11 @@
 use crate::model::Bar;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Ultimate Momentum Oscillator
 /// Custom composite momentum indicator
 /// Combines multiple timeframes for confirmation
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct UltimateMomentum {
     /// Short period (typically 5)
@@ -20,17 +20,19 @@ pub struct UltimateMomentum {
 }
 
 impl UltimateMomentum {
+    /// Create with `short`, `medium`, `long` in bars, each clamped to at least one.
     pub fn new(short: usize, medium: usize, long: usize) -> Self {
         Self {
             short_period: short.max(1),
             medium_period: medium.max(1),
             long_period: long.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.purple,
+            color: palette::PURPLE,
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

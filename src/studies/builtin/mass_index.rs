@@ -1,12 +1,13 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Mass Index
 /// Identifies trend reversals based on range expansion
 /// Developed by Donald Dorsey
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct MassIndex {
     /// EMA period for range smoothing (typically 9)
@@ -19,68 +20,28 @@ pub struct MassIndex {
 }
 
 impl MassIndex {
+    /// Create with EMA period 9 and rolling-sum period 25.
     pub fn new() -> Self {
         Self {
             ema_period: 9,
             sum_period: 25,
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.deep_orange,
+            color: palette::DEEP_ORANGE,
             visible: true,
         }
     }
 
+    /// Set the EMA and rolling-sum periods in bars, each at least one.
     pub fn with_periods(mut self, ema_period: usize, sum_period: usize) -> Self {
         self.ema_period = ema_period.max(1);
         self.sum_period = sum_period.max(1);
         self
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
-    }
-
-    /// Calculate EMA
-    fn calculate_ema(data: &[f64], period: usize) -> Vec<f64> {
-        if data.is_empty() || period == 0 {
-            return Vec::new();
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        let mut ema = Vec::with_capacity(data.len());
-
-        // Find first valid value
-        let mut sum = 0.0;
-        let mut count = 0;
-        let mut first_valid = 0;
-
-        for (i, &v) in data.iter().enumerate() {
-            if !v.is_nan() {
-                sum += v;
-                count += 1;
-                if count == period {
-                    first_valid = i;
-                    break;
-                }
-            }
-        }
-
-        for i in 0..data.len() {
-            if i < first_valid {
-                ema.push(f64::NAN);
-            } else if i == first_valid {
-                ema.push(sum / period as f64);
-            } else {
-                let prev = ema[i - 1];
-                if prev.is_nan() || data[i].is_nan() {
-                    ema.push(f64::NAN);
-                } else {
-                    ema.push((data[i] - prev) * multiplier + prev);
-                }
-            }
-        }
-
-        ema
     }
 
     /// The values over `data`, every bar of which has a finite high and low.
@@ -102,10 +63,10 @@ impl MassIndex {
         let ranges: Vec<f64> = data.iter().map(|b| b.high - b.low).collect();
 
         // Calculate single EMA of range
-        let ema1 = Self::calculate_ema(&ranges, self.ema_period);
+        let ema1 = helpers::ema_sma(&ranges, self.ema_period);
 
         // Calculate double EMA of range
-        let ema2 = Self::calculate_ema(&ema1, self.ema_period);
+        let ema2 = helpers::ema_sma(&ema1, self.ema_period);
 
         // Calculate EMA ratio (single/double)
         let ratio: Vec<f64> = ema1

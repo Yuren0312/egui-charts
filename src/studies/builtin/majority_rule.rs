@@ -1,7 +1,7 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Majority Rule - counts up vs down closes over period.
@@ -15,11 +15,12 @@ pub struct MajorityRule {
 }
 
 impl MajorityRule {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            colors: vec![DESIGN_TOKENS.semantic.extended.cyan],
+            colors: vec![palette::CYAN],
             visible: true,
         }
     }

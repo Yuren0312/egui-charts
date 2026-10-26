@@ -3,50 +3,51 @@
 //! This module contains all the tab-specific UI rendering code,
 //! keeping the main dialog module focused on core structure.
 
+use crate::localization as l10n;
+use crate::model::LineStyle;
+use crate::theme::ThemeExt;
 use egui::{Color32, FontId, RichText, Ui};
 
 use super::SettingsDialog;
-use crate::theme::components::SettingsDialogStyle;
+use crate::theme::Theme;
 use crate::ui_kit::ColorPicker;
 
-use crate::styles::typography;
-
-use super::super::data::{LineStyle, TradingNotifications};
-use super::super::types::{
-    BackgroundType, ButtonVisibility, GridLinesMode, PrecisionMode, WatermarkMode,
-};
 use crate::chart::PnlUnit;
 use crate::tokens::DESIGN_TOKENS;
+use crate::widget::settings::TradingNotifications;
+use crate::widget::settings::{
+    BackgroundType, ButtonVisibility, GridLinesMode, PrecisionMode, WatermarkMode,
+};
 
 impl SettingsDialog {
-    pub(super) fn draw_canvas_tab(&mut self, ui: &mut Ui, style: &SettingsDialogStyle) {
+    pub(super) fn draw_canvas_tab(&mut self, ui: &mut Ui, theme: &Theme) {
         ui.horizontal(|ui| {
             ui.add_space(0.0);
             ui.vertical(|ui| {
                 // CHART BASIC STYLES
-                self.draw_section_header(ui, "CHART BASIC STYLES", style);
+                self.draw_section_header(ui, "CHART BASIC STYLES", theme);
 
                 // Background
-                self.draw_setting_row_with_controls(ui, "Background", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Background", theme, |ui, dialog| {
                     // Type dropdown
                     styled_dropdown(
                         ui,
                         "bg_type",
                         DESIGN_TOKENS.sizing.settings_dialog.dropdown_width,
-                        style.val_text,
+                        theme.ui.text,
                         dialog.settings.chart_basic_styles.background_type.name(),
                         |ui| {
                             for bt in BackgroundType::all() {
                                 ui.selectable_value(
                                     &mut dialog.settings.chart_basic_styles.background_type,
                                     *bt,
-                                    bt.name(),
+                                    l10n::text(ui.ctx(), bt.name()),
                                 );
                             }
                         },
                     );
 
-                    ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.button_gap);
+                    ui.add_space(ui.active_theme().spacing.lg);
 
                     // Color swatch(es)
                     match dialog.settings.chart_basic_styles.background_type {
@@ -88,19 +89,19 @@ impl SettingsDialog {
                 });
 
                 // Grid lines
-                self.draw_setting_row_with_controls(ui, "Grid lines", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Grid lines", theme, |ui, dialog| {
                     styled_dropdown(
                         ui,
                         "grid_mode",
                         DESIGN_TOKENS.sizing.settings_dialog.dropdown_width,
-                        style.val_text,
+                        theme.ui.text,
                         dialog.settings.grid_lines.mode.name(),
                         |ui| {
                             for mode in GridLinesMode::all() {
                                 ui.selectable_value(
                                     &mut dialog.settings.grid_lines.mode,
                                     *mode,
-                                    mode.name(),
+                                    l10n::text(ui.ctx(), mode.name()),
                                 );
                             }
                         },
@@ -111,7 +112,7 @@ impl SettingsDialog {
                         dialog.settings.grid_lines.mode,
                         GridLinesMode::Horizontal | GridLinesMode::Both
                     ) {
-                        ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.button_gap);
+                        ui.add_space(ui.active_theme().spacing.lg);
                         if let Some(color) =
                             ColorPicker::new(&mut dialog.color_picker_states.grid_h, "grid_h")
                                 .show(ui)
@@ -133,7 +134,7 @@ impl SettingsDialog {
                 });
 
                 // Crosshair
-                self.draw_setting_row_with_controls(ui, "Crosshair", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Crosshair", theme, |ui, dialog| {
                     if let Some(color) =
                         ColorPicker::new(&mut dialog.color_picker_states.crosshair, "crosshair")
                             .show(ui)
@@ -142,27 +143,27 @@ impl SettingsDialog {
                         dialog.settings.crosshair.color = color;
                     }
 
-                    ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.button_gap);
+                    ui.add_space(ui.active_theme().spacing.lg);
 
                     // Line style with dashes preview
                     styled_dropdown(
                         ui,
                         "crosshair_style",
                         DESIGN_TOKENS.sizing.settings_dialog.small_dropdown_width,
-                        style.val_text,
+                        theme.ui.text,
                         line_style_preview(dialog.settings.crosshair.line_style),
                         |ui| {
                             for ls in LineStyle::all() {
                                 ui.selectable_value(
                                     &mut dialog.settings.crosshair.line_style,
                                     *ls,
-                                    line_style_preview(*ls),
+                                    l10n::text(ui.ctx(), line_style_preview(*ls)),
                                 );
                             }
                         },
                     );
 
-                    ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.button_gap);
+                    ui.add_space(ui.active_theme().spacing.lg);
 
                     // Line width slider
                     let mut lw = dialog.settings.crosshair.line_width;
@@ -170,22 +171,22 @@ impl SettingsDialog {
                         egui::DragValue::new(&mut lw)
                             .range(1.0..=4.0)
                             .speed(0.5)
-                            .suffix(" px"),
+                            .suffix(l10n::text(ui.ctx(), " px")),
                     );
                     dialog.settings.crosshair.line_width = lw;
                 });
 
-                ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.section_spacing);
+                ui.add_space(ui.active_theme().spacing.xxl);
 
                 // WATERMARK
-                self.draw_section_header(ui, "WATERMARK", style);
+                self.draw_section_header(ui, "WATERMARK", theme);
 
-                self.draw_setting_row_with_controls(ui, "Mode", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Mode", theme, |ui, dialog| {
                     styled_dropdown(
                         ui,
                         "watermark_mode",
                         DESIGN_TOKENS.sizing.settings_dialog.dropdown_width,
-                        style.val_text,
+                        theme.ui.text,
                         dialog.settings.watermark.mode.name(),
                         |ui| {
                             for wm in &[
@@ -196,13 +197,13 @@ impl SettingsDialog {
                                 ui.selectable_value(
                                     &mut dialog.settings.watermark.mode,
                                     *wm,
-                                    wm.name(),
+                                    l10n::text(ui.ctx(), wm.name()),
                                 );
                             }
                         },
                     );
 
-                    ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.button_gap);
+                    ui.add_space(ui.active_theme().spacing.lg);
 
                     if let Some(color) =
                         ColorPicker::new(&mut dialog.color_picker_states.watermark, "watermark")
@@ -213,12 +214,12 @@ impl SettingsDialog {
                     }
                 });
 
-                ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.section_spacing);
+                ui.add_space(ui.active_theme().spacing.xxl);
 
                 // SCALES APPEARANCE
-                self.draw_section_header(ui, "SCALES APPEARANCE", style);
+                self.draw_section_header(ui, "SCALES APPEARANCE", theme);
 
-                self.draw_setting_row_with_controls(ui, "Text", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Text", theme, |ui, dialog| {
                     if let Some(color) =
                         ColorPicker::new(&mut dialog.color_picker_states.scales_text, "scales_text")
                             .show(ui)
@@ -228,12 +229,12 @@ impl SettingsDialog {
                     }
                 });
 
-                ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.section_spacing);
+                ui.add_space(ui.active_theme().spacing.xxl);
 
                 // MARGINS (Pixel input fields)
-                self.draw_section_header(ui, "MARGINS", style);
+                self.draw_section_header(ui, "MARGINS", theme);
 
-                self.draw_setting_row_with_controls(ui, "Top margin (%)", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Top margin (%)", theme, |ui, dialog| {
                     styled_text_input(
                         ui,
                         &mut dialog.margin_top_str,
@@ -247,7 +248,7 @@ impl SettingsDialog {
                 self.draw_setting_row_with_controls(
                     ui,
                     "Bottom margin (%)",
-                    style,
+                    theme,
                     |ui, dialog| {
                         styled_text_input(
                             ui,
@@ -263,7 +264,7 @@ impl SettingsDialog {
                 self.draw_setting_row_with_controls(
                     ui,
                     "Right margin (bars)",
-                    style,
+                    theme,
                     |ui, dialog| {
                         styled_text_input(
                             ui,
@@ -276,24 +277,24 @@ impl SettingsDialog {
                     },
                 );
 
-                ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.section_spacing);
+                ui.add_space(ui.active_theme().spacing.xxl);
 
                 // NAVIGATION BUTTONS
-                self.draw_section_header(ui, "NAVIGATION BUTTONS", style);
+                self.draw_section_header(ui, "NAVIGATION BUTTONS", theme);
 
-                self.draw_setting_row_with_controls(ui, "Visibility", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Visibility", theme, |ui, dialog| {
                     styled_dropdown(
                         ui,
                         "nav_visibility",
                         DESIGN_TOKENS.sizing.settings_dialog.dropdown_width,
-                        style.val_text,
+                        theme.ui.text,
                         dialog.settings.btns.navigation.name(),
                         |ui| {
                             for vis in ButtonVisibility::all() {
                                 ui.selectable_value(
                                     &mut dialog.settings.btns.navigation,
                                     *vis,
-                                    vis.name(),
+                                    l10n::text(ui.ctx(), vis.name()),
                                 );
                             }
                         },
@@ -303,7 +304,7 @@ impl SettingsDialog {
         });
     }
 
-    pub(super) fn draw_symbol_tab(&mut self, ui: &mut Ui, style: &SettingsDialogStyle) {
+    pub(super) fn draw_symbol_tab(&mut self, ui: &mut Ui, theme: &Theme) {
         ui.horizontal(|ui| {
             ui.add_space(0.0);
             ui.vertical(|ui| {
@@ -311,12 +312,12 @@ impl SettingsDialog {
                     ui,
                     &mut self.settings.show_price_targets,
                     "Analyst price targets",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 // CANDLE COLORS
-                self.draw_section_header(ui, "CANDLE COLORS", style);
+                self.draw_section_header(ui, "CANDLE COLORS", theme);
 
-                self.draw_setting_row_with_controls(ui, "Body", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Body", theme, |ui, dialog| {
                     if let Some(color) =
                         ColorPicker::new(&mut dialog.color_picker_states.body_up, "body_up")
                             .show(ui)
@@ -333,7 +334,7 @@ impl SettingsDialog {
                     }
                 });
 
-                self.draw_setting_row_with_controls(ui, "Border", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Border", theme, |ui, dialog| {
                     if let Some(color) =
                         ColorPicker::new(&mut dialog.color_picker_states.border_up, "border_up")
                             .show(ui)
@@ -350,7 +351,7 @@ impl SettingsDialog {
                     }
                 });
 
-                self.draw_setting_row_with_controls(ui, "Wick", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Wick", theme, |ui, dialog| {
                     if let Some(color) =
                         ColorPicker::new(&mut dialog.color_picker_states.wick_up, "wick_up")
                             .show(ui)
@@ -367,45 +368,49 @@ impl SettingsDialog {
                     }
                 });
 
-                ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.section_spacing);
+                ui.add_space(ui.active_theme().spacing.xxl);
 
                 // PRECISION
-                self.draw_section_header(ui, "PRECISION", style);
+                self.draw_section_header(ui, "PRECISION", theme);
 
-                self.draw_setting_row_with_controls(ui, "Mode", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Mode", theme, |ui, dialog| {
                     styled_dropdown(
                         ui,
                         "precision_mode",
                         DESIGN_TOKENS.sizing.settings_dialog.dropdown_width,
-                        style.val_text,
+                        theme.ui.text,
                         dialog.settings.precision.name(),
                         |ui| {
                             for pm in PrecisionMode::all() {
-                                ui.selectable_value(&mut dialog.settings.precision, *pm, pm.name());
+                                ui.selectable_value(
+                                    &mut dialog.settings.precision,
+                                    *pm,
+                                    l10n::text(ui.ctx(), pm.name()),
+                                );
                             }
                         },
                     );
                 });
 
-                ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.section_spacing);
+                ui.add_space(ui.active_theme().spacing.xxl);
 
                 // TIMEZONE
-                self.draw_section_header(ui, "TIMEZONE", style);
+                self.draw_section_header(ui, "TIMEZONE", theme);
 
-                self.draw_setting_row_with_controls(ui, "Timezone", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Timezone", theme, |ui, dialog| {
                     let curr_tz = dialog.settings.timezone.clone();
                     styled_dropdown(
                         ui,
                         "timezone",
                         DESIGN_TOKENS.sizing.settings_dialog.dropdown_width,
-                        style.val_text,
+                        theme.ui.text,
                         &curr_tz,
                         |ui| {
                             for tz in &dialog.timezones {
                                 ui.selectable_value(
                                     &mut dialog.settings.timezone,
                                     tz.clone(),
-                                    tz.as_str(),
+                                    l10n::text(ui.ctx(), tz.as_str()),
                                 );
                             }
                         },
@@ -415,11 +420,11 @@ impl SettingsDialog {
         });
     }
 
-    pub(super) fn draw_status_line_tab(&mut self, ui: &mut Ui, style: &SettingsDialogStyle) {
+    pub(super) fn draw_status_line_tab(&mut self, ui: &mut Ui, theme: &Theme) {
         ui.horizontal(|ui| {
             ui.add_space(0.0);
             ui.vertical(|ui| {
-                self.draw_section_header(ui, "INSTRUMENT", style);
+                self.draw_section_header(ui, "INSTRUMENT", theme);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().interact_size.y = 34.0;
                     ui.allocate_ui(egui::vec2(112.0, 42.0), |ui| {
@@ -427,14 +432,14 @@ impl SettingsDialog {
                             ui,
                             &mut self.settings.status_line.show_symbol,
                             "Title",
-                            style.val_text,
+                            theme.ui.text,
                         );
                     });
                     styled_dropdown(
                         ui,
                         "title_format",
                         150.0,
-                        style.val_text,
+                        theme.ui.text,
                         if self.settings.status_line.title_as_description {
                             "Description"
                         } else {
@@ -444,12 +449,12 @@ impl SettingsDialog {
                             ui.selectable_value(
                                 &mut self.settings.status_line.title_as_description,
                                 true,
-                                "Description",
+                                l10n::text(ui.ctx(), "Description"),
                             );
                             ui.selectable_value(
                                 &mut self.settings.status_line.title_as_description,
                                 false,
-                                "Ticker",
+                                l10n::text(ui.ctx(), "Ticker"),
                             );
                         },
                     );
@@ -458,67 +463,67 @@ impl SettingsDialog {
                     ui,
                     &mut self.settings.status_line.show_ohlc,
                     "Chart values",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 styled_checkbox(
                     ui,
                     &mut self.settings.status_line.show_change,
                     "Bar change values",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 styled_checkbox(
                     ui,
                     &mut self.settings.status_line.show_change_percent,
                     "Bar change percent",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 styled_checkbox(
                     ui,
                     &mut self.settings.status_line.show_volume,
                     "Volume",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 styled_checkbox(
                     ui,
                     &mut self.settings.status_line.show_quote_boxes,
                     "Buy/sell buttons",
-                    style.val_text,
+                    theme.ui.text,
                 );
-                ui.add_space(24.0);
-                self.draw_section_header(ui, "INDICATORS", style);
+                ui.add_space(theme.spacing.xxxl);
+                self.draw_section_header(ui, "INDICATORS", theme);
                 styled_checkbox(
                     ui,
                     &mut self.settings.status_line.show_indicator_titles,
                     "Titles",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 styled_checkbox(
                     ui,
                     &mut self.settings.status_line.show_indicator_inputs,
                     "Inputs",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 styled_checkbox(
                     ui,
                     &mut self.settings.status_line.show_indicator_values,
                     "Values",
-                    style.val_text,
+                    theme.ui.text,
                 );
             });
         });
     }
 
-    pub(super) fn draw_scales_and_lines_tab(&mut self, ui: &mut Ui, style: &SettingsDialogStyle) {
+    pub(super) fn draw_scales_and_lines_tab(&mut self, ui: &mut Ui, theme: &Theme) {
         ui.horizontal(|ui| {
             ui.add_space(0.0);
             ui.vertical(|ui| {
-                self.draw_section_header(ui, "PRICE SCALE", style);
-                self.draw_setting_row_with_controls(ui, "Placement", style, |ui, dialog| {
+                self.draw_section_header(ui, "PRICE SCALE", theme);
+                self.draw_setting_row_with_controls(ui, "Placement", theme, |ui, dialog| {
                     styled_dropdown(
                         ui,
                         "scale_placement",
                         150.0,
-                        style.val_text,
+                        theme.ui.text,
                         if dialog.settings.scales_and_lines.price_scale_left {
                             "Left"
                         } else {
@@ -528,49 +533,49 @@ impl SettingsDialog {
                             ui.selectable_value(
                                 &mut dialog.settings.scales_and_lines.price_scale_left,
                                 false,
-                                "Right",
+                                l10n::text(ui.ctx(), "Right"),
                             );
                             ui.selectable_value(
                                 &mut dialog.settings.scales_and_lines.price_scale_left,
                                 true,
-                                "Left",
+                                l10n::text(ui.ctx(), "Left"),
                             );
                         },
                     );
                 });
-                ui.add_space(24.0);
-                self.draw_section_header(ui, "PRICE LABELS & LINES", style);
+                ui.add_space(theme.spacing.xxxl);
+                self.draw_section_header(ui, "PRICE LABELS & LINES", theme);
                 styled_checkbox(
                     ui,
                     &mut self.settings.scales_and_lines.show_countdown,
                     "Countdown to bar close",
-                    style.val_text,
+                    theme.ui.text,
                 );
-                self.draw_setting_row_with_controls(ui, "Last price", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Last price", theme, |ui, dialog| {
                     price_line_dropdown(
                         ui,
                         "last_price_mode",
-                        style.val_text,
+                        theme.ui.text,
                         &mut dialog.settings.scales_and_lines.show_last_price_label,
                         &mut dialog.settings.scales_and_lines.show_price_line,
                     );
                 });
-                self.draw_setting_row_with_controls(ui, "Previous close", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Previous close", theme, |ui, dialog| {
                     price_line_dropdown(
                         ui,
                         "previous_close_mode",
-                        style.val_text,
+                        theme.ui.text,
                         &mut dialog.settings.scales_and_lines.show_prev_close_label,
                         &mut dialog.settings.scales_and_lines.show_prev_close,
                     );
                 });
-                ui.add_space(24.0);
-                self.draw_section_header(ui, "SCALE MODES", style);
+                ui.add_space(theme.spacing.xxxl);
+                self.draw_section_header(ui, "SCALE MODES", theme);
                 if styled_checkbox(
                     ui,
                     &mut self.settings.scales_and_lines.log_scale,
                     "Log scale",
-                    style.val_text,
+                    theme.ui.text,
                 ) && self.settings.scales_and_lines.log_scale
                 {
                     self.settings.scales_and_lines.percentage_scale = false;
@@ -579,7 +584,7 @@ impl SettingsDialog {
                     ui,
                     &mut self.settings.scales_and_lines.percentage_scale,
                     "Percentage scale",
-                    style.val_text,
+                    theme.ui.text,
                 ) && self.settings.scales_and_lines.percentage_scale
                 {
                     self.settings.scales_and_lines.log_scale = false;
@@ -588,20 +593,20 @@ impl SettingsDialog {
                     ui,
                     &mut self.settings.scales_and_lines.invert_scale,
                     "Invert scale",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 styled_checkbox(
                     ui,
                     &mut self.settings.scales_and_lines.auto_scale,
                     "Auto scale",
-                    style.val_text,
+                    theme.ui.text,
                 );
             });
         });
     }
 
-    pub(super) fn draw_events_tab(&mut self, ui: &mut Ui, style: &SettingsDialogStyle) {
-        self.draw_section_header(ui, "EVENT VISIBILITY", style);
+    pub(super) fn draw_events_tab(&mut self, ui: &mut Ui, theme: &Theme) {
+        self.draw_section_header(ui, "EVENT VISIBILITY", theme);
         let events = &mut self.settings.events;
         for (value, label) in [
             (&mut events.show_dividends, "Dividends"),
@@ -610,13 +615,13 @@ impl SettingsDialog {
             (&mut events.show_economic_events, "Economic events"),
             (&mut events.show_news, "News"),
         ] {
-            styled_checkbox(ui, value, label, style.val_text);
+            styled_checkbox(ui, value, label, theme.ui.text);
         }
     }
 
-    pub(super) fn draw_trading_tab(&mut self, ui: &mut Ui, style: &SettingsDialogStyle) {
-        let text = style.val_text;
-        self.draw_section_header(ui, "GENERAL", style);
+    pub(super) fn draw_trading_tab(&mut self, ui: &mut Ui, theme: &Theme) {
+        let text = theme.ui.text;
+        self.draw_section_header(ui, "GENERAL", theme);
         styled_checkbox(
             ui,
             &mut self.settings.status_line.show_quote_boxes,
@@ -645,7 +650,10 @@ impl SettingsDialog {
                     ui.add_enabled_ui(play, |ui| {
                         styled_dropdown(ui, "execution_sound", 140.0, text, &selected, |ui| {
                             for name in sounds {
-                                if ui.selectable_label(selected == *name, name).clicked() {
+                                if ui
+                                    .selectable_label(selected == *name, l10n::text(ui.ctx(), name))
+                                    .clicked()
+                                {
                                     sound.clone_from(name);
                                 }
                             }
@@ -656,7 +664,11 @@ impl SettingsDialog {
         );
         ui.horizontal(|ui| {
             ui.set_min_height(42.0);
-            ui.label(RichText::new("Notifications").size(14.0).color(text));
+            ui.label(
+                RichText::new(l10n::text(ui.ctx(), "Notifications"))
+                    .size(ui.active_theme().text.title)
+                    .color(text),
+            );
             ui.add_space((TRADING_LABEL_WIDTH - ui.min_rect().width()).max(0.0));
             let level = &mut trading.notifications;
             styled_dropdown(
@@ -667,19 +679,19 @@ impl SettingsDialog {
                 level.label(),
                 |ui| {
                     for option in TradingNotifications::ALL {
-                        ui.selectable_value(level, option, option.label());
+                        ui.selectable_value(level, option, l10n::text(ui.ctx(), option.label()));
                     }
                 },
             );
         });
-        ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.row_spacing);
+        ui.add_space(ui.active_theme().spacing.sm);
 
-        ui.add_space(24.0);
-        self.draw_section_header(ui, "APPEARANCE", style);
+        ui.add_space(theme.spacing.xxxl);
+        self.draw_section_header(ui, "APPEARANCE", theme);
         let trading = &mut self.settings.trading;
         styled_checkbox(ui, &mut trading.bid_ask_labels, "Bid and ask labels", text);
-        styled_checkbox(ui, &mut trading.show_poss, "Positions", text);
-        ui.add_enabled_ui(trading.show_poss, |ui| {
+        styled_checkbox(ui, &mut trading.show_positions, "Positions", text);
+        ui.add_enabled_ui(trading.show_positions, |ui| {
             let unit = &mut trading.position_pnl_unit;
             let shown = trading.position_pnl;
             trading_option(
@@ -725,13 +737,13 @@ impl SettingsDialog {
         });
     }
 
-    pub(super) fn draw_alerts_tab(&mut self, ui: &mut Ui, style: &SettingsDialogStyle) {
+    pub(super) fn draw_alerts_tab(&mut self, ui: &mut Ui, theme: &Theme) {
         ui.horizontal(|ui| {
             ui.add_space(0.0);
             ui.vertical(|ui| {
-                self.draw_section_header(ui, "ALERT SETTINGS", style);
+                self.draw_section_header(ui, "ALERT SETTINGS", theme);
 
-                self.draw_setting_row_with_controls(ui, "Color", style, |ui, dialog| {
+                self.draw_setting_row_with_controls(ui, "Color", theme, |ui, dialog| {
                     if let Some(color) =
                         ColorPicker::new(&mut dialog.color_picker_states.alert, "alert")
                             .show(ui)
@@ -741,45 +753,40 @@ impl SettingsDialog {
                     }
                 });
 
-                ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.section_spacing);
-                self.draw_section_header(ui, "VISIBILITY", style);
+                ui.add_space(ui.active_theme().spacing.xxl);
+                self.draw_section_header(ui, "VISIBILITY", theme);
 
                 styled_checkbox(
                     ui,
                     &mut self.settings.alerts.show_alerts,
                     "Show alerts",
-                    style.val_text,
+                    theme.ui.text,
                 );
                 styled_checkbox(
                     ui,
                     &mut self.settings.alerts.show_alert_labels,
                     "Show alert labels",
-                    style.val_text,
+                    theme.ui.text,
                 );
             });
         });
     }
 
-    pub(super) fn draw_section_header(
-        &self,
-        ui: &mut Ui,
-        title: &str,
-        style: &SettingsDialogStyle,
-    ) {
+    pub(super) fn draw_section_header(&self, ui: &mut Ui, title: &str, theme: &Theme) {
         ui.label(
-            RichText::new(title)
-                .size(11.0)
+            RichText::new(l10n::text(ui.ctx(), title))
+                .size(theme.text.small)
                 .strong()
-                .color(style.section_header_text),
+                .color(theme.ui.text_secondary),
         );
-        ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.row_spacing);
+        ui.add_space(ui.active_theme().spacing.sm);
     }
 
     pub(super) fn draw_setting_row_with_controls<F>(
         &mut self,
         ui: &mut Ui,
         label: &str,
-        style: &SettingsDialogStyle,
+        theme: &Theme,
         add_content: F,
     ) where
         F: FnOnce(&mut Ui, &mut SettingsDialog),
@@ -805,9 +812,9 @@ impl SettingsDialog {
         .map(|label| {
             ui.painter()
                 .layout_no_wrap(
-                    (*label).into(),
-                    FontId::proportional(typography::LG),
-                    style.label_text,
+                    l10n::text(ui.ctx(), *label),
+                    FontId::proportional(theme.text.title),
+                    theme.ui.text,
                 )
                 .size()
                 .x
@@ -823,9 +830,9 @@ impl SettingsDialog {
                     ui.set_max_width(label_width);
                     ui.add(
                         egui::Label::new(
-                            RichText::new(label)
-                                .size(typography::LG)
-                                .color(style.label_text),
+                            RichText::new(l10n::text(ui.ctx(), label))
+                                .size(theme.text.title)
+                                .color(theme.ui.text),
                         )
                         .wrap(),
                     )
@@ -839,7 +846,7 @@ impl SettingsDialog {
                 ui.label_inputs_by(label.inner.id, |ui| add_content(ui, self));
             });
         });
-        ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.row_spacing);
+        ui.add_space(ui.active_theme().spacing.sm);
     }
 }
 
@@ -857,7 +864,7 @@ fn price_line_dropdown(ui: &mut Ui, id: &str, color: Color32, label: &mut bool, 
     };
     styled_dropdown(ui, id, 180.0, color, name(mode), |ui| {
         for option in [(true, true), (true, false), (false, true), (false, false)] {
-            ui.selectable_value(&mut mode, option, name(option));
+            ui.selectable_value(&mut mode, option, l10n::text(ui.ctx(), name(option)));
         }
     });
     (*label, *line) = mode;
@@ -875,8 +882,8 @@ fn styled_dropdown<R>(
         .icon(crate::ui_kit::buttons::combo_chevron)
         .width(width)
         .selected_text(
-            RichText::new(selected)
-                .size(typography::LG)
+            RichText::new(l10n::text(ui.ctx(), selected))
+                .size(ui.active_theme().text.title)
                 .color(text_color),
         )
         .show_ui(ui, add_contents);
@@ -900,11 +907,16 @@ fn trading_option(
     ui.horizontal(|ui| {
         ui.set_min_height(42.0);
         ui.add_space(indent);
-        ui.checkbox(checked, RichText::new(label).size(14.0).color(text_color));
+        ui.checkbox(
+            checked,
+            RichText::new(l10n::text(ui.ctx(), label))
+                .size(ui.active_theme().text.title)
+                .color(text_color),
+        );
         ui.add_space((TRADING_LABEL_WIDTH - ui.min_rect().width()).max(0.0));
         add_controls(ui);
     });
-    ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.row_spacing);
+    ui.add_space(ui.active_theme().spacing.sm);
 }
 
 /// The profit and loss unit dropdown of a Trading tab row, enabled while `shown`.
@@ -912,7 +924,7 @@ fn pnl_unit_dropdown(ui: &mut Ui, id: &str, shown: bool, unit: &mut PnlUnit, tex
     ui.add_enabled_ui(shown, |ui| {
         styled_dropdown(ui, id, 140.0, text_color, unit.label(), |ui| {
             for option in PnlUnit::ALL {
-                ui.selectable_value(unit, option, option.label());
+                ui.selectable_value(unit, option, l10n::text(ui.ctx(), option.label()));
             }
         });
     });
@@ -925,12 +937,17 @@ fn styled_checkbox(ui: &mut Ui, checked: &mut bool, label: &str, text_color: Col
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.set_min_height(42.0);
-                ui.checkbox(checked, RichText::new(label).size(14.0).color(text_color))
-                    .changed()
+                ui.checkbox(
+                    checked,
+                    RichText::new(l10n::text(ui.ctx(), label))
+                        .size(ui.active_theme().text.title)
+                        .color(text_color),
+                )
+                .changed()
             },
         )
         .inner;
-    ui.add_space(DESIGN_TOKENS.sizing.settings_dialog.row_spacing);
+    ui.add_space(ui.active_theme().spacing.sm);
     changed
 }
 
@@ -938,7 +955,7 @@ fn styled_text_input(ui: &mut Ui, text: &mut String, width: f32) {
     ui.add(
         egui::TextEdit::singleline(text)
             .desired_width(width)
-            .font(FontId::proportional(typography::MD)),
+            .font(FontId::proportional(ui.active_theme().text.body)),
     );
 }
 

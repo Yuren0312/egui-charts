@@ -13,6 +13,7 @@ pub struct NetVolume {
 }
 
 impl NetVolume {
+    /// Create with the default plot colors.
     pub fn new() -> Self {
         Self {
             values: IndicatorValues::new(),
@@ -35,8 +36,8 @@ impl Indicator for NetVolume {
         ))
     }
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Volume
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Volume
     }
 
     fn name(&self) -> &str {

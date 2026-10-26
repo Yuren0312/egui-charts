@@ -5,14 +5,40 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_call:
+
+# A newer push to a pull request supersedes its running checks; every main commit keeps its run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  semver:
+    if: github.event.pull_request.draft != true
+    name: Public API compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve the latest published crate version
+        id: baseline
+        shell: bash
+        run: |
+          version=$(curl --fail --silent --show-error --retry 3 -A "egui-charts-ci (https://github.com/userFRM/egui-charts)" https://crates.io/api/v1/crates/egui-charts | jq -er '.crate.newest_version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Check the declared release against the published API
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          baseline-version: ${{ steps.baseline.outputs.version }}
+
   check:
+    if: github.event.pull_request.draft != true
     name: Check
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -27,6 +53,9 @@ jobs:
           toolchain: ${{ matrix.rust }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Check module dependencies
+        if: matrix.os == 'ubuntu-latest' && matrix.rust == 'stable'
+        run: python3 .github/check-module-cycles.py
       - name: Build (default features)
         run: cargo build
       - name: Build (no default features)
@@ -53,6 +82,7 @@ jobs:
         run: cargo clippy --no-default-features --features studies --all-targets -- -D warnings
 
   test:
+    if: github.event.pull_request.draft != true
     name: Test (${{ matrix.os }}, ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -60,10 +90,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable]
-        include:
-          - os: ubuntu-latest
-            rust: 1.95.0
+        rust: [stable, 1.95.0]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -74,12 +101,41 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run library tests (all features)
         run: cargo test --all-features --lib
+      - name: Run library tests (default features)
+        run: cargo test --lib
       - name: Run library tests (no default features)
         run: cargo test --no-default-features --lib
+      - name: Run workflow example tests
+        run: cargo test --all-features --example scripting --example backtesting
+      - name: Run library tests (UI without named time zones)
+        run: cargo test --no-default-features --features ui --lib
       - name: Run doc tests (all features)
         run: cargo test --doc --all-features
 
+  wasm-test:
+    if: github.event.pull_request.draft != true
+    name: Test (headless Chrome, ${{ matrix.features }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        features: [all, widget]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: Run browser widget tests
+        run: >-
+          wasm-pack test --headless --chrome --lib
+          ${{ matrix.features == 'all' && '--all-features' || '--no-default-features --features widget' }}
+
   bare-chart:
+    if: github.event.pull_request.draft != true
     name: Bare chart size and frame cost
     # Pinned image and compiler: the figures move with the code, the lockfile, the MSRV and the runner.
     runs-on: ubuntu-24.04
@@ -141,7 +197,46 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$fail"
 
+  performance:
+    name: Chart performance regressions
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: performance-base
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            performance-base -> target
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+      - name: Build the same workloads against both libraries
+        run: |
+          cp -r benches/frame benches/regression performance-base/benches/
+          cp benches/frame_time.rs performance-base/benches/frame_time.rs
+          cp examples/bare_chart.rs performance-base/examples/bare_chart.rs
+          if grep -q 'pub enum TradeSide' performance-base/src/model/quote.rs; then
+            sed -i 's/\bOrderSide\b/TradeSide/g' performance-base/benches/frame_time.rs
+          fi
+          cargo build --release --locked --bench frame_time --message-format=json-render-diagnostics > performance-head.json
+          cargo build --release --locked --manifest-path performance-base/Cargo.toml --bench frame_time --message-format=json-render-diagnostics > performance-base.json
+      - name: Reject instruction growth over five percent
+        run: |
+          base=$(jq -r 'select(.target.name == "frame_time" and .executable) | .executable' performance-base.json)
+          head=$(jq -r 'select(.target.name == "frame_time" and .executable) | .executable' performance-head.json)
+          set -o pipefail
+          bash benches/check-regressions.sh "$base" "$head" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
   native-demo:
+    if: github.event.pull_request.draft != true
     name: Native demo (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -169,6 +264,7 @@ jobs:
         run: xvfb-run -a examples/demo/smoke-native.sh examples/demo/target/debug/egui-charts-demo
 
   fmt:
+    if: github.event.pull_request.draft != true
     name: Format
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -182,6 +278,7 @@ jobs:
         run: for m in examples/demo docs/capture fuzz; do cargo fmt --manifest-path $m/Cargo.toml -- --check || exit 1; done
 
   doc:
+    if: github.event.pull_request.draft != true
     name: Documentation
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -195,6 +292,7 @@ jobs:
           RUSTDOCFLAGS: -Dwarnings
 
   security:
+    if: github.event.pull_request.draft != true
     name: Security audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -213,7 +311,7 @@ jobs:
           studies=$(cargo tree --locked -e normal --no-default-features --features studies --prefix none)
           banned=$(grep -E '^(rustls|ureq|ehttp|image) v' <<< "$default" | sort -u || true)
           if [ -n "$banned" ]; then echo "::error::default features depend on: $banned"; exit 1; fi
-          banned=$(grep -E '^(egui|egui_extras|epaint|winit) v' <<< "$headless" | sort -u || true)
+          banned=$(grep -E '^(egui|egui_extras|epaint|winit|chrono-tz) v' <<< "$headless" | sort -u || true)
           if [ -n "$banned" ]; then echo "::error::--no-default-features depends on: $banned"; exit 1; fi
           banned=$(grep -E '^(egui_extras|thiserror) v' <<< "$widget" | sort -u || true)
           if [ -n "$banned" ]; then echo "::error::--features widget depends on: $banned"; exit 1; fi
@@ -221,6 +319,11 @@ jobs:
           if [ -n "$banned" ]; then echo "::error::--features studies depends on: $banned"; exit 1; fi
           # The deployed demo must build the versions its committed lockfile pins.
           (cd examples/demo && cargo tree --locked > /dev/null)
+      - name: Check duplicate versions and licences
+        run: |
+          cargo install cargo-deny --locked --version 0.19.0
+          cargo deny --all-features --locked check bans licenses
+          cargo deny --manifest-path examples/demo/Cargo.toml --all-features --locked check bans licenses
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Audit dependencies

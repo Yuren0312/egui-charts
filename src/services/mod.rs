@@ -26,10 +26,10 @@ mod paper;
 mod quotes;
 mod search;
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
 mod settings;
 mod signals;
 mod storage;
-mod targets;
 
 pub use alerts::{AlertEvent, Alerts};
 pub use broker::{AccountEvent, Broker};
@@ -43,7 +43,7 @@ pub use paper::PaperAccount;
 pub use quotes::Quotes;
 pub use search::{SymbolQuery, SymbolSearch};
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
 pub use settings::{SettingsStore, UserSettings};
 pub use signals::{SignalEvent, Signals};
 pub use storage::{Storage, StoreKind};
-pub use targets::PriceTargets;

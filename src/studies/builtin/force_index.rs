@@ -1,12 +1,12 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Force Index
 /// Measures the force behind price movements using price change and volume
 /// Developed by Alexander Elder
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct ForceIndex {
     /// EMA period for smoothing (typically 13)
@@ -17,63 +17,20 @@ pub struct ForceIndex {
 }
 
 impl ForceIndex {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.bullish, // Teal
+            color: palette::UP, // Teal
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
-    }
-
-    /// Calculate EMA
-    fn calculate_ema(data: &[f64], period: usize) -> Vec<f64> {
-        if data.is_empty() || period == 0 {
-            return Vec::new();
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        let mut ema = Vec::with_capacity(data.len());
-
-        // Find first non-NaN value to start SMA
-        let mut first_valid_idx = 0;
-        let mut sum = 0.0;
-        let mut count = 0;
-
-        for (i, &value) in data.iter().enumerate() {
-            if !value.is_nan() {
-                if count < period {
-                    sum += value;
-                    count += 1;
-                }
-                if count == period {
-                    first_valid_idx = i;
-                    break;
-                }
-            }
-        }
-
-        for i in 0..data.len() {
-            if i < first_valid_idx {
-                ema.push(f64::NAN);
-            } else if i == first_valid_idx {
-                ema.push(sum / period as f64);
-            } else {
-                let prev = ema[i - 1];
-                if prev.is_nan() || data[i].is_nan() {
-                    ema.push(f64::NAN);
-                } else {
-                    ema.push((data[i] - prev) * multiplier + prev);
-                }
-            }
-        }
-
-        ema
     }
 
     /// The values over `data`, every bar of which has a finite close and volume.
@@ -97,7 +54,7 @@ impl ForceIndex {
         }
 
         // Apply EMA smoothing
-        let smoothed = Self::calculate_ema(&raw_force, self.period);
+        let smoothed = crate::studies::helpers::ema_sma(&raw_force, self.period);
 
         // Store results
         for value in smoothed {

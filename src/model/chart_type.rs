@@ -28,6 +28,7 @@ use std::fmt;
 /// Each variant represents a distinct way to visualize OHLCV data.
 /// The default is `Candles` (Japanese candlesticks).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ChartType {
     // === Standard OHLC Types ===
     /// Traditional OHLC bars with tick marks
@@ -41,7 +42,7 @@ pub enum ChartType {
     VolumeCandles,
 
     // === Line-Based Types ===
-    /// Simple close price line
+    /// Price line, using the close by default.
     Line,
     /// Line with circular markers at each data point
     LineWithMarkers,
@@ -55,8 +56,8 @@ pub enum ChartType {
     HlcArea,
     /// Baseline comparison chart with colored fill
     Baseline,
-    /// One column per bar from the bottom of the price pane to the close,
-    /// coloured by close versus the previous close
+    /// One column per bar, colored by close versus the previous close.
+    /// The base is the pane bottom unless `ChartTypeParams::columns_base` is set.
     Columns,
 
     // === Range Types ===
@@ -70,7 +71,7 @@ pub enum ChartType {
     Renko,
     /// Kagi chart (trend reversals)
     Kagi,
-    /// Three line break chart
+    /// Line Break chart with a configurable reversal lookback.
     LineBreak,
     /// Heikin-Ashi candles (smoothed)
     Heikin,
@@ -84,6 +85,7 @@ pub enum ChartType {
 
 /// Categories for grouping chart types in the UI
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ChartTypeCategory {
     /// Standard OHLC visualizations
     Standard,
@@ -95,7 +97,7 @@ pub enum ChartTypeCategory {
     Japanese,
     /// Range/price-based charts
     RangeBased,
-    /// Advanced professional charts
+    /// Market Profile charts.
     Advanced,
 }
 

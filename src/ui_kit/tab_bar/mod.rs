@@ -28,6 +28,7 @@
 //! # });
 //! ```
 
+use crate::localization as l10n;
 use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use crate::ui_kit::buttons::ButtonSize;
@@ -37,6 +38,7 @@ use egui::{Role, Sense, Ui, WidgetInfo, vec2};
 ///
 /// Implement this on your tab enum so `TabBar` can render it.
 pub trait TabLabel: Copy + PartialEq {
+    /// Label displayed for this tab.
     fn tab_label(&self) -> &str;
 }
 
@@ -51,6 +53,7 @@ pub struct TabBar<'a, T: TabLabel> {
 }
 
 impl<'a, T: TabLabel> TabBar<'a, T> {
+    /// Bind the offered tabs to the current selection.
     pub fn new(tabs: &'a [T], active: &'a mut T) -> Self {
         Self {
             tabs,
@@ -76,7 +79,7 @@ impl<'a, T: TabLabel> TabBar<'a, T> {
             for tab in self.tabs {
                 let is_active = *tab == *self.active;
                 let galley = ui.painter().layout_no_wrap(
-                    tab.tab_label().to_owned(),
+                    l10n::text(ui.ctx(), tab.tab_label()),
                     egui::FontId::proportional(if self.pills { 14.0 } else { theme.text.label }),
                     egui::Color32::PLACEHOLDER,
                 );

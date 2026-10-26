@@ -1,10 +1,10 @@
 [package]
 name = "egui-charts"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
-description = "Financial charting engine for egui: candlesticks and other chart types, drawing tools, technical indicators and a design-token theme system"
+description = "Interactive financial charts for egui with historical and streaming data, studies, drawing tools and order flow"
 repository = "https://github.com/userFRM/egui-charts"
 homepage = "https://github.com/userFRM/egui-charts"
 documentation = "https://docs.rs/egui-charts"
@@ -22,12 +22,20 @@ exclude = [
     ".github/",
     "tests/",
     "benches/",
-    "docs/",
+    "docs/*",
+    "!docs/builder-guide.md",
+    "!docs/site/src/content/docs/*.mdx",
+    "!docs/study-data.md",
+    "!docs/strategy-report.md",
     "fuzz/",
     "*.png",
     "*.gif",
     "*.mp4",
 ]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 path = "src/lib.rs"
@@ -72,6 +80,30 @@ name = "primitives"
 path = "examples/primitives.rs"
 required-features = ["widget"]
 
+[[example]]
+name = "custom_indicator"
+path = "examples/custom_indicator.rs"
+required-features = ["widget"]
+
+[[example]]
+name = "drawing_persistence"
+path = "examples/drawing_persistence.rs"
+required-features = ["drawings"]
+
+[[example]]
+name = "backtesting"
+path = "examples/backtesting.rs"
+
+[[example]]
+name = "scripting"
+path = "examples/scripting.rs"
+required-features = ["widget"]
+
+[[example]]
+name = "synchronized_charts"
+path = "examples/synchronized_charts.rs"
+required-features = ["widget"]
+
 [[bench]]
 name = "bare_chart"
 path = "benches/bare_chart.rs"
@@ -97,7 +129,7 @@ harness = false
 required-features = ["widget"]
 
 [features]
-default = ["ui", "locales"]
+default = ["ui", "locales", "timezones"]
 ## The egui chart widget: `Chart`, `ChartBuilder`, configuration,
 ## theme and the `Indicator` extension point.  Without it the crate is the
 ## headless engine (`model`, `scales`, `data`, `services`, `tokens` and the
@@ -119,6 +151,9 @@ ui = ["icons", "studies", "drawings", "dep:thiserror", "eframe/accesskit"]
 ## `Chart::set_locale` and `LocaleTimeFormatter`, from chrono's locale tables.
 ## Without it those labels stay in English.
 locales = ["chrono/unstable-locales"]
+## IANA time zones and daylight-saving rules from chrono-tz, enabled by default.
+## Without it, UTC, system local time and explicit fixed offsets remain available.
+timezones = ["dep:chrono-tz"]
 ## `Serialize` and `Deserialize` for `theme::Theme`, so an application can load a theme from a file.
 serde = []
 
@@ -155,6 +190,7 @@ rand = "0.10.0"
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # `examples/bare_chart.rs` starts its web runner from the page.
 wasm-bindgen-futures = "0.4.79"
+wasm-bindgen-test = "0.3.79"
 
 [dependencies]
 # theme::apply_to_egui installs the bundled Roboto face.
@@ -168,7 +204,7 @@ resvg = { version = "0.45.1", default-features = false, optional = true }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
 chrono = { version = "0.4.43", features = ["serde"] }
-chrono-tz = { version = "0.10.4", features = ["serde"] }
+chrono-tz = { version = "0.10.4", optional = true }
 web-time = { version = "1.1.0", optional = true }
 csv = "1.4.0"
 # Encodes chart images rasterised by `Chart::export_png`.

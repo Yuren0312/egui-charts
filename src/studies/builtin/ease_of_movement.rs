@@ -1,7 +1,7 @@
 use super::{clamp_param, over_finite_bars};
 use crate::model::Bar;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Ease of Movement (EoM / EMV), Richard Arms: how easily price moves for the volume traded.
@@ -25,12 +25,13 @@ pub struct EaseOfMovement {
 }
 
 impl EaseOfMovement {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             divisor: 10_000.0,
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.warning, // Orange
+            color: palette::ORANGE, // Orange
             visible: true,
         }
     }
@@ -41,6 +42,7 @@ impl EaseOfMovement {
         self
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

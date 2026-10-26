@@ -1,12 +1,13 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Double Stochastic
 /// Applies the stochastic formula twice for smoother signals
 /// More responsive to overbought/oversold conditions
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct DoubleStochastic {
     /// Period for stochastic calculation
@@ -19,34 +20,21 @@ pub struct DoubleStochastic {
 }
 
 impl DoubleStochastic {
+    /// Create with `period`, `smooth` in bars, each clamped to at least one.
     pub fn new(period: usize, smooth: usize) -> Self {
         Self {
             period: period.max(1),
             smooth: smooth.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.warning, // Orange
+            color: palette::ORANGE, // Orange
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
-    }
-
-    fn sma(data: &[f64], period: usize) -> Vec<f64> {
-        let mut result = Vec::with_capacity(data.len());
-
-        for i in 0..data.len() {
-            if i < period - 1 {
-                result.push(f64::NAN);
-            } else {
-                let sum: f64 = data[i + 1 - period..=i].iter().sum();
-                result.push(sum / period as f64);
-            }
-        }
-
-        result
     }
 }
 
@@ -92,7 +80,7 @@ impl DoubleStochastic {
         }
 
         // Smooth the first stochastic
-        let smooth_stoch1 = Self::sma(&stoch1, self.smooth);
+        let smooth_stoch1 = helpers::sma(&stoch1, self.smooth);
 
         // Second stochastic on the smoothed values
         let mut stoch2: Vec<f64> = Vec::with_capacity(data.len());
@@ -131,7 +119,7 @@ impl DoubleStochastic {
         }
 
         // Final smoothing
-        let ds = Self::sma(&stoch2, self.smooth);
+        let ds = helpers::sma(&stoch2, self.smooth);
 
         for i in 0..data.len() {
             if i < min_period - 1 || ds[i].is_nan() {

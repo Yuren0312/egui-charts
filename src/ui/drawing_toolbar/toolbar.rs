@@ -8,14 +8,15 @@
 
 use super::categories::cursors::CursorType;
 use crate::drawings::DrawingToolType;
-use crate::ext::UiExt;
 use crate::icons::{Icon, icons as embedded_icons};
+use crate::localization as l10n;
+use crate::styles::icons as icon_sizes;
 use crate::styles::responsive::LayoutContext;
-use crate::styles::{icons as icon_sizes, typography};
 use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use crate::ui::Control;
 use crate::ui_kit::buttons::IconButton;
+use crate::ui_kit::ext::UiExt;
 use egui::{Color32, Id, Key, Modifiers, Popup, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
 use std::collections::HashSet;
 
@@ -42,10 +43,10 @@ impl CursorStateData {
     }
 }
 
-/// Domain state that should be synced with AppState
+/// Drawing and cursor choices shared by the host and drawing toolbar.
 ///
-/// This represents the drawing-related state that is managed centrally
-/// in AppState.drawing, not UI-specific state like expanded menus.
+/// Copy host choices into the toolbar before showing it, then apply its returned
+/// actions to the chart and host state.
 #[derive(Clone, Debug)]
 pub struct DrawingToolbarDomainState {
     /// The chart's active drawing tool, or `None` after construction finishes.
@@ -95,6 +96,7 @@ pub struct DrawingToolbar {
 }
 
 impl DrawingToolbar {
+    /// Create a [`DrawingToolbar`] with default settings.
     pub fn new() -> Self {
         Self::default()
     }
@@ -116,11 +118,7 @@ impl DrawingToolbar {
 
     // === State Sync Methods ===
 
-    /// Sync toolbar state FROM a domain state snapshot.
-    ///
-    /// Call this BEFORE `show_with_action()` to ensure the toolbar
-    /// reflects the current application state. This makes AppState
-    /// the single source of truth for domain state.
+    /// Copy the host's drawing and cursor choices before [`Self::show_with_action`].
     pub fn sync_from_domain_state(&mut self, domain: &DrawingToolbarDomainState) {
         if domain.sel_tool.is_some()
             || domain.eraser_mode_enabled
@@ -137,10 +135,7 @@ impl DrawingToolbar {
         self.state.drawing_color = domain.drawing_color;
     }
 
-    /// Get the current domain state for syncing TO AppState
-    ///
-    /// This can be used to initialize AppState from component state
-    /// during migration.
+    /// Read the toolbar's drawing and cursor choices for synchronization with the host.
     pub fn get_domain_state(&self) -> DrawingToolbarDomainState {
         DrawingToolbarDomainState {
             sel_tool: self.state.sel_tool,
@@ -155,32 +150,39 @@ impl DrawingToolbar {
 
     // === State management methods ===
 
+    /// Select the tool if its registry entry is enabled.
     pub fn select_tool(&mut self, tool: DrawingToolType) {
         if self.registry.availability(tool).enabled {
             self.state.select_tool(tool);
         }
     }
 
+    /// Record a tool in the recent selection list.
     pub fn add_to_recent(&mut self, tool: DrawingToolType) {
         self.state.add_to_recent(tool);
     }
 
+    /// Clear the toolbar's selected tool.
     pub fn clear_selection(&mut self) {
         self.state.clear_selection();
     }
 
+    /// Toggle a tool's membership in favorites.
     pub fn toggle_favorite(&mut self, tool: DrawingToolType) {
         self.state.toggle_favorite(tool);
     }
 
+    /// Whether the tool is marked as a favorite.
     pub fn is_favorite(&self, tool: &DrawingToolType) -> bool {
         self.state.is_favorite(tool)
     }
 
+    /// Toggle the toolbar's magnet setting.
     pub fn toggle_magnet(&mut self) {
         self.state.toggle_magnet();
     }
 
+    /// Toggle whether the selected tool stays active after completing a drawing.
     pub fn toggle_stay_in_drawing(&mut self) {
         self.state.toggle_stay_in_drawing();
     }
@@ -353,7 +355,7 @@ impl DrawingToolbar {
             ui.horizontal(|ui| {
                 egui::TextEdit::singleline(query)
                     .id(Self::search_id())
-                    .hint_text("Search tools")
+                    .hint_text(l10n::text(ui.ctx(), "Search tools"))
                     .desired_width(DESIGN_TOKENS.sizing.drawing_toolbar_ext.submenu_width_lg)
                     .show(ui);
                 close_clicked = IconButton::new(&embedded_icons::CLOSE)
@@ -438,7 +440,12 @@ impl DrawingToolbar {
             // Filter by search
             if !self.state.search_query.is_empty() {
                 let query = self.state.search_query.to_lowercase();
-                tools.retain(|tool| tool.as_str().to_lowercase().contains(&query));
+                tools.retain(|tool| {
+                    tool.as_str().to_lowercase().contains(&query)
+                        || l10n::text(ui.ctx(), tool.as_str())
+                            .to_lowercase()
+                            .contains(&query)
+                });
             }
 
             let is_icons = category == "Icons/Emojis";
@@ -703,7 +710,10 @@ impl DrawingToolbar {
 
     /// Draw color picker popup
     fn draw_color_picker_popup(&mut self, ui: &mut Ui, sidebar_rect: Rect) -> Option<[u8; 4]> {
-        let popup_pos = self.color_picker_position(sidebar_rect);
+        let popup_pos = Pos2::new(
+            sidebar_rect.right() + ui.active_theme().spacing.sm,
+            sidebar_rect.center().y - DESIGN_TOKENS.sizing.dialog.color_picker_height / 2.0,
+        );
         let current_color = self.state.drawing_color;
 
         let (area_res, sel_color) = self.render_color_picker_area(ui, popup_pos, current_color);
@@ -711,15 +721,6 @@ impl DrawingToolbar {
         self.handle_color_picker_close(ui, &area_res, sidebar_rect, sel_color.is_some());
 
         sel_color
-    }
-
-    /// Calculate popup position for color picker
-    fn color_picker_position(&self, sidebar_rect: Rect) -> Pos2 {
-        let popup_height = DESIGN_TOKENS.sizing.dialog.color_picker_height;
-        Pos2::new(
-            sidebar_rect.right() + DESIGN_TOKENS.spacing.sm,
-            sidebar_rect.center().y - popup_height / 2.0,
-        )
     }
 
     /// Render the color picker area and return selected color if any
@@ -751,11 +752,14 @@ impl DrawingToolbar {
         egui::Frame::popup(ui.style())
             .fill(ui.style().visuals.window_fill())
             .stroke(ui.style().visuals.window_stroke)
-            .corner_radius(DESIGN_TOKENS.rounding.lg)
+            .corner_radius(ui.active_theme().radius.lg)
             .show(ui, |ui| {
                 ui.set_min_size(Vec2::new(popup_width, popup_height));
                 ui.space_lg();
-                ui.label(RichText::new("Drawing Color").size(typography::SM));
+                ui.label(
+                    RichText::new(l10n::text(ui.ctx(), "Drawing Color"))
+                        .size(ui.active_theme().text.small),
+                );
                 ui.space_md();
 
                 sel_color = self.render_color_swatches(ui, current_color);
@@ -768,7 +772,7 @@ impl DrawingToolbar {
     fn render_color_swatches(&self, ui: &mut Ui, current_color: [u8; 4]) -> Option<[u8; 4]> {
         let colors = Self::color_palette();
         let swatch_size = DESIGN_TOKENS.sizing.button_sm;
-        let swatch_spacing = DESIGN_TOKENS.spacing.sm;
+        let swatch_spacing = ui.active_theme().spacing.sm;
         let columns = 5;
         let mut sel_color = None;
 
@@ -832,23 +836,25 @@ impl DrawingToolbar {
         current_color: [u8; 4],
     ) -> Option<[u8; 4]> {
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(swatch_size), Sense::click());
+        let translated_label = l10n::text(ui.ctx(), name);
         response.widget_info(|| {
             egui::WidgetInfo::selected(
                 egui::Role::RadioButton,
                 response.enabled(),
                 current_color == color_val,
-                name,
+                &translated_label,
             )
         });
-        crate::styles::focus::draw_focus_ring(ui, &response, DESIGN_TOKENS.rounding.sm);
+        crate::styles::focus::draw_focus_ring(ui, &response, ui.active_theme().radius.sm);
 
         let c =
             Color32::from_rgba_unmultiplied(color_val[0], color_val[1], color_val[2], color_val[3]);
-        ui.painter().rect_filled(rect, DESIGN_TOKENS.rounding.sm, c);
+        ui.painter()
+            .rect_filled(rect, ui.active_theme().radius.sm, c);
 
         self.render_swatch_border(ui, rect, &response, current_color == color_val);
         let clicked = response.clicked();
-        response.on_hover_text(name);
+        response.on_hover_text(l10n::text(ui.ctx(), name));
 
         if clicked { Some(color_val) } else { None }
     }
@@ -864,7 +870,7 @@ impl DrawingToolbar {
         if is_selected {
             ui.painter().rect_stroke(
                 rect,
-                DESIGN_TOKENS.rounding.sm,
+                ui.active_theme().radius.sm,
                 Stroke::new(DESIGN_TOKENS.stroke.thick, ui.active_theme().ui.accent),
                 egui::StrokeKind::Outside,
             );
@@ -872,7 +878,7 @@ impl DrawingToolbar {
             let hover_color = ui.style().visuals.widgets.hovered.fg_stroke.color;
             ui.painter().rect_stroke(
                 rect,
-                DESIGN_TOKENS.rounding.sm,
+                ui.active_theme().radius.sm,
                 Stroke::new(DESIGN_TOKENS.stroke.hairline, hover_color),
                 egui::StrokeKind::Outside,
             );
@@ -935,7 +941,7 @@ impl DrawingToolbar {
                 egui::Frame::new()
                     .fill(ui.visuals().panel_fill)
                     .stroke(ui.style().visuals.window_stroke)
-                    .corner_radius(DESIGN_TOKENS.rounding.md)
+                    .corner_radius(ui.active_theme().radius.md)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let quick_tools = [
@@ -953,18 +959,19 @@ impl DrawingToolbar {
                                     Vec2::splat(DESIGN_TOKENS.sizing.button_md),
                                     Sense::click(),
                                 );
+                                let translated_label = l10n::text(ui.ctx(), tool.as_str());
                                 response.widget_info(|| {
                                     egui::WidgetInfo::selected(
                                         egui::Role::Button,
                                         response.enabled(),
                                         is_sel,
-                                        tool.as_str(),
+                                        &translated_label,
                                     )
                                 });
                                 crate::styles::focus::draw_focus_ring(
                                     ui,
                                     &response,
-                                    DESIGN_TOKENS.rounding.sm,
+                                    ui.active_theme().radius.sm,
                                 );
 
                                 let bg = if is_sel {
@@ -975,7 +982,7 @@ impl DrawingToolbar {
                                     Color32::TRANSPARENT
                                 };
                                 ui.painter()
-                                    .rect_filled(rect, DESIGN_TOKENS.rounding.sm, bg);
+                                    .rect_filled(rect, ui.active_theme().radius.sm, bg);
 
                                 let icon_rect = Rect::from_center_size(
                                     rect.center(),
@@ -990,7 +997,10 @@ impl DrawingToolbar {
                                     is_sel,
                                 );
 
-                                if response.on_hover_text(tool.as_str()).clicked() {
+                                if response
+                                    .on_hover_text(l10n::text(ui.ctx(), tool.as_str()))
+                                    .clicked()
+                                {
                                     new_selection = Some(tool);
                                 }
                             }
@@ -1002,18 +1012,19 @@ impl DrawingToolbar {
                                 Vec2::splat(DESIGN_TOKENS.sizing.button_md),
                                 Sense::click(),
                             );
+                            let translated_label = l10n::text(ui.ctx(), "Magnet Mode");
                             response.widget_info(|| {
                                 egui::WidgetInfo::selected(
                                     egui::Role::Button,
                                     response.enabled(),
                                     self.state.magnet_mode,
-                                    "Magnet Mode",
+                                    &translated_label,
                                 )
                             });
                             crate::styles::focus::draw_focus_ring(
                                 ui,
                                 &response,
-                                DESIGN_TOKENS.rounding.sm,
+                                ui.active_theme().radius.sm,
                             );
                             let bg = if self.state.magnet_mode {
                                 ui.active_theme().ui.accent
@@ -1023,7 +1034,7 @@ impl DrawingToolbar {
                                 Color32::TRANSPARENT
                             };
                             ui.painter()
-                                .rect_filled(rect, DESIGN_TOKENS.rounding.sm, bg);
+                                .rect_filled(rect, ui.active_theme().radius.sm, bg);
 
                             let icon_rect =
                                 Rect::from_center_size(rect.center(), Vec2::splat(icon_sizes::MD));
@@ -1035,7 +1046,10 @@ impl DrawingToolbar {
                                 self.state.magnet_mode,
                             );
 
-                            if response.on_hover_text("Magnet Mode").clicked() {
+                            if response
+                                .on_hover_text(l10n::text(ui.ctx(), "Magnet Mode"))
+                                .clicked()
+                            {
                                 self.state.magnet_mode = !self.state.magnet_mode;
                             }
 
@@ -1043,9 +1057,12 @@ impl DrawingToolbar {
 
                             ui.menu_button(" ", |ui| {
                                 for category in DrawingToolType::categories() {
-                                    ui.menu_button(*category, |ui| {
+                                    ui.menu_button(l10n::text(ui.ctx(), *category), |ui| {
                                         for tool in DrawingToolType::by_category(category) {
-                                            if ui.button(tool.as_str()).clicked() {
+                                            if ui
+                                                .button(l10n::text(ui.ctx(), tool.as_str()))
+                                                .clicked()
+                                            {
                                                 new_selection = Some(tool);
                                                 ui.close();
                                             }
@@ -1054,7 +1071,7 @@ impl DrawingToolbar {
                                 }
                             })
                             .response
-                            .accessible_name("More drawing tools");
+                            .accessible_name(l10n::text(ui.ctx(), "More drawing tools"));
                         });
                     });
             });
@@ -1130,6 +1147,7 @@ mod tests {
                 } else {
                     egui::Visuals::light()
                 });
+                l10n::set_translator(&ctx, |english| (english == "Star").then(|| "Etoile".into()));
                 let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, height));
                 ctx.run_ui(
                     RawInput {
@@ -1145,6 +1163,7 @@ mod tests {
                 let mut previous = "Search icons, emoji and stickers";
                 for (query, glyph) in [
                     ("star", "icon:star"),
+                    ("etoile", "icon:star"),
                     ("grinning", "😀"),
                     ("idea", "sticker:idea"),
                     ("", "sticker:idea"),

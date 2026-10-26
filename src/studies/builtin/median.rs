@@ -22,10 +22,11 @@
 //! median.calculate(&bars);
 //! ```
 
-use super::{clamp_param, over_finite_bars, seeded_average};
+use super::{clamp_param, over_finite_bars};
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
 use crate::studies::{ATR, Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Median: rolling median of hl2, its EMA and ATR bands around it.
@@ -44,19 +45,18 @@ impl Median {
     /// Create the study from the median length (typically 3), the ATR length (typically 14)
     /// and the ATR multiplier (typically 2, clamped into 0 to `f64::MAX`, NaN to 0).
     pub fn new(length: usize, atr_length: usize, multiplier: f64) -> Self {
-        let palette = &DESIGN_TOKENS.semantic.extended;
         Self {
             length: length.max(1),
             atr_length: atr_length.max(1),
             multiplier: clamp_param(multiplier, 0.0, f64::MAX),
             values: IndicatorValues::new(),
             colors: [
-                palette.warning,
-                palette.accent,
-                palette.accent,
-                palette.info_light,
-                palette.success,
-                palette.purple,
+                palette::ORANGE,
+                palette::ACCENT,
+                palette::ACCENT,
+                palette::LIGHT_BLUE,
+                palette::GREEN,
+                palette::PURPLE,
             ],
             visible: true,
         }
@@ -78,7 +78,7 @@ impl Median {
                 *window.select_nth_unstable_by(rank, f64::total_cmp).1
             })
             .collect();
-        let ema = seeded_average(&median, n, 2.0 / (n as f64 + 1.0));
+        let ema = helpers::ema_sma(&median, n);
         let mut atr = ATR::new(self.atr_length);
         atr.calculate(data);
         (0..data.len())

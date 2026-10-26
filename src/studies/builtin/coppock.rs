@@ -1,11 +1,12 @@
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Coppock Curve
 /// A momentum indicator originally designed to identify buying opportunities in stock indices
 /// Uses a weighted moving avg of the sum of two ROC periods
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct CoppockCurve {
     /// Long ROC period (typically 14)
@@ -20,17 +21,19 @@ pub struct CoppockCurve {
 }
 
 impl CoppockCurve {
+    /// Create with rate-of-change periods 14 and 11 and weighted-average period 10.
     pub fn new() -> Self {
         Self {
             long_roc: 14,
             short_roc: 11,
             wma_period: 10,
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.purple,
+            color: palette::PURPLE,
             visible: true,
         }
     }
 
+    /// Set the long and short rate-of-change and weighted-average periods, each at least one.
     pub fn with_periods(mut self, long_roc: usize, short_roc: usize, wma: usize) -> Self {
         self.long_roc = long_roc.max(1);
         self.short_roc = short_roc.max(1);
@@ -38,6 +41,7 @@ impl CoppockCurve {
         self
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -57,38 +61,6 @@ impl CoppockCurve {
         }
 
         roc
-    }
-
-    /// Calculate Weighted Moving Avg
-    fn calculate_wma(data: &[f64], period: usize) -> Vec<f64> {
-        let mut wma = Vec::with_capacity(data.len());
-        let weight_sum: f64 = (1..=period).map(|i| i as f64).sum();
-
-        for i in 0..data.len() {
-            if i < period - 1 {
-                wma.push(f64::NAN);
-            } else {
-                let mut weighted_sum = 0.0;
-                let mut has_nan = false;
-
-                for j in 0..period {
-                    let value = data[i + 1 - period + j];
-                    if value.is_nan() {
-                        has_nan = true;
-                        break;
-                    }
-                    weighted_sum += value * (j + 1) as f64;
-                }
-
-                if has_nan {
-                    wma.push(f64::NAN);
-                } else {
-                    wma.push(weighted_sum / weight_sum);
-                }
-            }
-        }
-
-        wma
     }
 }
 
@@ -154,7 +126,7 @@ impl Indicator for CoppockCurve {
             .collect();
 
         // Apply WMA to the sum
-        let coppock = Self::calculate_wma(&roc_sum, self.wma_period);
+        let coppock = helpers::wma(&roc_sum, self.wma_period);
 
         // Store results
         for value in coppock {

@@ -3,6 +3,7 @@
 //! Displays real-time OHLCV data at the cursor position.
 //! Collapsible section at the top of the Object Tree panel.
 
+use crate::localization as l10n;
 use egui::{RichText, Ui};
 
 use crate::icons::icons;
@@ -11,8 +12,7 @@ use crate::theme::ThemeExt;
 use crate::ui_kit::IconButton;
 
 use super::types::DataWindowInfo;
-use crate::ext::UiExt;
-use crate::tokens::DESIGN_TOKENS;
+use crate::ui_kit::ext::UiExt;
 
 impl DataWindowInfo {
     /// Populates the readout from the hovered rendered bar, falling back to the latest bar with a
@@ -78,7 +78,7 @@ pub fn show_data_window(ui: &mut Ui, data: &DataWindowInfo, expanded: bool) -> b
         ui.right_aligned(|ui| {
             if !data.symbol.is_empty() {
                 ui.label(
-                    RichText::new(&data.symbol)
+                    RichText::new(l10n::text(ui.ctx(), &data.symbol))
                         .small()
                         .color(ui.visuals().weak_text_color()),
                 );
@@ -94,12 +94,12 @@ pub fn show_data_window(ui: &mut Ui, data: &DataWindowInfo, expanded: bool) -> b
             egui::Grid::new("bar_time").num_columns(2).show(ui, |ui| {
                 if !data.timestamp.is_empty() {
                     ui.hint_label("Time");
-                    ui.label(&data.timestamp);
+                    ui.label(l10n::text(ui.ctx(), &data.timestamp));
                     ui.end_row();
                 }
                 if !data.timeframe.is_empty() {
                     ui.hint_label("Interval");
-                    ui.label(&data.timeframe);
+                    ui.label(l10n::text(ui.ctx(), &data.timeframe));
                     ui.end_row();
                 }
             });
@@ -114,7 +114,10 @@ pub fn show_data_window(ui: &mut Ui, data: &DataWindowInfo, expanded: bool) -> b
                     .show(ui, |ui| {
                         for study in &data.studies {
                             ui.hint_label(study.label());
-                            ui.label(RichText::new(study.formatted_value()).color(study.color));
+                            ui.label(
+                                RichText::new(l10n::text(ui.ctx(), study.formatted_value()))
+                                    .color(study.color),
+                            );
                             ui.end_row();
                         }
                     });
@@ -137,34 +140,50 @@ fn show_ohlcv_grid(ui: &mut Ui, data: &DataWindowInfo) {
 
     egui::Grid::new("ohlcv_grid")
         .num_columns(2)
-        .spacing([DESIGN_TOKENS.spacing.md, DESIGN_TOKENS.spacing.xs])
+        .spacing([ui.active_theme().spacing.md, ui.active_theme().spacing.xs])
         .min_col_width(50.0)
         .show(ui, |ui| {
             ui.hint_label("O");
-            ui.label(format_price(data.open, data.price_decimals));
+            ui.label(l10n::text(
+                ui.ctx(),
+                format_price(data.open, data.price_decimals),
+            ));
             ui.end_row();
             ui.hint_label("H");
-            ui.label(format_price(data.high, data.price_decimals));
+            ui.label(l10n::text(
+                ui.ctx(),
+                format_price(data.high, data.price_decimals),
+            ));
             ui.end_row();
 
             ui.hint_label("L");
-            ui.label(format_price(data.low, data.price_decimals));
+            ui.label(l10n::text(
+                ui.ctx(),
+                format_price(data.low, data.price_decimals),
+            ));
             ui.end_row();
             ui.hint_label("C");
             ui.label(
-                RichText::new(format_price(data.close, data.price_decimals)).color(change_color),
+                RichText::new(l10n::text(
+                    ui.ctx(),
+                    format_price(data.close, data.price_decimals),
+                ))
+                .color(change_color),
             );
             ui.end_row();
 
             ui.hint_label("Vol");
-            ui.label(data.volume_precision.map_or_else(
-                || format_volume(data.volume),
-                |decimals| {
-                    VolumeFormatter {
-                        precision: usize::from(decimals),
-                    }
-                    .format(data.volume)
-                },
+            ui.label(l10n::text(
+                ui.ctx(),
+                data.volume_precision.map_or_else(
+                    || format_volume(data.volume),
+                    |decimals| {
+                        VolumeFormatter {
+                            precision: usize::from(decimals),
+                        }
+                        .format(data.volume)
+                    },
+                ),
             ));
             ui.end_row();
             ui.hint_label("Chg");
@@ -210,7 +229,7 @@ fn format_volume(volume: f64) -> String {
         return "\u{2014}".to_string();
     }
 
-    crate::studies::StudyFormat::Volume.format(volume, None)
+    crate::scales::StudyFormat::Volume.format(volume, None)
 }
 
 #[cfg(test)]
@@ -266,7 +285,7 @@ mod tests {
 
     #[test]
     fn test_format_volume() {
-        use crate::studies::StudyFormat::*;
+        use crate::scales::StudyFormat::*;
         for (format, value, precision, expected) in [
             (Volume, 1_500_000_000.0, None, "1.50B"),
             (Volume, 2_500_000.0, None, "2.50M"),

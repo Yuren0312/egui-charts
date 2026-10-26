@@ -2,10 +2,10 @@
 //!
 //! Renders individual items (drawings, indicators) in the tree.
 
-use egui::{Rect, Sense, Stroke, Ui, vec2};
+use crate::localization as l10n;
+use egui::{Color32, Rect, Sense, Stroke, Ui, vec2};
 
 use crate::icons::{Icon, icons as embedded_icons};
-use crate::styles::typography;
 use crate::theme::ThemeExt;
 
 use super::actions::ObjectTreeAction;
@@ -13,8 +13,8 @@ use super::config::ObjectTreeConfig;
 use super::context_menu::render_item_menu;
 use super::state::ObjectTreeState;
 use super::types::{SourceItem, SourceType};
-use crate::ext::UiExt;
 use crate::tokens::DESIGN_TOKENS;
+use crate::ui_kit::ext::UiExt;
 
 /// Render a single item row in the object tree
 pub fn render_item_row(
@@ -27,7 +27,12 @@ pub fn render_item_row(
     let id = item.id;
 
     // Calculate indentation
-    let indent = indent_level as f32 * config.indent_width;
+    let indent_width = if config.indent_width == ObjectTreeConfig::default().indent_width {
+        ui.active_theme().spacing.xl
+    } else {
+        config.indent_width
+    };
+    let indent = indent_level as f32 * indent_width;
 
     // Allocate row
     let available_width = ui.available_width();
@@ -36,12 +41,9 @@ pub fn render_item_row(
         Sense::click_and_drag(),
     );
 
+    let translated_label = l10n::text(ui.ctx(), item.full_display_name());
     response.widget_info(|| {
-        egui::WidgetInfo::labeled(
-            egui::Role::TreeItem,
-            response.enabled(),
-            item.full_display_name(),
-        )
+        egui::WidgetInfo::labeled(egui::Role::TreeItem, response.enabled(), &translated_label)
     });
     ui.ctx()
         .accesskit_node_builder(response.id, |node| node.set_selected(state.is_selected(id)));
@@ -64,7 +66,7 @@ pub fn render_item_row(
         });
     }
 
-    response.on_hover_text(item.full_display_name());
+    response.on_hover_text(l10n::text(ui.ctx(), item.full_display_name()));
 
     // Handle expand/collapse for items with properties
     if item.source_type == SourceType::Drawing && state.is_item_expanded(id) {
@@ -174,7 +176,7 @@ fn render_row_content(
         }
 
         // Calculate x position starting after indent
-        let mut x = rect.left() + indent + DESIGN_TOKENS.spacing.sm;
+        let mut x = rect.left() + indent + ui.active_theme().spacing.sm;
 
         // Expand/collapse chevron (for items with properties)
         if config.show_expand_chevron && item.source_type == SourceType::Drawing {
@@ -204,17 +206,25 @@ fn render_row_content(
                 egui::pos2(x + config.color_indicator_size / 2.0, center_y),
                 vec2(config.color_indicator_size, config.color_indicator_size),
             );
-            painter.rect_filled(color_rect, 2.0, item.color);
+            painter.rect_filled(
+                color_rect,
+                ui.active_theme().radius.xs,
+                if item.color == Color32::PLACEHOLDER {
+                    ui.active_theme().ui.text_secondary
+                } else {
+                    item.color
+                },
+            );
             painter.rect_stroke(
                 color_rect,
-                2.0,
+                ui.active_theme().radius.xs,
                 Stroke::new(
                     DESIGN_TOKENS.stroke.hairline,
-                    DESIGN_TOKENS.semantic.extended.gray,
+                    ui.active_theme().ui.text_muted,
                 ),
                 egui::StrokeKind::Inside,
             );
-            x += config.color_indicator_size + DESIGN_TOKENS.spacing.sm;
+            x += config.color_indicator_size + ui.active_theme().spacing.sm;
         }
 
         if let Some(tool_type) = item.tool_type {
@@ -233,13 +243,13 @@ fn render_row_content(
         } else if item.visible {
             ui.style().visuals.text_color()
         } else {
-            DESIGN_TOKENS.semantic.extended.gray
+            ui.active_theme().ui.text_muted
         };
         let mut job = egui::text::LayoutJob::simple(
-            item.full_display_name(),
-            egui::FontId::proportional(typography::SM_MD),
+            l10n::text(ui.ctx(), item.full_display_name()),
+            egui::FontId::proportional(ui.active_theme().text.label),
             name_color,
-            (rect.right() - DESIGN_TOKENS.spacing.sm - 40.0 - x).max(0.0),
+            (rect.right() - ui.active_theme().spacing.sm - 40.0 - x).max(0.0),
         );
         job.wrap.max_rows = 1;
         let galley = painter.layout_job(job);
@@ -248,17 +258,18 @@ fn render_row_content(
     } // painter dropped
 
     // Second pass: interactive elements
-    let mut x = rect.left() + indent + DESIGN_TOKENS.spacing.sm;
+    let mut x = rect.left() + indent + ui.active_theme().spacing.sm;
 
     // Expand/collapse button
     if config.show_expand_chevron && item.source_type == SourceType::Drawing {
         let chevron_rect = Rect::from_center_size(egui::pos2(x + 6.0, center_y), vec2(14.0, 14.0));
         let chevron_response = ui.allocate_rect(chevron_rect, Sense::click());
+        let translated_label = l10n::text(ui.ctx(), "Drawing properties");
         chevron_response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::Role::Button,
                 chevron_response.enabled(),
-                "Drawing properties",
+                &translated_label,
             )
         });
         crate::styles::focus::draw_focus_ring(ui, &chevron_response, 0.0);
@@ -280,12 +291,13 @@ fn render_row_content(
         &embedded_icons::EYE_HIDE
     };
     let vis_response = ui.allocate_rect(vis_rect, Sense::click());
+    let translated_label = l10n::text(ui.ctx(), if item.visible { "Hide" } else { "Show" });
     vis_response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::Role::Button,
             vis_response.enabled(),
             item.visible,
-            if item.visible { "Hide" } else { "Show" },
+            &translated_label,
         )
     });
     crate::styles::focus::draw_focus_ring(ui, &vis_response, 0.0);
@@ -304,7 +316,10 @@ fn render_row_content(
     if vis_response.clicked() {
         *action = ObjectTreeAction::ToggleVisibility(item.id);
     }
-    vis_response.on_hover_text(if item.visible { "Hide" } else { "Show" });
+    vis_response.on_hover_text(l10n::text(
+        ui.ctx(),
+        if item.visible { "Hide" } else { "Show" },
+    ));
     x += 20.0;
 
     // Lock toggle (drawings only)
@@ -316,12 +331,13 @@ fn render_row_content(
             &embedded_icons::UNLOCK
         };
         let lock_response = ui.allocate_rect(lock_rect, Sense::click());
+        let translated_label = l10n::text(ui.ctx(), if item.locked { "Unlock" } else { "Lock" });
         lock_response.widget_info(|| {
             egui::WidgetInfo::selected(
                 egui::Role::Button,
                 lock_response.enabled(),
                 item.locked,
-                if item.locked { "Unlock" } else { "Lock" },
+                &translated_label,
             )
         });
         crate::styles::focus::draw_focus_ring(ui, &lock_response, 0.0);
@@ -340,11 +356,14 @@ fn render_row_content(
         if lock_response.clicked() {
             *action = ObjectTreeAction::ToggleLock(item.id);
         }
-        lock_response.on_hover_text(if item.locked { "Unlock" } else { "Lock" });
+        lock_response.on_hover_text(l10n::text(
+            ui.ctx(),
+            if item.locked { "Unlock" } else { "Lock" },
+        ));
     }
 
     // Right-side buttons, registered in visual order for keyboard navigation.
-    let right_x = rect.right() - DESIGN_TOKENS.spacing.sm;
+    let right_x = rect.right() - ui.active_theme().spacing.sm;
     let button_color = if is_selected {
         ui.visuals().selection.stroke.color
     } else {
@@ -355,8 +374,13 @@ fn render_row_content(
     let settings_rect =
         Rect::from_center_size(egui::pos2(right_x - 28.0, center_y), vec2(16.0, 16.0));
     let settings_response = ui.allocate_rect(settings_rect, Sense::click());
+    let translated_label = l10n::text(ui.ctx(), "Settings");
     settings_response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::Role::Button, settings_response.enabled(), "Settings")
+        egui::WidgetInfo::labeled(
+            egui::Role::Button,
+            settings_response.enabled(),
+            &translated_label,
+        )
     });
     embedded_icons::SETTINGS
         .as_image_tinted(vec2(16.0, 16.0), button_color)
@@ -369,15 +393,20 @@ fn render_row_content(
             ObjectTreeAction::OpenProperties(item.id)
         };
     }
-    settings_response.on_hover_text("Settings");
+    settings_response.on_hover_text(l10n::text(ui.ctx(), "Settings"));
 
     // Delete button
     if item.source_type != SourceType::DataSource {
         let del_rect =
             Rect::from_center_size(egui::pos2(right_x - 8.0, center_y), vec2(16.0, 16.0));
         let del_response = ui.allocate_rect(del_rect, Sense::click());
+        let translated_label = l10n::text(ui.ctx(), "Remove");
         del_response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::Role::Button, del_response.enabled(), "Remove")
+            egui::WidgetInfo::labeled(
+                egui::Role::Button,
+                del_response.enabled(),
+                &translated_label,
+            )
         });
         embedded_icons::TRASH
             .as_image_tinted(vec2(16.0, 16.0), button_color)
@@ -390,7 +419,7 @@ fn render_row_content(
                 ObjectTreeAction::Delete(item.id)
             };
         }
-        del_response.on_hover_text("Remove");
+        del_response.on_hover_text(l10n::text(ui.ctx(), "Remove"));
     }
 }
 
@@ -405,7 +434,7 @@ fn render_properties(
 
     egui::Grid::new(format!("props_grid_{id}"))
         .num_columns(2)
-        .spacing([DESIGN_TOKENS.spacing.sm, DESIGN_TOKENS.spacing.xs])
+        .spacing([ui.active_theme().spacing.sm, ui.active_theme().spacing.xs])
         .show(ui, |ui| {
             // Color
             ui.hint_label("Color");
@@ -417,12 +446,16 @@ fn render_properties(
 
             // Line width
             ui.hint_label("Width");
-            ui.label(format!("{}px", props.line_width));
+            ui.label(l10n::format_text(
+                ui.ctx(),
+                "{0}px",
+                &[("0", format!("{}", props.line_width))],
+            ));
             ui.end_row();
 
             // Line style
             ui.hint_label("Style");
-            ui.label(props.line_style.as_str());
+            ui.label(l10n::text(ui.ctx(), props.line_style.name()));
             ui.end_row();
 
             // Transparency
@@ -443,8 +476,13 @@ mod tests {
     use egui::Color32;
 
     #[test]
-    fn selected_names_use_selection_colours_and_end_before_the_buttons() {
-        for (_, theme) in crate::theme::presets() {
+    fn selected_rows_use_the_theme_and_end_names_before_the_buttons() {
+        let mut custom = crate::theme::Theme::light();
+        custom.radius.xs = 6.0;
+        for (_, theme) in crate::theme::presets()
+            .into_iter()
+            .chain([("custom", custom)])
+        {
             for width in [220.0, 280.0] {
                 let ctx = egui::Context::default();
                 crate::theme::apply_to_egui(&ctx, &theme);
@@ -464,6 +502,18 @@ mod tests {
                     render_item_row(ui, &mut item, &ObjectTreeConfig::default(), &mut state, 0);
                 });
                 output.textures_delta.clear();
+                let swatches: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| match &shape.shape {
+                        egui::Shape::Rect(rect) if rect.rect.size() == vec2(10.0, 10.0) => {
+                            Some(rect)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(swatches.len(), 2);
+                assert!(swatches.iter().all(|rect| rect.corner_radius == egui::CornerRadius::from(theme.radius.xs)));
                 assert!(output.shapes.iter().any(|shape| {
                     matches!(&shape.shape, egui::Shape::Rect(rect) if rect.rect == row && rect.fill == selection.bg_fill)
                 }));
@@ -483,7 +533,7 @@ mod tests {
                 assert!(name.galley.elided);
                 assert!(
                     name.pos.x + name.galley.rect.right()
-                        <= row.right() - DESIGN_TOKENS.spacing.sm - 40.0
+                        <= row.right() - ctx.active_theme().spacing.sm - 40.0
                 );
                 output.drop_without_applying_deltas();
             }

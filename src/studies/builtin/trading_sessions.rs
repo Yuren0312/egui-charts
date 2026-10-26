@@ -34,8 +34,8 @@
 
 use crate::model::session::local_time;
 use crate::model::{Bar, BarClock, TimezoneId};
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use chrono::{NaiveTime, Timelike};
 use egui::Color32;
 
@@ -61,9 +61,13 @@ pub struct TradingSessions {
 
 impl TradingSessions {
     /// Tokyo 09:00 to 15:00, London 08:30 to 16:30 and New York 09:30 to 16:00, each in
-    /// its exchange time zone.
+    /// its exchange time zone. Without `timezones`, these use fixed standard-time offsets
+    /// of +09:00, +00:00 and -05:00. Override them with [`with_session`](Self::with_session).
     pub fn new() -> Self {
-        let zone = |name| TimezoneId::named(name).expect("a zone of the bundled database");
+        let zone = |name, hours| {
+            TimezoneId::named(name)
+                .unwrap_or_else(|| TimezoneId::fixed_offset(hours * 3600).unwrap())
+        };
         let tint =
             |color: Color32| Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 38);
         Self {
@@ -72,16 +76,16 @@ impl TradingSessions {
             start: [9 * 60, 8 * 60 + 30, 9 * 60 + 30],
             end: [15 * 60, 16 * 60 + 30, 16 * 60],
             zones: [
-                zone("Asia/Tokyo"),
-                zone("Europe/London"),
-                zone("America/New_York"),
+                zone("Asia/Tokyo", 9),
+                zone("Europe/London", 0),
+                zone("America/New_York", -5),
             ],
             daily: false,
             values: IndicatorValues::new(),
             colors: [
-                tint(DESIGN_TOKENS.semantic.extended.info),
-                tint(DESIGN_TOKENS.semantic.extended.deep_orange),
-                tint(DESIGN_TOKENS.semantic.extended.success),
+                tint(palette::BLUE),
+                tint(palette::DEEP_ORANGE),
+                tint(palette::GREEN),
             ],
             visible: true,
         }
@@ -147,14 +151,14 @@ impl Indicator for TradingSessions {
         crate::studies::PlotStyle {
             color: self.colors.get(line).copied().unwrap_or(Color32::WHITE),
             width: 1.0,
-            pattern: crate::studies::PlotPattern::Solid,
+            pattern: crate::model::LineStyle::Solid,
             plot_type: crate::studies::PlotType::BackgroundColor,
             visible: true,
         }
     }
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Fixed(0)
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Fixed(0)
     }
 
     fn calculate(&mut self, data: &[Bar]) {
@@ -168,9 +172,9 @@ impl Indicator for TradingSessions {
         }
         for slot in (0..3).filter(|&slot| self.show[slot]) {
             let (start, end) = (self.start[slot] as u32 * 60, self.end[slot] as u32 * 60);
-            let zone = self.zones[slot].tz();
+            let zone = &self.zones[slot];
             for (i, bar) in data.iter().enumerate() {
-                let second = local_time(zone, bar.time).num_seconds_from_midnight();
+                let second = local_time(zone.clone(), bar.time).num_seconds_from_midnight();
                 let inside = match start.cmp(&end) {
                     std::cmp::Ordering::Less => (start..end).contains(&second),
                     std::cmp::Ordering::Greater => second >= start || second < end,

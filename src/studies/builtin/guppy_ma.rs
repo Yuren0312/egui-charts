@@ -1,6 +1,5 @@
 use super::over_finite_bars;
 use crate::model::Bar;
-/// Guppy Multiple Moving Average (GMMA)
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
 use egui::Color32;
 
@@ -9,6 +8,7 @@ use egui::Color32;
 const SHORT_PERIODS: [usize; 6] = [3, 5, 8, 10, 12, 15];
 const LONG_PERIODS: [usize; 6] = [30, 35, 40, 45, 50, 60];
 
+/// Guppy Multiple Moving Average (GMMA)
 #[derive(Clone)]
 pub struct GuppyMA {
     values: IndicatorValues,
@@ -17,6 +17,7 @@ pub struct GuppyMA {
 }
 
 impl GuppyMA {
+    /// Create the six short and six long exponential moving averages.
     pub fn new() -> Self {
         Self {
             values: IndicatorValues::new(),
@@ -42,6 +43,7 @@ impl GuppyMA {
 
     /// The values over `data`, every bar of which has a finite close.
     fn compute(&self, data: &[Bar]) -> IndicatorValues {
+        let closes: Vec<_> = data.iter().map(|bar| bar.close).collect();
         let mut values = IndicatorValues::new();
 
         if data.is_empty() {
@@ -51,11 +53,11 @@ impl GuppyMA {
         // Calculate all 12 EMA series
         let short_emas: Vec<Vec<f64>> = SHORT_PERIODS
             .iter()
-            .map(|&p| calc_ema_series(data, p))
+            .map(|&p| crate::studies::helpers::ema(&closes, p))
             .collect();
         let long_emas: Vec<Vec<f64>> = LONG_PERIODS
             .iter()
-            .map(|&p| calc_ema_series(data, p))
+            .map(|&p| crate::studies::helpers::ema(&closes, p))
             .collect();
 
         for i in 0..data.len() {
@@ -77,22 +79,6 @@ impl Default for GuppyMA {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn calc_ema_series(data: &[Bar], period: usize) -> Vec<f64> {
-    let mut result = Vec::with_capacity(data.len());
-    if data.is_empty() {
-        return result;
-    }
-
-    let multiplier = 2.0 / (period as f64 + 1.0);
-    let mut ema = data[0].close;
-
-    for bar in data {
-        ema = (bar.close - ema) * multiplier + ema;
-        result.push(ema);
-    }
-    result
 }
 
 impl Indicator for GuppyMA {
@@ -132,7 +118,7 @@ impl Indicator for GuppyMA {
         true
     }
 
-    fn line_cnt(&self) -> usize {
+    fn line_count(&self) -> usize {
         12
     }
 

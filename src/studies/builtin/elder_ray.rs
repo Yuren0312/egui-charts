@@ -1,12 +1,13 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Elder Ray Index (Bull Power / Bear Power)
 /// Measures buying and selling pressure
 /// Developed by Alexander Elder
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct ElderRay {
     /// EMA period (typically 13)
@@ -18,47 +19,23 @@ pub struct ElderRay {
 }
 
 impl ElderRay {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
             colors: vec![
-                DESIGN_TOKENS.semantic.extended.success, // Green - Bull Power
-                DESIGN_TOKENS.semantic.extended.error,   // Red - Bear Power
+                palette::GREEN, // Green - Bull Power
+                palette::RED,   // Red - Bear Power
             ],
             visible: true,
         }
     }
 
+    /// Set plot colors in the order returned by [`Indicator::line_names`].
     pub fn with_colors(mut self, colors: Vec<Color32>) -> Self {
         self.colors = colors;
         self
-    }
-
-    /// Calculate EMA of close prices
-    fn calculate_ema(data: &[Bar], period: usize) -> Vec<f64> {
-        if data.is_empty() || period == 0 {
-            return Vec::new();
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        let mut ema = Vec::with_capacity(data.len());
-
-        // First value is SMA
-        let first_sma: f64 = data.iter().take(period).map(|b| b.close).sum::<f64>() / period as f64;
-
-        for i in 0..data.len() {
-            if i < period - 1 {
-                ema.push(f64::NAN);
-            } else if i == period - 1 {
-                ema.push(first_sma);
-            } else {
-                let prev = ema[i - 1];
-                ema.push((data[i].close - prev) * multiplier + prev);
-            }
-        }
-
-        ema
     }
 
     /// The values over `data`, every bar of which has a finite high, low and close.
@@ -73,7 +50,10 @@ impl ElderRay {
         }
 
         // Calculate EMA
-        let ema = Self::calculate_ema(data, self.period);
+        let ema = helpers::ema_sma(
+            &data.iter().map(|b| b.close).collect::<Vec<_>>(),
+            self.period,
+        );
 
         // Calculate Bull Power and Bear Power
         for i in 0..data.len() {
@@ -105,8 +85,8 @@ impl Indicator for ElderRay {
         period: length("Period", 1, usize::MAX)
     ; {});
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Price
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Price
     }
 
     fn name(&self) -> &str {

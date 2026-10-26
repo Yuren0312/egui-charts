@@ -1,7 +1,7 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Trend Intensity Index (TII), after M. H. Pee (Technical Analysis of Stocks & Commodities, June 2002).
@@ -19,15 +19,17 @@ pub struct TrendIntensityIndex {
 }
 
 impl TrendIntensityIndex {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.info, // Indigo/Blue
+            color: palette::BLUE, // Indigo/Blue
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -156,15 +158,17 @@ pub struct Qstick {
 }
 
 impl Qstick {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.purple, // Purple
+            color: palette::PURPLE, // Purple
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -178,8 +182,8 @@ impl Default for Qstick {
 }
 
 impl Indicator for Qstick {
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Price
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Price
     }
 
     crate::studies::inputs::study_inputs!(self;

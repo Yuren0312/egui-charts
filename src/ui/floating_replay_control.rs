@@ -3,11 +3,12 @@
 //! A floating toolbar for controlling bar replay.
 //! Displays play/pause, step controls, and speed selector.
 
-use crate::ext::UiExt;
 use crate::icons::icons;
+use crate::localization as l10n;
 use crate::styles::icons as icon_sizes;
 use crate::theme::ThemeExt;
 use crate::ui_kit::buttons::{Button, ButtonSize, IconButton};
+use crate::ui_kit::ext::UiExt;
 use egui::{
     Align2, Context, CursorIcon, FontId, Id, Key, Modifiers, Rect, RichText, Ui, Vec2, pos2,
 };
@@ -15,11 +16,17 @@ use egui::{
 /// Replay speed presets for playback control
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ReplaySpeed {
+    /// Play at 0.5 times the original speed.
     X0_5,
+    /// Play at 1 times the original speed.
     X1,
+    /// Play at 2 times the original speed.
     X2,
+    /// Play at 3 times the original speed.
     X3,
+    /// Play at 5 times the original speed.
     X5,
+    /// Play at 10 times the original speed.
     X10,
 }
 
@@ -95,6 +102,7 @@ pub struct ReplayControlState {
 
 /// Actions emitted by the replay control
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ReplayControlAction {
     /// No action
     None,
@@ -388,7 +396,7 @@ impl FloatingReplayControl {
                                 theme.ui.text_muted,
                             ))
                             .on_hover_cursor(CursorIcon::Grab)
-                            .on_hover_text("Move");
+                            .on_hover_text(l10n::text(ui.ctx(), "Move"));
 
                             ui.separator();
 
@@ -457,7 +465,11 @@ impl FloatingReplayControl {
                             let font = FontId::proportional(theme.text.label);
                             let text_width = |ui: &Ui, text: &str| {
                                 ui.painter()
-                                    .layout_no_wrap(text.to_owned(), font.clone(), theme.ui.text)
+                                    .layout_no_wrap(
+                                        l10n::text(ui.ctx(), text),
+                                        font.clone(),
+                                        theme.ui.text,
+                                    )
                                     .size()
                                     .x
                             };
@@ -476,7 +488,9 @@ impl FloatingReplayControl {
                                     combo_width,
                                 )
                             });
-                            speed_response.response.on_hover_text("Playback speed");
+                            speed_response
+                                .response
+                                .on_hover_text(l10n::text(ui.ctx(), "Playback speed"));
                             if speed_response.inner {
                                 action = ReplayControlAction::SetSpeed(speed.multiplier());
                             }
@@ -498,7 +512,7 @@ impl FloatingReplayControl {
 
                             if !self.state.symbol.is_empty() {
                                 ui.label(
-                                    RichText::new(&self.state.symbol)
+                                    RichText::new(l10n::text(ui.ctx(), &self.state.symbol))
                                         .font(font.clone())
                                         .color(theme.ui.text),
                                 );

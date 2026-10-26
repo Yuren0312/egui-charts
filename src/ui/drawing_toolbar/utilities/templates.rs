@@ -3,11 +3,13 @@
 //! Provides the visibility flyout rows and name dialog for saving
 //! and loading drawing templates.
 
-use crate::ext::UiExt;
+use crate::localization as l10n;
+use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use crate::ui::drawing_toolbar::DrawingTemplate;
 use crate::ui::drawing_toolbar::DrawingToolbarAction;
 use crate::ui::drawing_toolbar::submenu_builder::SubmenuBuilder;
+use crate::ui_kit::ext::UiExt;
 use egui::{Rect, Ui};
 
 /// Drawing template rows and save dialog.
@@ -69,7 +71,7 @@ impl TemplatesButton {
     ) -> Option<DrawingToolbarAction> {
         let popup_width = DESIGN_TOKENS.sizing.drawing_toolbar_ext.submenu_width_lg;
         let popup_pos = egui::Pos2::new(
-            sidebar_rect.right() + DESIGN_TOKENS.spacing.sm,
+            sidebar_rect.right() + ui.active_theme().spacing.sm,
             sidebar_rect.center().y - DESIGN_TOKENS.sizing.button_xxl,
         );
 
@@ -83,19 +85,19 @@ impl TemplatesButton {
                 egui::Frame::popup(ui.style())
                     .fill(ui.style().visuals.window_fill())
                     .stroke(ui.style().visuals.window_stroke)
-                    .corner_radius(DESIGN_TOKENS.rounding.lg)
+                    .corner_radius(ui.active_theme().radius.lg)
                     .show(ui, |ui| {
                         ui.set_min_width(popup_width);
                         ui.space_lg();
 
                         ui.label(
-                            egui::RichText::new("Save Template")
-                                .size(DESIGN_TOKENS.typography.body)
+                            egui::RichText::new(l10n::text(ui.ctx(), "Save Template"))
+                                .size(ui.active_theme().text.body)
                                 .strong(),
                         );
                         ui.space_md();
 
-                        ui.label("Template name:");
+                        ui.label(l10n::text(ui.ctx(), "Template name:"));
                         ui.space_sm();
 
                         let text_response = ui.text_edit_singleline(name_input);
@@ -114,7 +116,10 @@ impl TemplatesButton {
                             let can_save = !name_input.trim().is_empty();
 
                             if ui
-                                .add_enabled(can_save, egui::Button::new("Save"))
+                                .add_enabled(
+                                    can_save,
+                                    egui::Button::new(l10n::text(ui.ctx(), "Save")),
+                                )
                                 .clicked()
                             {
                                 action = Some(DrawingToolbarAction::SaveTemplate {
@@ -122,7 +127,7 @@ impl TemplatesButton {
                                 });
                             }
 
-                            if ui.button("Cancel").clicked() {
+                            if ui.button(l10n::text(ui.ctx(), "Cancel")).clicked() {
                                 name_input.clear();
                                 action = Some(DrawingToolbarAction::None);
                             }

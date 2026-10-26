@@ -5,9 +5,6 @@
 //! can be triggered by key presses, with methods to map egui key events
 //! to actions and to retrieve human-readable labels for a shortcuts dialog.
 
-/// Keyboard Shortcuts.
-///
-/// Standard keyboard navigation for chart interaction.
 use egui::Key;
 use std::fmt;
 
@@ -36,6 +33,7 @@ impl Default for KeyboardOptions {
 
 /// Keyboard actions that can be performed on the chart
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum KeyboardAction {
     /// Pan left by a page.
     PanLeftFast,

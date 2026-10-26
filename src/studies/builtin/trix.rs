@@ -1,12 +1,13 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// TRIX - Triple Exponential Avg
 /// A momentum oscillator that shows the rate of change of a triple-smoothed EMA
 /// Filters out insignificant price movements
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct TRIX {
     period: usize,
@@ -18,79 +19,30 @@ pub struct TRIX {
 }
 
 impl TRIX {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             signal_period: 9,
             values: IndicatorValues::new(),
             colors: vec![
-                DESIGN_TOKENS.semantic.extended.info,    // Blue - TRIX
-                DESIGN_TOKENS.semantic.extended.warning, // Orange - Signal
+                palette::BLUE,   // Blue - TRIX
+                palette::ORANGE, // Orange - Signal
             ],
             visible: true,
         }
     }
 
+    /// Set the signal EMA period in bars, clamped to at least one.
     pub fn with_signal(mut self, signal_period: usize) -> Self {
         self.signal_period = signal_period.max(1);
         self
     }
 
+    /// Set plot colors in the order returned by [`Indicator::line_names`].
     pub fn with_colors(mut self, colors: Vec<Color32>) -> Self {
         self.colors = colors;
         self
-    }
-
-    /// Calculate EMA
-    /// Handles NaN values in input by finding the first valid window
-    fn calculate_ema(data: &[f64], period: usize) -> Vec<f64> {
-        if data.is_empty() || period == 0 {
-            return Vec::new();
-        }
-        if data.len() < period {
-            return vec![f64::NAN; data.len()];
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        let mut ema = Vec::with_capacity(data.len());
-
-        // Find first index where we have `period` consecutive valid values
-        let mut first_valid_idx = None;
-        for start in 0..=data.len().saturating_sub(period) {
-            let window = &data[start..start + period];
-            if window.iter().all(|v| !v.is_nan()) {
-                first_valid_idx = Some(start + period - 1);
-                break;
-            }
-        }
-
-        for i in 0..data.len() {
-            match first_valid_idx {
-                Some(valid_start) if i < valid_start => {
-                    ema.push(f64::NAN);
-                }
-                Some(valid_start) if i == valid_start => {
-                    // Calculate SMA from the valid window
-                    let window_start = valid_start + 1 - period;
-                    let sma: f64 =
-                        data[window_start..=valid_start].iter().sum::<f64>() / period as f64;
-                    ema.push(sma);
-                }
-                Some(_) => {
-                    let prev = ema[i - 1];
-                    if prev.is_nan() || data[i].is_nan() {
-                        ema.push(f64::NAN);
-                    } else {
-                        ema.push((data[i] - prev) * multiplier + prev);
-                    }
-                }
-                None => {
-                    ema.push(f64::NAN);
-                }
-            }
-        }
-
-        ema
     }
 
     /// The values over `data`, every bar of which has a finite close.
@@ -109,9 +61,9 @@ impl TRIX {
         let closes: Vec<f64> = data.iter().map(|b| b.close).collect();
 
         // Calculate triple EMA
-        let ema1 = Self::calculate_ema(&closes, self.period);
-        let ema2 = Self::calculate_ema(&ema1, self.period);
-        let ema3 = Self::calculate_ema(&ema2, self.period);
+        let ema1 = helpers::ema_sma(&closes, self.period);
+        let ema2 = helpers::ema_sma(&ema1, self.period);
+        let ema3 = helpers::ema_sma(&ema2, self.period);
 
         // Calculate TRIX (percent rate of change of ema3)
         let mut trix_values = Vec::with_capacity(data.len());
@@ -125,7 +77,7 @@ impl TRIX {
         }
 
         // Calculate signal line (EMA of TRIX)
-        let signal = Self::calculate_ema(&trix_values, self.signal_period);
+        let signal = helpers::ema_sma(&trix_values, self.signal_period);
 
         // Store results
         for i in 0..data.len() {
@@ -159,8 +111,8 @@ impl Indicator for TRIX {
         signal_period: length("Signal period", 1, usize::MAX)
     ; {});
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Percent
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Percent
     }
 
     fn name(&self) -> &str {

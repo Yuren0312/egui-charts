@@ -15,16 +15,33 @@ pub enum MarketEvent {
     /// Best bid and ask.
     Quote(Level1Quote),
     /// A periodic aggregated book snapshot, also a depth seek anchor.
-    DepthSnapshot { sequence: u64, book: OrderBook },
+    DepthSnapshot {
+        /// Exchange sequence number for this book stream.
+        sequence: u64,
+        /// Aggregated price levels in this snapshot or delta.
+        book: OrderBook,
+    },
     /// Changed aggregated levels.
-    DepthDelta { sequence: u64, book: OrderBook },
+    DepthDelta {
+        /// Exchange sequence number for this book stream.
+        sequence: u64,
+        /// Aggregated price levels in this snapshot or delta.
+        book: OrderBook,
+    },
     /// A periodic per-order snapshot in queue order, also a depth seek anchor.
     OrderSnapshot {
+        /// Exchange sequence number for this book stream.
         sequence: u64,
+        /// Resting orders in queue order.
         orders: Vec<RestingOrder>,
     },
     /// One sequenced resting order change.
-    Order { sequence: u64, event: OrderEvent },
+    Order {
+        /// Exchange sequence number for this book stream.
+        sequence: u64,
+        /// Change to one resting order.
+        event: OrderEvent,
+    },
 }
 
 /// One instrument's event at an observation instant. The host supplies a merge sequence to
@@ -260,7 +277,7 @@ pub(super) fn valid(event: &ReplayEvent) -> bool {
         MarketEvent::OrderSnapshot { orders, .. } => {
             let bids = orders
                 .iter()
-                .filter(|o| o.side == crate::model::TradeSide::Buy)
+                .filter(|o| o.side == crate::model::OrderSide::Buy)
                 .count();
             let mut ids = HashSet::new();
             bids <= super::depth::MAX_LEVELS
@@ -292,7 +309,7 @@ fn valid_order(order: &RestingOrder) -> bool {
 mod tests {
     use super::super::inbox::Inbox;
     use super::*;
-    use crate::model::{OrderBookLevel, Timeframe, TradeSide};
+    use crate::model::{OrderBookLevel, OrderSide, Timeframe};
     use std::sync::Arc;
 
     fn at(s: i64) -> DateTime<Utc> {
@@ -303,7 +320,7 @@ mod tests {
             symbol,
             at(s),
             seq,
-            MarketEvent::Trade(Tick::new(at(s), price, 1.0, Some(TradeSide::Buy)).with_id(seq)),
+            MarketEvent::Trade(Tick::new(at(s), price, 1.0, Some(OrderSide::Buy)).with_id(seq)),
         )
     }
     fn snapshot(s: i64, seq: u64, size: f64) -> ReplayEvent {
@@ -390,7 +407,7 @@ mod tests {
         let previous = clock.time();
         assert!(clock.advance(Duration::MAX).is_err());
         assert_eq!(clock.time(), previous);
-        let order = RestingOrder::new(9, TradeSide::Sell, 100.0, 4.0);
+        let order = RestingOrder::new(9, OrderSide::Sell, 100.0, 4.0);
         let mut orders = ReplayClock::new(vec![
             ReplayEvent::new(
                 "A",
@@ -410,7 +427,7 @@ mod tests {
                     event: OrderEvent::Execute {
                         id: 9,
                         size: 2.0,
-                        trade: Some(Tick::new(at(1), 100.0, 2.0, Some(TradeSide::Buy)).with_id(55)),
+                        trade: Some(Tick::new(at(1), 100.0, 2.0, Some(OrderSide::Buy)).with_id(55)),
                     },
                 },
             ),

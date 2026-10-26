@@ -1,10 +1,10 @@
 use super::clamp_param;
 use crate::model::Bar;
-/// Moving Average Channel
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
+/// Moving Average Channel
 #[derive(Clone)]
 pub struct MAChannel {
     period: usize,
@@ -22,9 +22,9 @@ impl MAChannel {
             offset_percent: clamp_param(offset_percent, 0.0, f64::MAX),
             values: IndicatorValues::new(),
             colors: vec![
-                DESIGN_TOKENS.semantic.extended.success, // Green - Upper
-                DESIGN_TOKENS.semantic.extended.info,    // Blue - Middle
-                DESIGN_TOKENS.semantic.extended.error,   // Red - Lower
+                palette::GREEN, // Green - Upper
+                palette::BLUE,  // Blue - Middle
+                palette::RED,   // Red - Lower
             ],
             visible: true,
         }
@@ -103,7 +103,7 @@ impl Indicator for MAChannel {
         true
     }
 
-    fn line_cnt(&self) -> usize {
+    fn line_count(&self) -> usize {
         3
     }
 

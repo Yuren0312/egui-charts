@@ -3,7 +3,8 @@
 //! Vertical strip of icon btns on the far right edge of the screen.
 
 use crate::icons::{Icon, icons as embedded_icons};
-use crate::styles::{icons as icon_sizes, typography};
+use crate::localization as l10n;
+use crate::styles::icons as icon_sizes;
 use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use crate::ui::Control;
@@ -32,26 +33,34 @@ pub enum WidgetBarSection {
 pub enum RightBarIcon {
     /// The watchlist and the details of the chart's symbol.
     Watchlist,
+    /// Alerts panel.
     Alerts,
     /// The object tree, with the data window.
     ObjectTree,
+    /// News highlights panel.
     Highlights,
+    /// Instrument screener.
     Screener,
+    /// Ranked instrument lists.
     Hotlists,
     /// A treemap of symbols sized and coloured by host-supplied values.
     MarketHeatmap,
     /// The economic and corporate event calendars.
     Calendar,
+    /// News headlines panel.
     News,
     /// The alert and event log.
     Notifications,
+    /// Host chat rooms.
     Chats,
     /// The products launcher, drawn as a filled round button.
     Products,
+    /// Host help action.
     Help,
 }
 
 impl RightBarIcon {
+    /// Icon representing this value.
     pub fn icon(&self) -> &'static Icon {
         match self {
             RightBarIcon::Watchlist => &embedded_icons::WIDGET_BAR_WATCHLIST,
@@ -70,6 +79,7 @@ impl RightBarIcon {
         }
     }
 
+    /// Help text for this value.
     pub fn tooltip(&self) -> &'static str {
         match self {
             RightBarIcon::Watchlist => "Watchlist and details",
@@ -123,10 +133,10 @@ impl Default for WidgetBarConfig {
             width: 45.0,
             btn_size: DESIGN_TOKENS.sizing.toolbar.right_btn_size,
             icon_size: icon_sizes::TOOLBAR,
-            btn_spacing: DESIGN_TOKENS.sizing.toolbar.right_btn_spacing,
+            btn_spacing: crate::theme::Spacing::default().xs,
             hover_margin: DESIGN_TOKENS.sizing.toolbar.right_hover_margin, // 3px
-            hover_rounding: DESIGN_TOKENS.sizing.toolbar.right_hover_rounding, // 8px
-            top_padding: 4.0,
+            hover_rounding: crate::theme::Radii::default().lg,
+            top_padding: crate::theme::Spacing::default().sm,
         }
     }
 }
@@ -147,8 +157,11 @@ pub struct WidgetBarWidget {
 
 /// Action returned by the right icon bar
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum WidgetBarAction {
+    /// No action requested.
     None,
+    /// A built-in bar entry was clicked.
     Clicked(RightBarIcon),
     /// A host widget was clicked, including when it was toggled closed.
     WidgetClicked(u64),
@@ -156,6 +169,7 @@ pub enum WidgetBarAction {
 
 /// Right Edge Icon Bar
 pub struct WidgetBar {
+    /// Display and layout options for this component.
     pub config: WidgetBarConfig,
     /// Built-in entries shown, drawn in [`RightBarIcon`] order.
     pub icons: Vec<RightBarIcon>,
@@ -166,6 +180,7 @@ pub struct WidgetBar {
     pub widgets: Vec<WidgetBarWidget>,
     /// Active host widget. Selecting a built-in entry clears it, and vice versa.
     pub active_widget: Option<u64>,
+    /// Badge counts keyed by built-in bar entry.
     pub notification_counts: std::collections::HashMap<RightBarIcon, u32>,
     /// Controls the host hid.
     hidden: HashSet<Control>,
@@ -204,10 +219,12 @@ impl Default for WidgetBar {
 }
 
 impl WidgetBar {
+    /// Create a [`WidgetBar`] with default settings.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Use the supplied display and layout options.
     pub fn with_config(mut self, config: WidgetBarConfig) -> Self {
         self.config = config;
         self
@@ -286,6 +303,7 @@ impl WidgetBar {
         }
     }
 
+    /// Set the badge count for a built-in bar entry.
     pub fn set_notification_cnt(&mut self, icon: RightBarIcon, count: u32) {
         self.notification_counts.insert(icon, count);
     }
@@ -293,6 +311,18 @@ impl WidgetBar {
     /// Show the bar, keeping the bottom section at the foot and scrolling if it cannot fit.
     /// Host widget clicks return their id; the host owns the corresponding panel contents.
     pub fn show(&mut self, ui: &mut Ui) -> WidgetBarAction {
+        let theme = ui.active_theme();
+        let defaults = WidgetBarConfig::default();
+        let spacing = if self.config.btn_spacing == defaults.btn_spacing {
+            theme.spacing.xs
+        } else {
+            self.config.btn_spacing
+        };
+        let padding = if self.config.top_padding == defaults.top_padding {
+            theme.spacing.sm
+        } else {
+            self.config.top_padding
+        };
         let mut action = WidgetBarAction::None;
         ui.scope(|ui| {
             ui.spacing_mut().scroll.floating = true;
@@ -309,19 +339,15 @@ impl WidgetBar {
                     shown.sort();
                     shown.dedup();
                     let count = shown.len() + self.widgets.len();
-                    let pitch = self.config.btn_size + self.config.btn_spacing;
-                    let height = ui.available_height().max(
-                        self.config.top_padding + count as f32 * pitch + DESIGN_TOKENS.spacing.lg,
-                    );
+                    let pitch = self.config.btn_size + spacing;
+                    let height = ui
+                        .available_height()
+                        .max(padding + count as f32 * pitch + ui.active_theme().spacing.lg);
                     let (rect, _) = ui
                         .allocate_exact_size(Vec2::new(self.config.width, height), Sense::hover());
                     let painter = ui.painter().clone();
-                    painter.rect_filled(
-                        rect,
-                        DESIGN_TOKENS.rounding.panel,
-                        ui.visuals().panel_fill,
-                    );
-                    let mut y = rect.top() + self.config.top_padding;
+                    painter.rect_filled(rect, ui.active_theme().radius.md, ui.visuals().panel_fill);
+                    let mut y = rect.top() + padding;
                     for section in [WidgetBarSection::Top, WidgetBarSection::Bottom] {
                         let built_in = shown.iter().filter(|i| i.section() == section).count();
                         if section == WidgetBarSection::Bottom {
@@ -332,7 +358,7 @@ impl WidgetBar {
                                 continue;
                             }
                             y = y.max(
-                                rect.bottom() - count as f32 * pitch - DESIGN_TOKENS.spacing.md,
+                                rect.bottom() - count as f32 * pitch - ui.active_theme().spacing.md,
                             );
                         }
                         for widget in self.widgets.iter().filter(|w| w.section == section) {
@@ -360,7 +386,7 @@ impl WidgetBar {
                                     Vec2::new(self.config.width - 16.0, 1.0),
                                 );
                                 painter.rect_filled(sep, 0.0, ui.active_theme().ui.border);
-                                y += 1.0 + DESIGN_TOKENS.spacing.md;
+                                y += 1.0 + ui.active_theme().spacing.md;
                                 // Centre Help on the adjacent 38 px bottom row.
                                 y = y.max(rect.bottom() - 19.0 - self.config.btn_size / 2.0);
                             }
@@ -421,6 +447,11 @@ impl WidgetBar {
     ) -> egui::Response {
         let painter = ui.painter().clone();
         let theme = ui.active_theme();
+        let rounding = if self.config.hover_rounding == WidgetBarConfig::default().hover_rounding {
+            theme.radius.lg
+        } else {
+            self.config.hover_rounding
+        };
         let icon_color = theme.ui.text;
         let icon_hover_color = theme.ui.text;
         let active_color = theme.ui.selection_text;
@@ -446,22 +477,18 @@ impl WidgetBar {
 
         // Check for clicks
         let btn_res = ui.interact(btn_rect, id, Sense::click());
-        crate::styles::focus::draw_focus_ring(ui, &btn_res, self.config.hover_rounding);
+        crate::styles::focus::draw_focus_ring(ui, &btn_res, rounding);
         let is_hovered = btn_res.hovered();
         let is_pressed = btn_res.is_pointer_button_down_on();
 
         // Button background on inner rect only - with visibility check
         if ui.is_rect_visible(hover_rect) {
             if is_pressed {
-                painter.rect_filled(hover_rect, self.config.hover_rounding, pressed_bg);
+                painter.rect_filled(hover_rect, rounding, pressed_bg);
             } else if is_active {
-                painter.rect_filled(
-                    hover_rect,
-                    self.config.hover_rounding,
-                    theme.ui.selection_bg,
-                );
+                painter.rect_filled(hover_rect, rounding, theme.ui.selection_bg);
             } else if is_hovered {
-                painter.rect_filled(hover_rect, self.config.hover_rounding, hover_bg);
+                painter.rect_filled(hover_rect, rounding, hover_bg);
             }
         }
 
@@ -493,7 +520,7 @@ impl WidgetBar {
 
         // Notification badge (with visibility check)
         if count > 0 {
-            let badge_radius = DESIGN_TOKENS.spacing.md;
+            let badge_radius = ui.active_theme().spacing.md;
             let badge_pos = Pos2::new(btn_rect.max.x - badge_radius, btn_rect.min.y + badge_radius);
             let badge_rect = Rect::from_center_size(badge_pos, Vec2::splat(badge_radius * 2.0));
 
@@ -506,8 +533,8 @@ impl WidgetBar {
                     count.to_string()
                 };
                 let badge_galley = painter.layout_no_wrap(
-                    cnt_text,
-                    egui::FontId::proportional(typography::XS),
+                    l10n::text(ui.ctx(), cnt_text),
+                    egui::FontId::proportional(ui.active_theme().text.tiny),
                     ui.active_theme().ui.danger_text,
                 );
                 painter.galley(
@@ -523,12 +550,18 @@ impl WidgetBar {
 
         // The bar is at the window's right edge, so the tooltip opens to the left, clear of the
         // next button. Unlike `on_hover_text`, `Tooltip` does not name the button.
+        let translated_label = l10n::text(ui.ctx(), tooltip);
         btn_res.widget_info(|| {
-            egui::WidgetInfo::selected(egui::Role::Button, btn_res.enabled(), is_active, tooltip)
+            egui::WidgetInfo::selected(
+                egui::Role::Button,
+                btn_res.enabled(),
+                is_active,
+                &translated_label,
+            )
         });
         let mut tip = egui::Tooltip::for_enabled(&btn_res);
         tip.popup = tip.popup.align(egui::RectAlign::LEFT);
-        tip.show(|ui| ui.label(tooltip));
+        tip.show(|ui| ui.label(l10n::text(ui.ctx(), tooltip)));
 
         btn_res
     }

@@ -22,6 +22,8 @@
 //! # });
 //! ```
 
+use crate::localization as l10n;
+use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use crate::ui_kit::command_palette::fuzzy_match;
 use egui::{
@@ -116,7 +118,7 @@ impl<'a> AutocompleteEdit<'a> {
     /// Show the autocomplete widget
     pub fn show(self, ui: &mut Ui) -> AutocompleteResponse {
         // Horizontal text inset shared by the input and its suggestions.
-        let inset = DESIGN_TOKENS.spacing.lg;
+        let inset = ui.active_theme().spacing.lg;
         let base_id = self
             .id_salt
             .unwrap_or_else(|| ui.scope_id().with("autocomplete"));
@@ -138,7 +140,7 @@ impl<'a> AutocompleteEdit<'a> {
             });
 
         if let Some(ref placeholder) = self.placeholder {
-            text_edit = text_edit.hint_text(placeholder);
+            text_edit = text_edit.hint_text(l10n::text(ui.ctx(), placeholder));
         }
 
         let mut response = ui.add(text_edit);
@@ -208,7 +210,7 @@ impl<'a> AutocompleteEdit<'a> {
                 .fixed_pos(response.rect.left_bottom())
                 .show(ui.ctx(), |ui| {
                     let frame = egui::Frame::popup(ui.style())
-                        .inner_margin(Margin::symmetric(0, DESIGN_TOKENS.spacing.sm as i8));
+                        .inner_margin(Margin::symmetric(0, ui.active_theme().spacing.sm as i8));
                     frame.show(ui, |ui| {
                         // The popup, border included, is exactly as wide as the input.
                         ui.set_width(response.rect.width() - 2.0 * frame.stroke.width);
@@ -237,18 +239,19 @@ impl<'a> AutocompleteEdit<'a> {
                                 filtered.iter().zip(rows).enumerate()
                             {
                                 let is_selected = idx == selected_idx;
+                                let translated_label = l10n::text(ui.ctx(), suggestion);
                                 item_response.widget_info(|| {
                                     WidgetInfo::selected(
                                         Role::Button,
                                         true,
                                         is_selected,
-                                        suggestion,
+                                        &translated_label,
                                     )
                                 });
                                 crate::styles::focus::draw_focus_ring(
                                     ui,
                                     &item_response,
-                                    DESIGN_TOKENS.rounding.sm,
+                                    ui.active_theme().radius.sm,
                                 );
 
                                 if ui.is_rect_visible(rect) {
@@ -256,15 +259,18 @@ impl<'a> AutocompleteEdit<'a> {
                                     if is_selected {
                                         let fill = visuals.widgets.hovered.bg_fill;
                                         painter.rect_filled(
-                                            rect.shrink2(Vec2::new(DESIGN_TOKENS.spacing.sm, 0.0)),
-                                            DESIGN_TOKENS.rounding.sm,
+                                            rect.shrink2(Vec2::new(
+                                                ui.active_theme().spacing.sm,
+                                                0.0,
+                                            )),
+                                            ui.active_theme().radius.sm,
                                             fill,
                                         );
                                     }
                                     painter.text(
                                         egui::pos2(text_x, rect.center().y),
                                         egui::Align2::LEFT_CENTER,
-                                        suggestion,
+                                        l10n::text(ui.ctx(), suggestion),
                                         TextStyle::Body.resolve(ui.style()),
                                         visuals.widgets.hovered.fg_stroke.color,
                                     );
@@ -442,7 +448,7 @@ mod tests {
         assert_eq!(highlights.len(), 1);
         assert_eq!(
             highlights[0].corner_radius,
-            egui::CornerRadius::from(DESIGN_TOKENS.rounding.sm)
+            egui::CornerRadius::from(ctx.active_theme().radius.sm)
         );
         assert!(highlights[0].rect.left() > rect.left() + 1.0);
         let (output, picked, _, _) = frame(vec![key(Key::Enter)]);

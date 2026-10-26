@@ -1,7 +1,7 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// KDJ, the stochastic oscillator as used in Chinese securities analysis.
@@ -28,6 +28,7 @@ pub struct KDJ {
 }
 
 impl KDJ {
+    /// Create with `period`, `k_smooth`, `d_smooth` in bars, each clamped to at least one.
     pub fn new(period: usize, k_smooth: usize, d_smooth: usize) -> Self {
         Self {
             period: period.max(1),
@@ -35,14 +36,15 @@ impl KDJ {
             d_smooth: d_smooth.max(1),
             values: IndicatorValues::new(),
             colors: vec![
-                DESIGN_TOKENS.semantic.extended.info,    // Blue - K
-                DESIGN_TOKENS.semantic.extended.warning, // Orange - D
-                DESIGN_TOKENS.semantic.extended.purple,  // Purple - J
+                palette::BLUE,   // Blue - K
+                palette::ORANGE, // Orange - D
+                palette::PURPLE, // Purple - J
             ],
             visible: true,
         }
     }
 
+    /// Set plot colors in the order returned by [`Indicator::line_names`].
     pub fn with_colors(mut self, colors: Vec<Color32>) -> Self {
         self.colors = colors;
         self
@@ -148,7 +150,7 @@ impl Indicator for KDJ {
         Box::new(self.clone())
     }
 
-    fn line_cnt(&self) -> usize {
+    fn line_count(&self) -> usize {
         3
     }
 
@@ -249,7 +251,7 @@ mod tests {
                 match (value, want) {
                     (IndicatorValue::None, None) => {}
                     (IndicatorValue::Multiple(got), Some(want)) => {
-                        assert_eq!(got.len(), kdj.line_cnt(), "{case} bar {i}");
+                        assert_eq!(got.len(), kdj.line_count(), "{case} bar {i}");
                         for (g, w) in got.iter().zip(want) {
                             assert!(
                                 (g - w).abs() < 1e-12,

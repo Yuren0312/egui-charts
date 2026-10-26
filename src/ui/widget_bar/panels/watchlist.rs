@@ -2,6 +2,7 @@
 //! import and export. The host's quote service supplies the quotes, and the host persists the
 //! lists.
 
+use crate::localization as l10n;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -29,12 +30,19 @@ pub(super) const HEADER_HEIGHT: f32 = 40.0;
 /// A colour flag marking a watchlist symbol.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WatchlistFlag {
+    /// Red watchlist flag.
     Red,
+    /// Blue watchlist flag.
     Blue,
+    /// Green watchlist flag.
     Green,
+    /// Orange watchlist flag.
     Orange,
+    /// Purple watchlist flag.
     Purple,
+    /// Cyan watchlist flag.
     Cyan,
+    /// Pink watchlist flag.
     Pink,
 }
 
@@ -69,7 +77,9 @@ impl WatchlistFlag {
 pub enum WatchlistItem {
     /// A symbol, optionally flagged.
     Symbol {
+        /// Instrument identifier used by the host.
         symbol: String,
+        /// Optional user-assigned color flag.
         flag: Option<WatchlistFlag>,
     },
     /// A section title grouping the symbols below it, up to the next section.
@@ -79,7 +89,9 @@ pub enum WatchlistItem {
 /// A named list of symbols and sections, in the order the user arranged them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Watchlist {
+    /// Display name.
     pub name: String,
+    /// Symbols and section headings in display order.
     pub items: Vec<WatchlistItem>,
 }
 
@@ -155,14 +167,19 @@ impl Watchlist {
 /// A sortable watchlist column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WatchlistColumn {
+    /// Sort by symbol.
     Symbol,
+    /// Sort by last price.
     Last,
+    /// Sort by price change.
     Change,
+    /// Sort by percentage change.
     ChangePercent,
 }
 
 /// An action the host handles.
 #[derive(Clone, Debug, PartialEq, Default)]
+#[non_exhaustive]
 pub enum WatchlistAction {
     /// No host action.
     #[default]
@@ -178,7 +195,12 @@ pub enum WatchlistAction {
     Import,
     /// Save `text`, the active list in the [`Watchlist::from_text`] format, to a file the user
     /// chooses.
-    Export { name: String, text: String },
+    Export {
+        /// Display name.
+        name: String,
+        /// Exported watchlist text for the host to save or copy.
+        text: String,
+    },
 }
 
 /// The source list and row index, so separate panels cannot exchange row indices.
@@ -255,8 +277,25 @@ impl WatchlistPanel {
         self.lists[self.active].symbols()
     }
 
-    /// Sets the latest quote of `symbol`.
+    /// Sets the latest quote of `symbol`, ignoring older timestamps and non-finite prices or
+    /// supplied numeric fields. Equal timestamps can correct the current quote.
     pub fn set_quote(&mut self, symbol: &str, quote: Quote) {
+        if !quote.last.is_finite()
+            || !quote.prev_close.is_finite()
+            || [quote.volume, quote.bid, quote.ask]
+                .into_iter()
+                .flatten()
+                .any(|value| !value.is_finite())
+            || quote
+                .extended
+                .is_some_and(|extended| !extended.last.is_finite())
+            || self
+                .quotes
+                .get(symbol)
+                .is_some_and(|previous| quote.time < previous.time)
+        {
+            return;
+        }
         self.quotes.insert(symbol.to_owned(), quote);
     }
 
@@ -304,7 +343,7 @@ impl WatchlistPanel {
                 && let Ok(event) = answer.downcast::<(String, Quote)>()
             {
                 let (symbol, quote) = *event;
-                self.quotes.insert(symbol, quote);
+                self.set_quote(&symbol, quote);
             }
         }
     }
@@ -366,7 +405,7 @@ impl WatchlistPanel {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 let chevron = icons::CHEVRON_DOWN.as_image_square(16.0);
                 let title = LayoutJob::single_section(
-                    lists[*active].name.clone(),
+                    l10n::text(ui.ctx(), lists[*active].name.clone()),
                     weighted(theme.text.title, 700.0, theme.ui.text),
                 );
                 menu = Some(
@@ -376,7 +415,7 @@ impl WatchlistPanel {
                             .image_tint_follows_text_color(true)
                             .truncate(),
                     )
-                    .on_hover_text("Lists"),
+                    .on_hover_text(l10n::text(ui.ctx(), "Lists")),
                 );
             });
         });
@@ -385,21 +424,27 @@ impl WatchlistPanel {
         };
         egui::Popup::menu(&menu).show(|ui| {
             for (index, list) in lists.iter().enumerate() {
-                if ui.selectable_label(index == *active, &list.name).clicked() {
+                if ui
+                    .selectable_label(index == *active, l10n::text(ui.ctx(), &list.name))
+                    .clicked()
+                {
                     *active = index;
                 }
             }
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("Name");
+                ui.label(l10n::text(ui.ctx(), "Name"));
                 ui.text_edit_singleline(&mut lists[*active].name);
             });
-            if ui.button("New list").clicked() {
+            if ui.button(l10n::text(ui.ctx(), "New list")).clicked() {
                 lists.push(Watchlist::new(format!("Watchlist {}", lists.len() + 1)));
                 *active = lists.len() - 1;
             }
             if ui
-                .add_enabled(lists.len() > 1, egui::Button::new("Delete list"))
+                .add_enabled(
+                    lists.len() > 1,
+                    egui::Button::new(l10n::text(ui.ctx(), "Delete list")),
+                )
                 .clicked()
             {
                 lists.remove(*active);
@@ -407,15 +452,15 @@ impl WatchlistPanel {
             }
         });
         egui::Popup::menu(&more).show(|ui| {
-            if ui.button("Add section").clicked() {
+            if ui.button(l10n::text(ui.ctx(), "Add section")).clicked() {
                 lists[*active]
                     .items
                     .push(WatchlistItem::Section("New section".to_owned()));
             }
-            if ui.button("Import list…").clicked() {
+            if ui.button(l10n::text(ui.ctx(), "Import list…")).clicked() {
                 action = WatchlistAction::Import;
             }
-            if ui.button("Export list…").clicked() {
+            if ui.button(l10n::text(ui.ctx(), "Export list…")).clicked() {
                 action = WatchlistAction::Export {
                     name: lists[*active].name.clone(),
                     text: lists[*active].to_text(),
@@ -519,7 +564,7 @@ impl WatchlistPanel {
                     header.center().y,
                 ),
                 align,
-                label,
+                l10n::text(ui.ctx(), label),
                 font.clone(),
                 theme.ui.text_secondary,
             );
@@ -551,8 +596,13 @@ impl WatchlistPanel {
                     Sense::click(),
                 )
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
+            let translated_label = l10n::text(ui.ctx(), label);
             response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::Role::ColumnHeader, response.enabled(), label)
+                egui::WidgetInfo::labeled(
+                    egui::Role::ColumnHeader,
+                    response.enabled(),
+                    &translated_label,
+                )
             });
             if let Some((sorted, descending)) = *sort
                 && sorted == column
@@ -632,11 +682,12 @@ impl WatchlistPanel {
                     match &mut list.items[index] {
                         WatchlistItem::Section(title) => {
                             let is_collapsed = collapsed.contains(&index);
+                            let translated_label = l10n::text(ui.ctx(), &*title);
                             response.widget_info(|| {
                                 egui::WidgetInfo::labeled(
                                     egui::Role::Button,
                                     response.enabled(),
-                                    &*title,
+                                    &translated_label,
                                 )
                             });
                             ui.ctx().accesskit_node_builder(response.id, |node| {
@@ -671,7 +722,7 @@ impl WatchlistPanel {
                             )
                             .add(
                                 Label::new(
-                                    RichText::new(title.to_uppercase())
+                                    RichText::new(l10n::text(ui.ctx(), title.to_uppercase()))
                                         .font(small.clone())
                                         .color(theme.ui.text_secondary),
                                 )
@@ -680,7 +731,7 @@ impl WatchlistPanel {
                             );
                             response.context_menu(|ui| {
                                 ui.text_edit_singleline(title);
-                                if ui.button("Remove section").clicked() {
+                                if ui.button(l10n::text(ui.ctx(), "Remove section")).clicked() {
                                     removed = Some(index);
                                     ui.close();
                                 }
@@ -688,11 +739,12 @@ impl WatchlistPanel {
                         }
                         WatchlistItem::Symbol { symbol, flag } => {
                             let is_selected = selected.as_deref() == Some(symbol.as_str());
+                            let translated_label = symbol.as_str();
                             response.widget_info(|| {
                                 egui::WidgetInfo::labeled(
                                     egui::Role::ListBoxOption,
                                     response.enabled(),
-                                    symbol.as_str(),
+                                    translated_label,
                                 )
                             });
                             ui.ctx().accesskit_node_builder(response.id, |node| {
@@ -748,7 +800,9 @@ impl WatchlistPanel {
                                     )
                                     .add(
                                         Label::new(
-                                            RichText::new(text).font(font.clone()).color(color),
+                                            RichText::new(l10n::text(ui.ctx(), text))
+                                                .font(font.clone())
+                                                .color(color),
                                         )
                                         .truncate()
                                         .selectable(false),
@@ -768,12 +822,14 @@ impl WatchlistPanel {
                                     for choice in WatchlistFlag::ALL {
                                         let (swatch, response) = ui
                                             .allocate_exact_size(vec2(18.0, 18.0), Sense::click());
+                                        let translated_label =
+                                            l10n::text(ui.ctx(), format!("{choice:?}"));
                                         response.widget_info(|| {
                                             egui::WidgetInfo::selected(
                                                 egui::Role::RadioButton,
                                                 response.enabled(),
                                                 *flag == Some(choice),
-                                                format!("{choice:?}"),
+                                                &translated_label,
                                             )
                                         });
                                         ui.painter().circle_filled(
@@ -781,20 +837,26 @@ impl WatchlistPanel {
                                             if *flag == Some(choice) { 8.0 } else { 6.0 },
                                             choice.color(),
                                         );
-                                        if response.on_hover_text(format!("{choice:?}")).clicked() {
+                                        if response.on_hover_text(&translated_label).clicked() {
                                             *flag = Some(choice);
                                             ui.close();
                                         }
                                     }
                                 });
                                 if ui
-                                    .add_enabled(flag.is_some(), egui::Button::new("Remove flag"))
+                                    .add_enabled(
+                                        flag.is_some(),
+                                        egui::Button::new(l10n::text(ui.ctx(), "Remove flag")),
+                                    )
                                     .clicked()
                                 {
                                     *flag = None;
                                     ui.close();
                                 }
-                                if ui.button("Remove from list").clicked() {
+                                if ui
+                                    .button(l10n::text(ui.ctx(), "Remove from list"))
+                                    .clicked()
+                                {
                                     removed = Some(index);
                                     ui.close();
                                 }
@@ -1134,6 +1196,43 @@ mod tests {
         panel.poll(&ctx);
         assert_eq!(panel.quote("C").map(|q| q.last), Some(3.0));
 
+        // Both service pushes and direct updates retain the latest finite quote.
+        let latest = Quote::new(
+            102.0,
+            100.0,
+            chrono::DateTime::from_timestamp(2, 0).unwrap(),
+        );
+        first.push(("A".into(), latest.clone()));
+        panel.poll(&ctx);
+        for invalid in [
+            Quote::new(
+                101.0,
+                100.0,
+                chrono::DateTime::from_timestamp(1, 0).unwrap(),
+            ),
+            Quote::new(f64::NAN, 100.0, latest.time),
+            Quote::new(103.0, f64::INFINITY, latest.time),
+            latest.clone().with_volume(f64::NEG_INFINITY),
+            latest.clone().with_bid_ask(f64::NAN, 103.0),
+            latest.clone().with_bid_ask(101.0, f64::INFINITY),
+            latest
+                .clone()
+                .with_extended(crate::model::ExtendedHoursQuote {
+                    session: crate::model::ExtendedSession::PostMarket,
+                    last: f64::NAN,
+                    time: latest.time,
+                }),
+        ] {
+            first.push(("A".into(), invalid.clone()));
+            panel.poll(&ctx);
+            assert_eq!(panel.quote("A"), Some(&latest), "{invalid:?}");
+            panel.set_quote("A", invalid);
+            assert_eq!(panel.quote("A"), Some(&latest));
+        }
+        let corrected = latest.clone().with_bid_ask(-1.0, 0.0).with_volume(0.0);
+        panel.set_quote("A", corrected.clone());
+        assert_eq!(panel.quote("A"), Some(&corrected));
+
         panel.set_selected("D");
         panel.poll(&ctx);
         let (symbols, second) = stream(1);
@@ -1141,7 +1240,7 @@ mod tests {
         assert!(!first.is_active() && second.is_active());
         first.push(("A".into(), quote(9.0)));
         panel.poll(&ctx);
-        assert_eq!(panel.quote("A").map(|q| q.last), Some(2.0));
+        assert_eq!(panel.quote("A").map(|q| q.last), Some(102.0));
         assert_eq!(panel.quote("C"), None);
         assert_eq!(service.0.lock().unwrap().len(), 2);
 

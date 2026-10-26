@@ -2,6 +2,7 @@
 //!
 //! A panel for displaying toast notifications.
 
+use crate::localization as l10n;
 use egui::{Align2, Context, Order, RichText, Ui, Vec2};
 
 use super::toast::Toast;
@@ -176,11 +177,11 @@ impl NotificationPanel {
         } else {
             side_color
         };
-        let font = FontId::proportional(crate::styles::typography::LG);
+        let font = FontId::proportional(ui.active_theme().text.title);
         let mut title_format = egui::text::TextFormat::simple(font.clone(), theme.ui.text);
         title_format.coords.push("wght", 600.0);
         let mut title_job = egui::text::LayoutJob::single_section(
-            toast.title.clone().unwrap_or_default(),
+            l10n::text(ui.ctx(), toast.title.clone().unwrap_or_default()),
             title_format,
         );
         let title = ui.painter().layout_job(title_job.clone());
@@ -197,12 +198,17 @@ impl NotificationPanel {
         let side = ui
             .painter()
             .layout_job(egui::text::LayoutJob::single_section(
-                format!("{} {}", if buy { "Buy" } else { "Sell" }, trade.quantity),
+                l10n::text(
+                    ui.ctx(),
+                    format!("{} {}", if buy { "Buy" } else { "Sell" }, trade.quantity),
+                ),
                 side_format,
             ));
-        let price = ui
-            .painter()
-            .layout_no_wrap(format!("at {}", trade.price), font, theme.ui.text);
+        let price = ui.painter().layout_no_wrap(
+            l10n::format_text(ui.ctx(), "at {0}", &[("0", trade.price.to_string())]),
+            font,
+            theme.ui.text,
+        );
         let width = (62.0 + title.size().x + symbol.size().x + 44.0)
             .max(62.0 + side.size().x + price.size().x + 30.0)
             .max(self.config.width)
@@ -213,7 +219,7 @@ impl NotificationPanel {
         let title = ui.painter().layout_job(title_job);
         let symbol = ui.painter().layout(
             trade.symbol.clone(),
-            FontId::proportional(crate::styles::typography::LG),
+            FontId::proportional(ui.active_theme().text.title),
             theme.ui.text,
             (content_width - 12.0).max(1.0),
         );
@@ -229,8 +235,8 @@ impl NotificationPanel {
             vec2(0.0, second_row + side.size().y + 10.0)
         };
         let price = ui.painter().layout(
-            format!("at {}", trade.price),
-            FontId::proportional(crate::styles::typography::LG),
+            l10n::format_text(ui.ctx(), "at {0}", &[("0", trade.price.to_string())]),
+            FontId::proportional(ui.active_theme().text.title),
             theme.ui.text,
             (content_width - price_at.x).max(1.0),
         );
@@ -343,7 +349,7 @@ impl NotificationPanel {
                 let icon_size = DESIGN_TOKENS.sizing.icon_md;
                 ui.add(icon.as_image_tinted(Vec2::splat(icon_size), kind_color));
 
-                ui.add_space(DESIGN_TOKENS.spacing.md);
+                ui.add_space(ui.active_theme().spacing.md);
 
                 // The close button first, so that a long message wraps short of it.
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -360,17 +366,20 @@ impl NotificationPanel {
                         // Title, then the message muted so the title stands out
                         let mut message_color = text_color;
                         if let Some(title) = &toast.title {
-                            ui.label(RichText::new(title).strong());
+                            ui.label(RichText::new(l10n::text(ui.ctx(), title)).strong());
                             message_color = theme.ui.text_secondary;
                         }
-                        ui.label(RichText::new(&toast.message).color(message_color));
+                        ui.label(
+                            RichText::new(l10n::text(ui.ctx(), &toast.message))
+                                .color(message_color),
+                        );
                     });
                 });
             });
 
             // Progress bar (if duration > 0)
             if toast.duration > 0.0 {
-                ui.add_space(DESIGN_TOKENS.spacing.sm);
+                ui.add_space(ui.active_theme().spacing.sm);
                 let current_time = current_time_seconds();
                 let fraction = toast.remaining_fraction(current_time);
 

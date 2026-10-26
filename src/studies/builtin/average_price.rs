@@ -1,9 +1,10 @@
+//! Avg Price Indicators
+//! Simple price calculations useful for analysis
+
 use super::over_finite_bars;
 use crate::model::Bar;
-/// Avg Price Indicators
-/// Simple price calculations useful for analysis
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// OHLC4 - Avg of Open, High, Low, Close
@@ -15,14 +16,16 @@ pub struct OHLC4 {
 }
 
 impl OHLC4 {
+    /// Create with the default plot colors.
     pub fn new() -> Self {
         Self {
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.purple, // Purple
+            color: palette::PURPLE, // Purple
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -99,14 +102,16 @@ pub struct HLC3 {
 }
 
 impl HLC3 {
+    /// Create with the default plot colors.
     pub fn new() -> Self {
         Self {
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.info, // Blue
+            color: palette::BLUE, // Blue
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -183,14 +188,16 @@ pub struct HL2 {
 }
 
 impl HL2 {
+    /// Create with the default plot colors.
     pub fn new() -> Self {
         Self {
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.warning, // Orange
+            color: palette::ORANGE, // Orange
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -265,14 +272,16 @@ pub struct TrueRange {
 }
 
 impl TrueRange {
+    /// Create with the default plot colors.
     pub fn new() -> Self {
         Self {
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.error, // Red
+            color: palette::RED, // Red
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -310,8 +319,8 @@ impl TrueRange {
 }
 
 impl Indicator for TrueRange {
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Price
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Price
     }
 
     fn name(&self) -> &str {

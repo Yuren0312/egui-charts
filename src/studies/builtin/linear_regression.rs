@@ -1,11 +1,13 @@
+//! Linear Regression Indicators
+//! Includes Linear Regression Line, Slope, and R-Squared
+//! Popular for trend analysis
+
 use crate::model::Bar;
-/// Linear Regression Indicators
-/// Includes Linear Regression Line, Slope, and R-Squared
-/// Popular for trend analysis
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
+/// Linear regression fitted to closing prices over a rolling window.
 #[derive(Clone)]
 pub struct LinearRegression {
     /// Lookback period (typically 14)
@@ -16,15 +18,17 @@ pub struct LinearRegression {
 }
 
 impl LinearRegression {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.info,
+            color: palette::BLUE,
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -142,15 +146,17 @@ pub struct LinearRegressionSlope {
 }
 
 impl LinearRegressionSlope {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.warning,
+            color: palette::ORANGE,
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

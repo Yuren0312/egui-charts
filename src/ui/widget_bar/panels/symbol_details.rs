@@ -1,11 +1,11 @@
 //! Facts about the chart's symbol: its quote, the key statistics and profile the feed supplies,
 //! and the user's notes, kept through the storage service.
 
+use crate::localization as l10n;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Offset, Utc};
-use chrono_tz::Tz;
 use egui::text::LayoutJob;
 use egui::{Align, Color32, Label, Layout, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde::{Deserialize, Serialize};
@@ -15,9 +15,9 @@ use super::watchlist::{HEADER_HEIGHT, signed, weighted};
 use crate::data::inbox::Inbox;
 use crate::data::{Datafeed, FeedError, SymbolDetails};
 use crate::icons::icons;
-use crate::model::{ExtendedSession, Instrument, Quote};
+use crate::model::{ExtendedSession, Instrument, Quote, TimezoneId};
+use crate::scales::StudyFormat;
 use crate::services::{Storage, StoreKind};
-use crate::studies::StudyFormat;
 use crate::theme::ThemeExt;
 use crate::ui_kit::IconButton;
 use crate::ui_kit::status_message::{MessageKind, status_message};
@@ -75,7 +75,7 @@ pub struct SymbolDetailsPanel {
     quote: Option<Quote>,
     /// Average daily volume over the last 30 days.
     average_volume: Option<f64>,
-    timezone: Tz,
+    timezone: TimezoneId,
     hidden: HashSet<&'static str>,
     details: Option<SymbolDetails>,
     error: Option<String>,
@@ -152,7 +152,7 @@ impl SymbolDetailsPanel {
     }
 
     /// Shows update times in `timezone`, such as the chart's.
-    pub fn set_timezone(&mut self, timezone: Tz) {
+    pub fn set_timezone(&mut self, timezone: TimezoneId) {
         self.timezone = timezone;
     }
 
@@ -318,7 +318,7 @@ impl SymbolDetailsPanel {
                 .tooltip("More")
                 .show(ui);
             egui::Popup::menu(&more).show(|ui| {
-                if ui.button("Copy symbol").clicked() {
+                if ui.button(l10n::text(ui.ctx(), "Copy symbol")).clicked() {
                     ui.ctx().copy_text(instrument.symbol.clone());
                 }
             });
@@ -334,7 +334,10 @@ impl SymbolDetailsPanel {
                 .show(|ui| {
                     for section in SECTIONS {
                         let mut shown = !hidden.contains(section);
-                        if ui.checkbox(&mut shown, section).changed() {
+                        if ui
+                            .checkbox(&mut shown, l10n::text(ui.ctx(), section))
+                            .changed()
+                        {
                             if shown {
                                 hidden.remove(section);
                             } else {
@@ -345,7 +348,7 @@ impl SymbolDetailsPanel {
                 });
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 let title = LayoutJob::single_section(
-                    instrument.symbol.clone(),
+                    l10n::text(ui.ctx(), instrument.symbol.clone()),
                     weighted(theme.text.heading, 700.0, theme.ui.text),
                 );
                 ui.add(Label::new(title).truncate());
@@ -379,7 +382,7 @@ impl SymbolDetailsPanel {
                             ui.set_max_width(ui.available_width() - 16.0);
                             ui.add(
                                 Label::new(
-                                    RichText::new(name.join(" · "))
+                                    RichText::new(l10n::text(ui.ctx(), name.join(" · ")))
                                         .size(theme.text.label)
                                         .color(theme.ui.text),
                                 )
@@ -405,7 +408,7 @@ impl SymbolDetailsPanel {
                         instrument.currency.as_deref(),
                     );
                     ui.label(
-                        RichText::new(update(quote.time))
+                        RichText::new(l10n::text(ui.ctx(), update(quote.time)))
                             .size(theme.text.small)
                             .color(theme.ui.text_secondary),
                     );
@@ -426,9 +429,13 @@ impl SymbolDetailsPanel {
                             ExtendedSession::PostMarket => ("Post-market", theme.ui.info),
                         };
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(session).size(theme.text.small).color(color));
                             ui.label(
-                                RichText::new(update(extended.time))
+                                RichText::new(l10n::text(ui.ctx(), session))
+                                    .size(theme.text.small)
+                                    .color(color),
+                            );
+                            ui.label(
+                                RichText::new(l10n::text(ui.ctx(), update(extended.time)))
                                     .size(theme.text.small)
                                     .color(theme.ui.text_secondary),
                             );
@@ -456,9 +463,17 @@ impl SymbolDetailsPanel {
                         ),
                     ] {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(left).size(size).color(color));
+                            ui.label(
+                                RichText::new(l10n::text(ui.ctx(), left))
+                                    .size(size)
+                                    .color(color),
+                            );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.label(RichText::new(right).size(size).color(color));
+                                ui.label(
+                                    RichText::new(l10n::text(ui.ctx(), right))
+                                        .size(size)
+                                        .color(color),
+                                );
                             });
                         });
                     }
@@ -476,9 +491,14 @@ impl SymbolDetailsPanel {
                         ui.label(RichText::new(title).strong());
                         for (label, value) in rows {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(label).color(theme.ui.text_secondary));
+                                ui.label(
+                                    RichText::new(l10n::text(ui.ctx(), label))
+                                        .color(theme.ui.text_secondary),
+                                );
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    ui.add(Label::new(value.as_str()).truncate());
+                                    ui.add(
+                                        Label::new(l10n::text(ui.ctx(), value.as_str())).truncate(),
+                                    );
                                 });
                             });
                         }
@@ -486,12 +506,12 @@ impl SymbolDetailsPanel {
                 }
                 if shown("Notes") {
                     ui.add_space(theme.spacing.md);
-                    ui.label(RichText::new("Notes").strong());
+                    ui.label(RichText::new(l10n::text(ui.ctx(), "Notes")).strong());
                     let notes = notes.entry(instrument.symbol.clone()).or_default();
                     let field = ui.add_enabled(
                         notes.written.is_some(),
                         egui::TextEdit::multiline(&mut notes.text)
-                            .hint_text("Add a note")
+                            .hint_text(l10n::text(ui.ctx(), "Add a note"))
                             .desired_width(f32::INFINITY)
                             .desired_rows(4),
                     );
@@ -528,7 +548,7 @@ fn price_line(
     };
     // One text, so the figures of different sizes share a baseline.
     let mut job = LayoutJob::single_section(
-        format_price(price, Some(decimals)),
+        l10n::text(ui.ctx(), format_price(price, Some(decimals))),
         weighted(size, 700.0, theme.ui.text),
     );
     if let Some(currency) = currency {
@@ -568,9 +588,10 @@ fn external_link(ui: &mut Ui, url: &str) {
     let (rect, response) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::click());
     let response = response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(url);
+        .on_hover_text(l10n::text(ui.ctx(), url));
+    let translated_label = l10n::text(ui.ctx(), "Open instrument page");
     response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), "Open instrument page")
+        egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), &translated_label)
     });
     let color = if response.hovered() {
         theme.ui.accent
@@ -773,12 +794,13 @@ mod tests {
 
     /// The extended-hours change is measured from the regular last price, not the previous close,
     /// and update times carry the offset of the chart's time zone on that date.
+    #[cfg(feature = "timezones")]
     #[test]
     fn extended_hours_change_from_the_regular_last_price() {
         let ctx = egui::Context::default();
         let mut panel = SymbolDetailsPanel::new();
         panel.set_instrument(&Instrument::new("QQQ").with_price_decimals(2));
-        panel.set_timezone(chrono_tz::Europe::Berlin);
+        panel.set_timezone("Europe/Berlin".parse().unwrap());
         let quote = Quote::new(704.47, 725.20, "2026-10-22T19:59:00Z".parse().unwrap());
         panel.set_quote(quote.with_extended(crate::model::ExtendedHoursQuote {
             session: ExtendedSession::PreMarket,

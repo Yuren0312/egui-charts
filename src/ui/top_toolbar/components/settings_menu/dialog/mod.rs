@@ -1,21 +1,17 @@
-//! Settings dialog with tabs
+//! Tabbed dialog for editing chart display settings.
 //!
-//! This implementation follows the corporate architecture guidelines:
-//! - Uses `crate::styles::sizing::settings_dialog` for all layout dimensions
-//! - Uses `crate::theme::components::SettingsDialogStyle` for all colors
-//! - Implements full interaction states (hover, active, focus)
+//! Open [`SettingsDialog`] with the chart's settings and apply the returned
+//! [`SettingsAction`] in the host.
 
+use crate::localization as l10n;
+use crate::theme::ThemeExt;
+use crate::widget::settings::ChartSettingsState;
 mod tabs;
 
-use super::{
-    actions::SettingsAction, config::SettingsDialogConfig, data::ChartSettingsState,
-    types::SettingsTab,
-};
+use super::{actions::SettingsAction, config::SettingsDialogConfig, types::SettingsTab};
 use crate::icons::icons as embedded_icons;
 use crate::services::StoreKind;
-use crate::styles::typography;
 use crate::theme::Theme;
-use crate::theme::components::SettingsDialogStyle;
 use crate::tokens::DESIGN_TOKENS;
 use crate::ui::Control;
 use crate::ui::dialogs::templates::TemplateStore;
@@ -88,8 +84,27 @@ impl Default for SettingsDialog {
 }
 
 impl SettingsDialog {
+    /// Create a [`SettingsDialog`] with default settings.
     pub fn new() -> Self {
         let settings = ChartSettingsState::default();
+        let timezones: &[&str] = if cfg!(feature = "timezones") {
+            &[
+                "UTC",
+                "America/New_York",
+                "America/Chicago",
+                "America/Los_Angeles",
+                "Europe/London",
+                "Europe/Paris",
+                "Asia/Tokyo",
+                "Asia/Hong_Kong",
+                "Asia/Singapore",
+                "Australia/Sydney",
+            ]
+        } else {
+            &[
+                "UTC", "-08:00", "-06:00", "-05:00", "+01:00", "+08:00", "+09:00", "+10:00",
+            ]
+        };
         Self {
             is_open: false,
             active_tab: SettingsTab::Symbol,
@@ -122,18 +137,7 @@ impl SettingsDialog {
             template_menu_open: false,
             templates: TemplateStore::new(StoreKind::ChartTemplates),
             save_name: None,
-            timezones: vec![
-                "UTC".to_string(),
-                "America/New_York".to_string(),
-                "America/Chicago".to_string(),
-                "America/Los_Angeles".to_string(),
-                "Europe/London".to_string(),
-                "Europe/Paris".to_string(),
-                "Asia/Tokyo".to_string(),
-                "Asia/Hong_Kong".to_string(),
-                "Asia/Singapore".to_string(),
-                "Australia/Sydney".to_string(),
-            ],
+            timezones: timezones.iter().map(|zone| (*zone).to_owned()).collect(),
             config: SettingsDialogConfig::default(),
             hidden: HashSet::new(),
             execution_sounds: Vec::new(),
@@ -149,6 +153,7 @@ impl SettingsDialog {
         }
     }
 
+    /// Open the dialog with the supplied state.
     pub fn open(&mut self, settings: ChartSettingsState) {
         self.is_open = true;
         self.template_menu_open = false;
@@ -186,14 +191,17 @@ impl SettingsDialog {
         self.margin_right_str = format!("{}", self.settings.margins.right_bars);
     }
 
+    /// Close the dialog.
     pub fn close(&mut self) {
         self.is_open = false;
     }
 
+    /// Read the display settings being edited.
     pub fn settings(&self) -> &ChartSettingsState {
         &self.settings
     }
 
+    /// Show the dialog and return the requested action.
     pub fn show(&mut self, ctx: &Context, theme: &Theme) -> SettingsAction {
         self.templates.poll(ctx);
         let mut action = SettingsAction::None;
@@ -228,9 +236,6 @@ impl SettingsDialog {
         }
 
         let mut is_open = self.is_open;
-        let mut style = SettingsDialogStyle::from_theme(theme);
-        style.label_text = theme.ui.text;
-        style.section_header_text = theme.ui.text_secondary;
         let height = if self.config.height > 0.0 {
             self.config.height
         } else {
@@ -249,8 +254,8 @@ impl SettingsDialog {
             .width(width)
             .height(height)
             .show(ctx, &mut is_open, |ui| {
-                ui.add_space(16.0);
-                action = self.draw_content(ui, &style);
+                ui.add_space(theme.spacing.xxl);
+                action = self.draw_content(ui, theme);
             });
 
         // Only update is_open from egui's Window if btns didn't already close it
@@ -272,13 +277,12 @@ impl SettingsDialog {
                     *color = themed;
                 }
             }
-            settings.sync_legacy_fields();
         }
 
         action
     }
 
-    fn draw_content(&mut self, ui: &mut Ui, style: &SettingsDialogStyle) -> SettingsAction {
+    fn draw_content(&mut self, ui: &mut Ui, theme: &Theme) -> SettingsAction {
         let mut action = SettingsAction::None;
 
         let content_height = (ui.available_height() - 68.0).max(0.0);
@@ -308,17 +312,17 @@ impl SettingsDialog {
                         .auto_shrink([false, false])
                         .max_height(ui.available_height())
                         .show(ui, |ui| {
-                            ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
+                            ui.spacing_mut().item_spacing = Vec2::splat(theme.spacing.lg);
                             match self.active_tab {
-                                SettingsTab::Symbol => self.draw_symbol_tab(ui, style),
-                                SettingsTab::StatusLine => self.draw_status_line_tab(ui, style),
+                                SettingsTab::Symbol => self.draw_symbol_tab(ui, theme),
+                                SettingsTab::StatusLine => self.draw_status_line_tab(ui, theme),
                                 SettingsTab::ScalesAndLines => {
-                                    self.draw_scales_and_lines_tab(ui, style)
+                                    self.draw_scales_and_lines_tab(ui, theme)
                                 }
-                                SettingsTab::Canvas => self.draw_canvas_tab(ui, style),
-                                SettingsTab::Trading => self.draw_trading_tab(ui, style),
-                                SettingsTab::Alerts => self.draw_alerts_tab(ui, style),
-                                SettingsTab::Events => self.draw_events_tab(ui, style),
+                                SettingsTab::Canvas => self.draw_canvas_tab(ui, theme),
+                                SettingsTab::Trading => self.draw_trading_tab(ui, theme),
+                                SettingsTab::Alerts => self.draw_alerts_tab(ui, theme),
+                                SettingsTab::Events => self.draw_events_tab(ui, theme),
                             }
                         });
                 },
@@ -350,17 +354,16 @@ impl SettingsDialog {
                 } else if self.hidden.contains(&Control::Templates) {
                     self.draw_reset_button(ui);
                 } else {
-                    let button = self.draw_template_button(ui, style);
+                    let button = self.draw_template_button(ui, theme);
                     if button.clicked() {
                         self.template_menu_open = !self.template_menu_open;
                     }
                     if self.template_menu_open {
-                        action = self.draw_template_menu(ui, style, &button, action.clone());
+                        action = self.draw_template_menu(ui, theme, &button, action.clone());
                     }
                 }
             });
         if ok {
-            self.settings.sync_legacy_fields();
             action = SettingsAction::Apply(self.settings.clone());
             self.is_open = false;
         } else if cancel {
@@ -370,7 +373,7 @@ impl SettingsDialog {
         action
     }
 
-    fn draw_template_button(&self, ui: &mut Ui, style: &SettingsDialogStyle) -> Response {
+    fn draw_template_button(&self, ui: &mut Ui, theme: &Theme) -> Response {
         let template_label = if self.template_name.is_empty() {
             "Template".to_string()
         } else {
@@ -382,32 +385,32 @@ impl SettingsDialog {
                 DESIGN_TOKENS.sizing.settings_dialog.button_height,
             ),
             egui::Button::new((
-                RichText::new(&template_label)
-                    .size(typography::LG)
-                    .color(style.val_text),
-                embedded_icons::CHEVRON_DOWN.as_image_tinted(Vec2::splat(12.0), style.val_text),
+                RichText::new(l10n::text(ui.ctx(), &template_label))
+                    .size(theme.text.title)
+                    .color(theme.ui.text),
+                embedded_icons::CHEVRON_DOWN.as_image_tinted(Vec2::splat(12.0), theme.ui.text),
             ))
             .truncate()
-            .fill(style.dropdown_bg)
-            .corner_radius(DESIGN_TOKENS.rounding.md as u8)
+            .fill(theme.ui.panel_bg)
+            .corner_radius(theme.radius.md as u8)
             .min_size(Vec2::new(
                 DESIGN_TOKENS.sizing.settings_dialog.template_button_width,
                 DESIGN_TOKENS.sizing.settings_dialog.button_height,
             )),
         )
-        .on_hover_text(template_label)
+        .on_hover_text(l10n::text(ui.ctx(), template_label))
     }
 
     fn draw_template_menu(
         &mut self,
         ui: &mut Ui,
-        style: &SettingsDialogStyle,
+        theme: &Theme,
         template_btn: &Response,
         action: SettingsAction,
     ) -> SettingsAction {
         let menu_id = ui.scope_id().with("template_menu");
         let menu_rect = Rect::from_min_size(
-            template_btn.rect.left_bottom() + Vec2::new(0.0, DESIGN_TOKENS.spacing.xs),
+            template_btn.rect.left_bottom() + Vec2::new(0.0, theme.spacing.xs),
             Vec2::new(
                 DESIGN_TOKENS.sizing.settings_dialog.template_menu_width,
                 DESIGN_TOKENS
@@ -422,9 +425,12 @@ impl SettingsDialog {
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style())
-                    .fill(style.dropdown_bg)
-                    .corner_radius(DESIGN_TOKENS.rounding.md as u8)
-                    .stroke(style.dropdown_border)
+                    .fill(theme.ui.panel_bg)
+                    .corner_radius(theme.radius.md as u8)
+                    .stroke(egui::Stroke::new(
+                        DESIGN_TOKENS.stroke.hairline,
+                        theme.ui.border_control,
+                    ))
                     .show(ui, |ui| {
                         ui.set_width(DESIGN_TOKENS.sizing.settings_dialog.template_menu_width);
                         egui::ScrollArea::vertical()
@@ -434,7 +440,7 @@ impl SettingsDialog {
                                     .settings_dialog
                                     .template_menu_max_height,
                             )
-                            .show(ui, |ui| self.draw_template_menu_items(ui, style, action))
+                            .show(ui, |ui| self.draw_template_menu_items(ui, theme, action))
                             .inner
                     })
                     .inner
@@ -447,13 +453,13 @@ impl SettingsDialog {
     fn draw_template_menu_items(
         &mut self,
         ui: &mut Ui,
-        style: &SettingsDialogStyle,
+        theme: &Theme,
         mut action: SettingsAction,
     ) -> SettingsAction {
         action = self.draw_save_as_button(ui, action);
         action = self.draw_update_current_button(ui, action);
         ui.separator();
-        action = self.draw_template_list(ui, style, action);
+        action = self.draw_template_list(ui, theme, action);
         ui.separator();
         self.draw_reset_button(ui);
         action
@@ -461,7 +467,7 @@ impl SettingsDialog {
 
     fn draw_save_as_button(&mut self, ui: &mut Ui, mut action: SettingsAction) -> SettingsAction {
         if let Some(name) = &mut self.save_name {
-            let label = ui.label("Template name");
+            let label = ui.label(l10n::text(ui.ctx(), "Template name"));
             ui.add(egui::TextEdit::singleline(name).desired_width(ui.available_width()))
                 .labelled_by(label.id);
             let name = name.trim().to_owned();
@@ -473,12 +479,11 @@ impl SettingsDialog {
             let save = ui
                 .add_enabled(
                     self.templates.ready() && !name.is_empty(),
-                    egui::Button::new(label),
+                    egui::Button::new(l10n::text(ui.ctx(), label)),
                 )
                 .clicked();
-            let cancel = ui.button("Cancel").clicked();
+            let cancel = ui.button(l10n::text(ui.ctx(), "Cancel")).clicked();
             if save {
-                self.settings.sync_legacy_fields();
                 match self.templates.save(&name, self.settings.clone()) {
                     Ok(()) => {
                         self.template_name = name.clone();
@@ -491,14 +496,20 @@ impl SettingsDialog {
                 self.save_name = None;
             }
         } else if ui
-            .button(RichText::new("Save as...").size(typography::MD))
+            .button(
+                RichText::new(l10n::text(ui.ctx(), "Save as...")).size(ui.active_theme().text.body),
+            )
             .clicked()
         {
             self.save_name = Some(String::new());
         }
         if let Some(error) = &self.templates.error {
-            ui.colored_label(ui.visuals().error_fg_color, error);
-            if !self.templates.ready() && ui.button("Retry loading templates").clicked() {
+            ui.colored_label(ui.visuals().error_fg_color, l10n::text(ui.ctx(), error));
+            if !self.templates.ready()
+                && ui
+                    .button(l10n::text(ui.ctx(), "Retry loading templates"))
+                    .clicked()
+            {
                 self.templates.reload();
             }
         }
@@ -515,11 +526,13 @@ impl SettingsDialog {
             && ui
                 .add_enabled(
                     self.templates.ready(),
-                    egui::Button::new(RichText::new("Update current").size(typography::MD)),
+                    egui::Button::new(
+                        RichText::new(l10n::text(ui.ctx(), "Update current"))
+                            .size(ui.active_theme().text.body),
+                    ),
                 )
                 .clicked()
         {
-            self.settings.sync_legacy_fields();
             match self
                 .templates
                 .save(&self.template_name, self.settings.clone())
@@ -534,20 +547,20 @@ impl SettingsDialog {
     fn draw_template_list(
         &mut self,
         ui: &mut Ui,
-        style: &SettingsDialogStyle,
+        theme: &Theme,
         mut action: SettingsAction,
     ) -> SettingsAction {
         let templates: Vec<String> = self.templates.entries().keys().cloned().collect();
 
         if templates.is_empty() {
             ui.label(
-                RichText::new("No saved templates")
-                    .size(typography::SM)
-                    .color(style.section_header_text),
+                RichText::new(l10n::text(ui.ctx(), "No saved templates"))
+                    .size(theme.text.small)
+                    .color(theme.ui.text_secondary),
             );
         } else {
             for name in templates {
-                action = self.draw_template_item(ui, style, name, action);
+                action = self.draw_template_item(ui, theme, name, action);
             }
         }
         action
@@ -556,22 +569,22 @@ impl SettingsDialog {
     fn draw_template_item(
         &mut self,
         ui: &mut Ui,
-        style: &SettingsDialogStyle,
+        theme: &Theme,
         name: String,
         mut action: SettingsAction,
     ) -> SettingsAction {
         let is_sel = self.template_name == name;
         let text = if is_sel {
-            RichText::new(&name)
-                .size(typography::MD)
-                .color(style.tab_text_active)
+            RichText::new(l10n::text(ui.ctx(), &name))
+                .size(theme.text.body)
+                .color(theme.ui.text)
         } else {
-            RichText::new(&name).size(typography::MD)
+            RichText::new(l10n::text(ui.ctx(), &name)).size(theme.text.body)
         };
 
         if ui
             .add_enabled(self.templates.ready(), egui::Button::new(text).truncate())
-            .on_hover_text(&name)
+            .on_hover_text(l10n::text(ui.ctx(), &name))
             .clicked()
         {
             if let Some(template) = self.templates.entries().get(&name) {
@@ -585,7 +598,12 @@ impl SettingsDialog {
         if ui
             .add_enabled(
                 self.templates.ready(),
-                egui::Button::new(format!("Delete {name}")).truncate(),
+                egui::Button::new(l10n::format_text(
+                    ui.ctx(),
+                    "Delete {name}",
+                    &[("name", name.to_string())],
+                ))
+                .truncate(),
             )
             .clicked()
         {
@@ -603,7 +621,10 @@ impl SettingsDialog {
 
     fn draw_reset_button(&mut self, ui: &mut Ui) {
         if ui
-            .button(RichText::new("Reset to defaults").size(typography::MD))
+            .button(
+                RichText::new(l10n::text(ui.ctx(), "Reset to defaults"))
+                    .size(ui.active_theme().text.body),
+            )
             .clicked()
         {
             self.settings = ChartSettingsState::default();
@@ -628,6 +649,26 @@ impl SettingsDialog {
 mod tests {
     use super::*;
     use egui::Pos2;
+
+    #[test]
+    fn offered_time_zones_and_session_presets_are_available() {
+        use crate::config::SessionConfig;
+        let mut zones = SettingsDialog::new().timezones;
+        zones.extend(
+            [
+                SessionConfig::default(),
+                SessionConfig::nyse(),
+                SessionConfig::lse(),
+                SessionConfig::tse(),
+                SessionConfig::crypto_24_7(),
+                SessionConfig::forex(),
+            ]
+            .map(|session| session.timezone),
+        );
+        for zone in zones {
+            assert!(zone.parse::<crate::model::TimezoneId>().is_ok(), "{zone}");
+        }
+    }
 
     #[test]
     fn save_as_prompts_for_a_name_without_saving_automatically() {
@@ -673,7 +714,7 @@ mod tests {
 
     #[test]
     fn grid_colour_pickers_follow_the_visible_directions() {
-        use super::super::GridLinesMode;
+        use crate::widget::settings::GridLinesMode;
         for theme in [Theme::light(), Theme::dark()] {
             for (mode, horizontal, vertical) in [
                 (GridLinesMode::None, false, false),
@@ -690,7 +731,7 @@ mod tests {
                 let mut dialog = SettingsDialog::new();
                 dialog.open(settings.clone());
                 let output = ctx.run_ui(Default::default(), |ui| {
-                    dialog.draw_canvas_tab(ui, &SettingsDialogStyle::from_theme(&theme));
+                    dialog.draw_canvas_tab(ui, &theme);
                 });
                 let shown = [settings.grid_lines.horizontal_color, settings.grid_lines.vertical_color].map(|colour| output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == colour)));
                 output.drop_without_applying_deltas();
@@ -714,7 +755,7 @@ mod tests {
                 settings.chart_basic_styles.background_color = configured;
                 settings.margins.top_percent = 12.5;
                 settings.margins.bottom_percent = 7.5;
-                settings.sync_legacy_fields();
+
                 dialog.open(settings.clone());
                 assert_eq!(dialog.margin_top_str, "12.5");
                 assert_eq!(dialog.margin_bottom_str, "7.5");
@@ -805,7 +846,6 @@ mod tests {
                         configured
                     };
                     assert_eq!(saved.chart_basic_styles.background_color, expected);
-                    assert_eq!(saved.background_color, expected);
                     assert_eq!(
                         saved.chart_basic_styles.background_gradient_top,
                         Theme::light().chart.bg
@@ -826,7 +866,7 @@ mod tests {
     fn choosing_a_scale_mode_clears_the_other_mode() {
         let ctx = Context::default();
         let mut dialog = SettingsDialog::new();
-        let style = SettingsDialogStyle::from_theme(&Theme::light());
+        let theme = Theme::light();
         for (label, expected) in [
             ("Log scale", (true, false)),
             ("Percentage scale", (false, true)),
@@ -839,7 +879,7 @@ mod tests {
                         ..Default::default()
                     },
                     |ui| {
-                        dialog.draw_scales_and_lines_tab(ui, &style);
+                        dialog.draw_scales_and_lines_tab(ui, &theme);
                     },
                 );
                 let pos = output
@@ -877,7 +917,11 @@ mod tests {
 
     #[test]
     fn changing_settings_tabs_stays_centered_and_fits_the_window() {
-        for theme in [Theme::light(), Theme::dark()] {
+        let mut scaled = Theme::light();
+        scaled.text.small = 17.0;
+        scaled.spacing.lg = 12.0;
+        scaled.spacing.xxxl = 32.0;
+        for theme in [Theme::light(), Theme::dark(), scaled] {
             for size in [Vec2::new(1440.0, 900.0), Vec2::new(600.0, 400.0)] {
                 let ctx = Context::default();
                 crate::theme::apply_to_egui(&ctx, &theme);
@@ -887,8 +931,8 @@ mod tests {
                 let mut tops = Vec::new();
                 for tab in SettingsTab::all() {
                     dialog.active_tab = *tab;
-                    for _ in 0..3 {
-                        ctx.run_ui(
+                    for pass in 0..3 {
+                        let output = ctx.run_ui(
                             egui::RawInput {
                                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
                                 ..Default::default()
@@ -896,8 +940,17 @@ mod tests {
                             |ui| {
                                 dialog.show(ui.ctx(), &theme);
                             },
-                        )
-                        .drop_without_applying_deltas();
+                        );
+                        let heading = output.shapes.iter().find_map(|shape| match &shape.shape {
+                            egui::Shape::Text(text) if text.galley.text() == "CANDLE COLORS" => {
+                                Some(text.galley.job.sections[0].format.font_id.size)
+                            }
+                            _ => None,
+                        });
+                        output.drop_without_applying_deltas();
+                        if *tab == SettingsTab::Symbol && pass == 2 {
+                            assert_eq!(heading, Some(theme.text.small));
+                        }
                     }
                     let rect = ctx
                         .memory(|memory| memory.area_rect(egui::Id::unique("chart_settings")))

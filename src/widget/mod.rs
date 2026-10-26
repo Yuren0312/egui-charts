@@ -1,100 +1,36 @@
-//! The primary Chart widget for embedding interactive financial charts in egui.
+//! Interactive charts, events, panes, layouts and export.
 //!
-//! This module provides [`Chart`], the main entry point for rendering OHLCV
-//! (Open-High-Low-Close-Volume) financial data as an interactive egui widget.
-//! It supports multiple chart types (candlestick, line, area, bar, Renko, Kagi),
-//! real-time data streaming, drawing tools, technical indicators, and
-//! multi-chart synchronization.
+//! Keep a [`Chart`] across frames and call [`Chart::show`] from your egui UI callback.
+//! Construct it from [`BarData`](crate::model::BarData), or use [`ChartBuilder`] to
+//! configure an instrument, interval and optional [`Datafeed`](crate::data::Datafeed).
 //!
-//! # Quick Start
+//! # Updating data
 //!
-//! ```rust
-//! # let bars: Vec<egui_charts::model::Bar> = (0..100).map(|i| { let p = 100.0 + (i as f64 * 0.2).sin() * 5.0; egui_charts::model::Bar::new(chrono::DateTime::from_timestamp(1_700_000_000 + i * 60, 0).unwrap(), p, p + 1.0, p - 1.0, p + 0.5, 1_000.0) }).collect();
-//! use egui_charts::model::BarData;
-//! use egui_charts::widget::Chart;
+//! Merge each live bar into its series. The chart updates studies when it next draws;
+//! use [`Chart::set_data`] to replace a series' history.
 //!
-//! let bar_data = BarData::from_bars(bars);
+//! ```
+//! use egui_charts::{Chart, model::{Bar, BarData}, widget::SeriesId};
 //!
-//! // Create chart with OHLCV data
-//! let mut chart = Chart::new(bar_data);
-//!
-//! // Show the chart in your egui update loop
+//! let mut chart = Chart::new(BarData::default());
+//! let bar = Bar::new("2024-01-01T00:00:00Z".parse().unwrap(),
+//!                    100.0, 102.0, 99.0, 101.0, 50.0);
+//! chart.update(SeriesId::MAIN, bar);
 //! # egui::__run_test_ui(|ui| {
-//! egui::CentralPanel::default().show(ui, |ui| {
-//!     chart.show(ui);
-//! });
+//! chart.show(ui);
 //! # });
 //! ```
 //!
-//! # Builder Pattern
+//! # Host integration
 //!
-//! Configure the chart before showing it:
+//! Read [`ChartEvent`] values with [`Chart::drain_events`] for host legends,
+//! inspection and application actions. [`ChartLayout`] arranges multiple charts
+//! and synchronizes their viewports and crosshairs by timestamp.
 //!
-//! ```rust
-//! # let bars: Vec<egui_charts::model::Bar> = (0..100).map(|i| { let p = 100.0 + (i as f64 * 0.2).sin() * 5.0; egui_charts::model::Bar::new(chrono::DateTime::from_timestamp(1_700_000_000 + i * 60, 0).unwrap(), p, p + 1.0, p - 1.0, p + 0.5, 1_000.0) }).collect();
-//! # let bar_data = egui_charts::model::BarData::from_bars(bars.clone());
-//! # use egui_charts::{config::{ChartConfig, ChartOptions}, widget::Chart};
-//! # let my_chart_config = ChartConfig::default();
-//! # let opts = ChartOptions::default();
-//! let mut chart = Chart::with_config(bar_data, my_chart_config) // Custom visual config
-//!     .visible_bars(100)          // Show 100 bars at a time
-//!     .with_chart_options(opts);  // Scroll/zoom behavior
-//! ```
-//!
-//! # Real-Time Updates
-//!
-//! For live data feeds, reuse the chart instance across frames and merge each
-//! bar as it arrives:
-//!
-//! ```rust
-//! # use egui_charts::{model::Bar, widget::{Chart, SeriesId}};
-//! // In your app struct:
-//! struct MyApp {
-//!     chart: Chart,
-//! }
-//!
-//! impl MyApp {
-//!     fn on_new_bar(&mut self, bar: Bar, ui: &mut egui::Ui) {
-//!         self.chart.update(SeriesId::MAIN, bar);
-//!         self.chart.show(ui);
-//!     }
-//! }
-//! ```
-//!
-//! # Drawing Tools and Indicators
-//!
-//! The chart computes, updates and draws its studies and drawings itself:
-//!
-//! ```rust
-//! # #[cfg(all(feature = "drawings", feature = "studies"))]
-//! # use egui_charts::{drawings::DrawingToolType, studies::{EMA, RSI}, widget::Chart};
-//! # #[cfg(all(feature = "drawings", feature = "studies"))]
-//! # fn example(chart: &mut Chart, ui: &mut egui::Ui) {
-//! let ema = chart.add_indicator(Box::new(EMA::new(20))); // on the main pane
-//! chart.add_indicator(Box::new(RSI::new(14))); // in a pane below it
-//! chart.drawings_mut().set_active_tool(Some(DrawingToolType::TrendLine));
-//! chart.show(ui);
-//! chart.remove_series(ema);
-//! # }
-//! ```
-//!
-//! # Multi-Chart Sync
-//!
-//! Synchronize crosshairs and time scales between multiple charts:
-//!
-//! ```rust
-//! # fn example(chart_a: &egui_charts::Chart, chart_b: &mut egui_charts::Chart) {
-//! chart_b.set_synced_crosshair_time(chart_a.hover_time());
-//! if let Some(range) = chart_a.visible_time_range() {
-//!     chart_b.apply_synced_time_range(range);
-//! }
-//! # }
-//! ```
-//!
-//! # Sub-modules
-//!
-//! - [`builder`] -- Constructor and configuration methods for [`Chart`]
-//! - [`indicator_pane`] -- Separate indicator panels (RSI, MACD, Stochastic)
+//! Studies added with [`Chart::add_indicator`] are calculated and drawn by the
+//! chart. Built-in studies require the `studies` feature; drawing tools require
+//! `drawings`. Toolbars and dialogs in `ui` are separate components placed and
+//! connected by the host.
 
 #[cfg(feature = "drawings")]
 use crate::chart::cursor_modes::CursorModeState;
@@ -105,20 +41,22 @@ use crate::config::{ChartConfig, ChartOptions};
 use crate::data::FeedState;
 #[cfg(feature = "drawings")]
 use crate::drawings::DrawingManager;
-use crate::model::ChartState;
 use crate::model::Timeframe;
 use crate::model::{ChartType, ChartTypeParams};
+use crate::studies::ChartState;
+
 use crate::scales::{PriceMap, PriceScale};
 use crate::studies::IndicatorRegistry;
 use chrono::{DateTime, Utc};
 use std::collections::BTreeSet;
-pub mod indicator_pane;
+mod indicator_pane;
 pub use crate::chart::renderers::{
     Legend, LegendStatus, QuoteSide, StudyAction, StudyValue, Watermark, WatermarkLine,
 };
 pub use crate::chart::selection::{ChartElementId, SeriesId};
 pub use builder::ChartBuilder;
 use egui::{Pos2, Rect, Vec2};
+pub use export::{ChartImage, ImageExportOptions};
 pub use indicator_pane::{
     IndicatorCoordParams, IndicatorPane, IndicatorPaneConfig, PaneInteraction,
 };
@@ -128,13 +66,14 @@ use crate::chart::state;
 
 mod accessibility;
 #[cfg(feature = "drawings")]
+#[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
 mod anchors;
-pub mod builder;
+mod builder;
 mod change_marks;
 #[cfg(feature = "drawings")]
+#[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
 mod clipboard;
 mod crosshair;
-#[cfg(feature = "ui")]
 pub(crate) use crosshair::menu_value;
 mod events;
 mod feed;
@@ -143,13 +82,14 @@ mod merge;
 mod signals;
 mod targets;
 pub use events::{ChartEvent, ChartPointer, PointerKind, PointerTarget};
-pub mod export;
+mod export;
 mod frame;
 mod history;
 pub(crate) mod interaction;
-pub mod keyboard;
-pub mod layout;
+pub(crate) mod keyboard;
+mod layout;
 mod navigation;
+mod palette;
 pub(crate) mod pan_zoom;
 mod pane_layout;
 pub use pane_layout::{PaneId, PaneOptions};
@@ -161,11 +101,18 @@ mod readout;
 mod replay;
 mod selection;
 mod series;
+pub mod settings;
 #[cfg(feature = "ui")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ui")))]
 mod snapshot;
 #[cfg(feature = "drawings")]
+#[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
 mod stored_drawings;
 mod studies;
+
+#[cfg(feature = "drawings")]
+#[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
+mod drawing_api;
 mod studies_data;
 pub use crate::chart::primitives::{
     PriceAxisLabel, Primitive, PrimitiveId, PrimitivePass, PrimitiveView, TimeAxisLabel,
@@ -174,6 +121,7 @@ pub use pane_layout::VisualOrder;
 pub use price_series::SeriesOptions;
 pub use series::{BarsInRange, MismatchDirection, PriceLineId};
 #[cfg(feature = "ui")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ui")))]
 pub use snapshot::{ChartSnapshot, SavedLayout, SavedPane, SavedStudy};
 mod volume;
 pub use layout::{ChartLayout, ChartLayoutMode, ChartSyncOptions};
@@ -235,18 +183,13 @@ pub use state::{BoxZoomState, ElasticBounceState, KineticScrollState};
 /// - **Keyboard shortcuts**: Arrow keys, Home/End, +/- for navigation
 /// - **Double-click**: Reset zoom on price or time axis
 ///
-/// # Architecture
+/// # Undo and redo
 ///
 /// User drawing interactions and shortcuts share [`Chart::undo`] / [`Chart::redo`] with
 /// host toolbar, menu and dialog edits wrapped in [`Chart::user_action`]. Direct programmatic
 /// setters and feed/data updates do not enter this history. Use [`Chart::can_undo`] and
 /// [`Chart::can_redo`] for toolbar availability, and [`Chart::take_history_changed`] to
 /// synchronize host controls and data after restoring an interval or settings.
-///
-/// `Chart` owns a [`ChartState`] (data + coordinate systems) and a
-/// [`ChartConfig`] (visual styling). Rendering is delegated to specialized
-/// modules in `crate::chart::rendering`, while interaction logic lives in
-/// `crate::chart::state`.
 pub struct Chart {
     /// Backend state holding OHLCV data and coordinate system (time scale, price range).
     pub(crate) state: ChartState,
@@ -259,6 +202,7 @@ pub struct Chart {
     main_series_present: bool,
     main_series_scale: crate::model::SeriesScale,
     price_series: Vec<price_series::PriceSeries>,
+    heikin_ashi: crate::chart::rendering::candles::HeikinAshiCache,
     series_scales: std::collections::HashMap<crate::model::SeriesScale, PriceScale>,
     /// Chart behavior options (bar spacing, scroll/zoom constraints, time scale settings).
     pub(crate) chart_options: ChartOptions,
@@ -279,7 +223,7 @@ pub struct Chart {
     /// Last scroll position for drag tracking (UI state only)
     pub(crate) scroll_start_pos: Option<Pos2>,
     /// Initial right offset when starting scroll (for drag) (UI state only)
-    pub(crate) scroll_start_offset: Option<f32>,
+    pub(crate) scroll_start_offset: Option<f64>,
     /// Previous widget width for resize handling (UI state only)
     pub(crate) prev_width: Option<f32>,
     /// Price-axis drag this frame: anchor y where the drag began, and the y movement (UI state only)
@@ -373,6 +317,9 @@ pub struct Chart {
     time_formatter: Option<std::sync::Arc<dyn crate::scales::TimeFormatter>>,
     price_formatter: Option<std::sync::Arc<dyn crate::scales::PriceFormatter>>,
     percentage_formatter: Option<std::sync::Arc<dyn crate::scales::PriceFormatter>>,
+    volume_formatter: Option<std::sync::Arc<dyn crate::scales::PriceFormatter>>,
+    series_formatters:
+        std::collections::HashMap<SeriesId, std::sync::Arc<dyn crate::scales::PriceFormatter>>,
     extended_hours: bool,
     pub(crate) measured_axis_width: f32,
     /// Last usable widget width and its first frame, including discarded sizing passes.
@@ -381,7 +328,9 @@ pub struct Chart {
     axis_hover: Option<(Pos2, Rect)>,
     scale_settings_requested: bool,
     pub(crate) theme_override: Option<crate::theme::Theme>,
+    inherited_theme: Option<crate::theme::Theme>,
     host_events: events::HostEvents,
+    pub(crate) indicator_source_request: Option<crate::studies::StudySource>,
     events: Vec<crate::model::Marker>,
     time_scale_events: Vec<crate::model::TimeScaleEvent>,
     event_visibility: crate::model::EventVisibility,
@@ -459,7 +408,7 @@ pub struct Chart {
     /// Chart-wide click selection, shared by series, overlay indicators, and
     /// pane indicators. Populated by click hit testing during rendering and
     /// readable by host apps via [`Chart::selected_element`].
-    pub(crate) selection: SelectionState<ChartElementId>,
+    pub(crate) selection: SelectionState,
     /// Right-click hit result captured during the last frame, drained by the
     /// host via [`Chart::take_right_click`] (or by `ChartMenus` with the `ui`
     /// feature). Holds no UI types so the core widget builds without the `ui`
@@ -486,6 +435,7 @@ pub struct Chart {
 /// surface right-clicks even when built without the `ui` feature; the host
 /// (or `ChartMenus` with the `ui` feature) maps it to a concrete menu.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum RightClickTarget {
     /// A series or overlay/pane indicator line was hit.
     Element {
@@ -524,6 +474,7 @@ pub enum RightClickTarget {
 ///
 /// Retrieve with [`Chart::get_rendered_indicator_panes`].
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct RenderedIndicatorPane {
     /// Position of the study in [`Chart::indicators`] when the pane was drawn. After a pane's
     /// close button removed its study, that pane stays in the list until the next frame, and it
@@ -549,6 +500,7 @@ pub struct RenderedIndicatorPane {
 /// widget area. They are useful for external hit-testing (e.g., determining
 /// whether a click landed on the price area, volume area, or legend).
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct ChartLayoutRects {
     /// The overall widget rect (entire chart area including axes and padding).
     pub widget_rect: Rect,
@@ -886,15 +838,15 @@ impl Chart {
             self.state.time_scale().bar_spacing(),
             self.start_idx,
             self.state.time_scale().base_idx(),
-            self.state.time_scale().right_offset(),
+            self.state.time_scale().right_offset_precise(),
             self.last_price_map,
         )
     }
 
     /// Returns a mutable reference to the chart's visual configuration.
     ///
-    /// Use this to apply settings produced by a dialog in place, e.g.
-    /// `settings.apply_to_config(chart.config_mut())`, without rebuilding the
+    /// Use this to edit visual options in place, e.g.
+    /// `chart.config_mut().show_grid = false`, without rebuilding the
     /// whole [`ChartConfig`]. Changes take effect on the next rendered frame. Wrap a host UI
     /// submission in [`Self::user_action`] to include it in chart history.
     pub fn config_mut(&mut self) -> &mut ChartConfig {
@@ -903,10 +855,12 @@ impl Chart {
 
     /// Apply a theme to this chart and to the UI in `ctx`, without changing data or pan and zoom.
     ///
-    /// Other charts sharing the context keep their configured series colours until updated.
+    /// Other charts sharing the context follow the active theme on their next frame, keeping
+    /// colours the host has edited and any per-chart theme override.
     pub fn set_theme(&mut self, ctx: &egui::Context, theme: &crate::theme::Theme) {
-        self.config = theme.apply_to_config(self.config.clone());
+        self.config = self.config.clone().with_theme(theme);
         self.theme_override = None;
+        self.inherited_theme = Some(theme.clone());
         crate::theme::apply_to_egui(ctx, theme);
         ctx.request_repaint();
     }
@@ -915,10 +869,11 @@ impl Chart {
     ///
     /// `Some(theme)` also applies its series colours to the chart configuration. Explicit
     /// configuration edits made afterwards are kept. `None` follows the host's palette again,
-    /// retaining configured series colours. `set_theme` clears this override and themes egui.
+    /// retaining host-edited colours. `set_theme` clears this override and themes egui.
     pub fn set_theme_override(&mut self, theme: Option<crate::theme::Theme>) {
         if let Some(theme) = &theme {
-            self.config = theme.apply_to_config(self.config.clone());
+            self.config = self.config.clone().with_theme(theme);
+            self.inherited_theme = Some(theme.clone());
         }
         self.theme_override = theme;
     }
@@ -970,7 +925,7 @@ impl Chart {
             new.right_offset_pixels,
         ) {
             let scale = self.state.time_scale_mut();
-            let offset = scale.right_offset();
+            let offset = scale.right_offset_precise();
             let spacing = if new.bar_spacing == old.bar_spacing {
                 scale.bar_spacing()
             } else {
@@ -1017,6 +972,7 @@ impl Chart {
 
     /// The chart's drawings and drawing tools.
     #[cfg(feature = "drawings")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
     pub fn drawings(&self) -> &DrawingManager {
         &self.drawings
     }
@@ -1025,6 +981,7 @@ impl Chart {
     /// drawings. Direct host edits do not enter chart history; wrap UI-originated edits in
     /// [`Self::user_action`]. The manager's own history is for standalone drawing use.
     #[cfg(feature = "drawings")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
     pub fn drawings_mut(&mut self) -> &mut DrawingManager {
         &mut self.drawings
     }
@@ -1033,6 +990,9 @@ impl Chart {
 /// Headless frames for widget tests: a fixed 800x600 screen and explicit input events.
 #[cfg(test)]
 pub(crate) mod test_frames {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
     use super::Chart;
     use crate::model::{Bar, BarData};
     use chrono::{TimeZone, Utc};

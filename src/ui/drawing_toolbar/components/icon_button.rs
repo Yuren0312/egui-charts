@@ -4,6 +4,7 @@
 //! toggles, and actions.
 
 use crate::icons::Icon;
+use crate::localization as l10n;
 use crate::theme::ThemeExt;
 use egui::{
     Color32, Rect, RectAlign, Response, Role, Sense, Stroke, StrokeKind, Tooltip, Ui, Vec2,
@@ -39,7 +40,7 @@ pub fn draw_icon_btn(
     size: f32,
 ) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
-    crate::styles::focus::draw_focus_ring(ui, &response, DESIGN_TOKENS.rounding.button);
+    crate::styles::focus::draw_focus_ring(ui, &response, ui.active_theme().radius.sm);
 
     let bg_color = if is_active && response.hovered() {
         super::active_hover_color(ui)
@@ -52,13 +53,20 @@ pub fn draw_icon_btn(
     };
 
     ui.painter()
-        .rect_filled(rect, DESIGN_TOKENS.rounding.button, bg_color);
+        .rect_filled(rect, ui.active_theme().radius.sm, bg_color);
 
     render_svg_at_rect_themed(ui, icon, rect, response.hovered(), is_active);
 
-    response
-        .widget_info(|| WidgetInfo::selected(Role::Button, response.enabled(), is_active, tooltip));
-    response.on_hover_text(tooltip)
+    let translated_label = l10n::text(ui.ctx(), tooltip);
+    response.widget_info(|| {
+        WidgetInfo::selected(
+            Role::Button,
+            response.enabled(),
+            is_active,
+            &translated_label,
+        )
+    });
+    response.on_hover_text(l10n::text(ui.ctx(), tooltip))
 }
 
 /// Toggle button with icon (alias for draw_icon_btn since functionally identical).
@@ -114,7 +122,7 @@ pub fn draw_icon_button_padded(
     // Full rect for allocation
     let size = Vec2::splat(icon_size + padding * 2.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    crate::styles::focus::draw_focus_ring(ui, &response, DESIGN_TOKENS.rounding.button);
+    crate::styles::focus::draw_focus_ring(ui, &response, ui.active_theme().radius.sm);
 
     // Add pressed state for click feedback
     let bg_color = if is_active {
@@ -130,14 +138,21 @@ pub fn draw_icon_button_padded(
     // Draw icon button - SQUARE, centered in button
     let icon_button_rect = egui::Rect::from_center_size(rect.center(), Vec2::splat(icon_size));
     ui.painter()
-        .rect_filled(icon_button_rect, DESIGN_TOKENS.rounding.button, bg_color);
+        .rect_filled(icon_button_rect, ui.active_theme().radius.sm, bg_color);
 
     let is_hovered = response.hovered() || response.is_pointer_button_down_on();
     render_svg_at_rect_themed(ui, icon, icon_button_rect, is_hovered, is_active);
 
-    response
-        .widget_info(|| WidgetInfo::selected(Role::Button, response.enabled(), is_active, tooltip));
-    response.on_hover_text(tooltip)
+    let translated_label = l10n::text(ui.ctx(), tooltip);
+    response.widget_info(|| {
+        WidgetInfo::selected(
+            Role::Button,
+            response.enabled(),
+            is_active,
+            &translated_label,
+        )
+    });
+    response.on_hover_text(l10n::text(ui.ctx(), tooltip))
 }
 
 /// Left toolbar button (no dropdown arrow).
@@ -145,7 +160,7 @@ pub fn draw_icon_button_padded(
 /// Layout:
 /// - Outer rect: 52×38px
 /// - Inner hover rect: 8.5px horizontal margin, 1.5px vertical margin
-/// - Inner rounding: 5px
+/// - Inner rounding: the theme's medium radius
 /// - Icon: 24×24 centered in outer rect
 ///
 /// A selected tool has a neutral fill; a latched utility uses contrasting ink and fill.
@@ -184,8 +199,14 @@ fn draw_rail_button(
         Vec2::new(tokens.button_width, tokens.button_height),
         Sense::click(),
     );
+    let translated_label = l10n::text(ui.ctx(), tooltip);
     response.widget_info(|| {
-        WidgetInfo::selected(Role::Button, response.enabled(), is_selected, tooltip)
+        WidgetInfo::selected(
+            Role::Button,
+            response.enabled(),
+            is_selected,
+            &translated_label,
+        )
     });
 
     if ui.is_rect_visible(rect) {
@@ -218,7 +239,7 @@ fn draw_rail_button(
             (false, false) => None,
         };
         if let Some(bg) = bg {
-            ui.painter().rect_filled(inner_rect, 5.0, bg);
+            ui.painter().rect_filled(inner_rect, theme.radius.md, bg);
         }
         // The inner rect keeps all four sides of the ring inside the bar.
         // A latched utility's ring follows its contrasting ink.
@@ -230,7 +251,7 @@ fn draw_rail_button(
             };
             ui.painter().rect_stroke(
                 ring_rect,
-                5.0,
+                theme.radius.md,
                 Stroke::new(DESIGN_TOKENS.stroke.thick, ring),
                 StrokeKind::Inside,
             );
@@ -251,6 +272,6 @@ fn draw_rail_button(
 
     let mut tip = Tooltip::for_enabled(&response);
     tip.popup = tip.popup.align(RectAlign::RIGHT);
-    tip.show(|ui| ui.label(tooltip));
+    tip.show(|ui| ui.label(l10n::text(ui.ctx(), tooltip)));
     response
 }

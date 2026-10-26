@@ -1,13 +1,14 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
 use crate::studies::stepper::{rolling_max, rolling_min};
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Schaff Trend Cycle (STC)
 /// Combines MACD with stochastic to create a faster, more accurate oscillator
 /// Oscillates between 0 and 100
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct SchaffTrendCycle {
     /// MACD short period (typically 23)
@@ -22,17 +23,19 @@ pub struct SchaffTrendCycle {
 }
 
 impl SchaffTrendCycle {
+    /// Create with MACD periods 23 and 50 and cycle length 10.
     pub fn new() -> Self {
         Self {
             macd_short: 23,
             macd_long: 50,
             cycle: 10,
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.cyan,
+            color: palette::CYAN,
             visible: true,
         }
     }
 
+    /// Set the short and long MACD periods and cycle length in bars, each at least one.
     pub fn with_periods(mut self, short: usize, long: usize, cycle: usize) -> Self {
         self.macd_short = short.max(1);
         self.macd_long = long.max(1);
@@ -40,38 +43,10 @@ impl SchaffTrendCycle {
         self
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
-    }
-
-    fn calculate_ema(data: &[f64], period: usize) -> Vec<f64> {
-        if data.is_empty() || period == 0 {
-            return Vec::new();
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        let mut ema = Vec::with_capacity(data.len());
-
-        // First value is SMA
-        let first_sma: f64 = data.iter().take(period).sum::<f64>() / period as f64;
-
-        for i in 0..data.len() {
-            if i < period - 1 {
-                ema.push(f64::NAN);
-            } else if i == period - 1 {
-                ema.push(first_sma);
-            } else {
-                let prev = ema[i - 1];
-                if prev.is_nan() || data[i].is_nan() {
-                    ema.push(f64::NAN);
-                } else {
-                    ema.push((data[i] - prev) * multiplier + prev);
-                }
-            }
-        }
-
-        ema
     }
 
     fn stochastic(values: &[f64], period: usize) -> Vec<f64> {
@@ -129,8 +104,8 @@ impl SchaffTrendCycle {
         let closes: Vec<f64> = data.iter().map(|b| b.close).collect();
 
         // Calculate MACD line (short EMA - long EMA)
-        let short_ema = Self::calculate_ema(&closes, self.macd_short);
-        let long_ema = Self::calculate_ema(&closes, self.macd_long);
+        let short_ema = helpers::ema_sma(&closes, self.macd_short);
+        let long_ema = helpers::ema_sma(&closes, self.macd_long);
 
         let mut macd = Vec::with_capacity(data.len());
         for i in 0..data.len() {

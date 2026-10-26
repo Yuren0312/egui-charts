@@ -1,13 +1,13 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::palette;
 use crate::studies::stepper::rolling_mean;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Know Sure Thing (KST) Oscillator
 /// Developed by Martin Pring
 /// Combines multiple ROC values with different smoothing periods
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct KnowSureThing {
     /// ROC periods (typically 10, 15, 20, 30)
@@ -23,6 +23,7 @@ pub struct KnowSureThing {
 }
 
 impl KnowSureThing {
+    /// Create with ROC periods 10/15/20/30, SMA periods 10/10/10/15 and signal period 9.
     pub fn new() -> Self {
         Self {
             roc_periods: [10, 15, 20, 30],
@@ -30,13 +31,14 @@ impl KnowSureThing {
             signal_period: 9,
             values: IndicatorValues::new(),
             colors: vec![
-                DESIGN_TOKENS.semantic.extended.info,    // Blue - KST
-                DESIGN_TOKENS.semantic.extended.warning, // Orange - Signal
+                palette::BLUE,   // Blue - KST
+                palette::ORANGE, // Orange - Signal
             ],
             visible: true,
         }
     }
 
+    /// Set the four rate-of-change periods, their SMA periods and the signal period, each at least one.
     pub fn with_params(
         mut self,
         roc_periods: [usize; 4],
@@ -49,6 +51,7 @@ impl KnowSureThing {
         self
     }
 
+    /// Set plot colors in the order returned by [`Indicator::line_names`].
     pub fn with_colors(mut self, colors: Vec<Color32>) -> Self {
         self.colors = colors;
         self

@@ -3,6 +3,7 @@
 use super::command::Command;
 use super::fuzzy::{FuzzyMatch, fuzzy_match};
 use crate::icons::icons;
+use crate::localization as l10n;
 use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use egui::text::{LayoutJob, TextWrapping};
@@ -19,6 +20,7 @@ pub struct CommandPalette {
     /// Cached filtered results (command index, match)
     filtered: Vec<(usize, FuzzyMatch)>,
     focus_search: bool,
+    context: Option<Context>,
 }
 
 impl CommandPalette {
@@ -30,6 +32,7 @@ impl CommandPalette {
             selected_index: 0,
             filtered: Vec::new(),
             focus_search: true,
+            context: None,
         }
     }
 
@@ -74,7 +77,17 @@ impl CommandPalette {
         } else {
             // Fuzzy match against all commands
             for (idx, cmd) in self.commands.iter().enumerate() {
-                if let Some(m) = fuzzy_match(&self.search_query, &cmd.searchable_text()) {
+                let mut searchable = cmd.searchable_text();
+                if let Some(ctx) = &self.context {
+                    for text in std::iter::once(&cmd.label)
+                        .chain(cmd.description.iter())
+                        .chain(cmd.category.iter())
+                    {
+                        searchable.push(' ');
+                        searchable.push_str(&l10n::text(ctx, text));
+                    }
+                }
+                if let Some(m) = fuzzy_match(&self.search_query, &searchable) {
                     self.filtered.push((idx, m));
                 }
             }
@@ -109,11 +122,14 @@ impl CommandPalette {
 
     /// Show the command palette modal
     ///
-    /// Returns the ID of the executed command if any
+    /// Returns the ID of the executed command if any. Keyboard activation consumes its key so
+    /// the host can open another dialog in the same frame.
     pub fn show(&mut self, ctx: &Context, open: &mut bool) -> Option<String> {
         if !*open {
             return None;
         }
+        self.context = Some(ctx.clone());
+        self.update_filter();
 
         let mut executed_command = None;
 
@@ -144,6 +160,7 @@ impl CommandPalette {
         }
 
         if execute && !self.filtered.is_empty() {
+            ctx.input_mut(|i| i.consume_key(i.modifiers, Key::Enter));
             let (cmd_idx, _) = self.filtered[self.selected_index];
             executed_command = Some(self.commands[cmd_idx].id.clone());
             *open = false;
@@ -154,7 +171,7 @@ impl CommandPalette {
         crate::ui_kit::modal::Modal::new("command_palette", "Search actions")
             .width(480.0)
             .height(680.0)
-            .rounding(8.0)
+            .rounding(ctx.active_theme().radius.lg)
             .show(ctx, open, |ui| {
                 ui.add_space(12.0);
                 ui.separator();
@@ -170,12 +187,12 @@ impl CommandPalette {
                         .add(
                             TextEdit::singleline(&mut self.search_query)
                                 .id(search_id)
-                                .hint_text("Search actions")
+                                .hint_text(l10n::text(ui.ctx(), "Search actions"))
                                 .frame(egui::Frame::NONE)
                                 .desired_width(ui.available_width())
                                 .font(egui::FontId::proportional(14.0)),
                         )
-                        .accessible_name("Search actions");
+                        .accessible_name(l10n::text(ui.ctx(), "Search actions"));
                     // Sizing passes clear invisible widgets' focus while building the field.
                     if focus_search {
                         response.request_focus();
@@ -186,12 +203,11 @@ impl CommandPalette {
                 });
                 ui.separator();
                 ui.add_space(12.0);
-                if self.filtered.is_empty() && self.search_query.is_empty() {
-                    self.update_filter();
-                }
                 if self.filtered.is_empty() {
                     ui.centered_and_justified(|ui| {
-                        ui.label(RichText::new("No matching actions").size(14.0));
+                        ui.label(
+                            RichText::new(l10n::text(ui.ctx(), "No matching actions")).size(14.0),
+                        );
                     });
                 } else {
                     ScrollArea::vertical()
@@ -208,6 +224,10 @@ impl CommandPalette {
             });
 
         if executed_command.is_some() || !*open {
+            ctx.input_mut(|i| {
+                i.consume_key(i.modifiers, Key::Enter);
+                i.consume_key(i.modifiers, Key::Space);
+            });
             *open = false;
             self.clear();
         }
@@ -230,8 +250,14 @@ fn command_row(ui: &mut egui::Ui, cmd: &Command, is_selected: bool) -> egui::Res
     };
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+    let translated_label = l10n::text(ui.ctx(), &cmd.label);
     response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), is_selected, &cmd.label)
+        egui::WidgetInfo::selected(
+            egui::Role::Button,
+            ui.is_enabled(),
+            is_selected,
+            &translated_label,
+        )
     });
     if !ui.is_rect_visible(rect) {
         return response;
@@ -253,10 +279,10 @@ fn command_row(ui: &mut egui::Ui, cmd: &Command, is_selected: bool) -> egui::Res
     let painter = ui.painter();
     painter.rect_filled(
         rect.shrink2(Vec2::new(theme.spacing.sm, 0.0)),
-        DESIGN_TOKENS.rounding.sm,
+        ui.active_theme().radius.sm,
         fill,
     );
-    crate::styles::focus::draw_focus_ring(ui, &response, DESIGN_TOKENS.rounding.sm);
+    crate::styles::focus::draw_focus_ring(ui, &response, ui.active_theme().radius.sm);
 
     // Every row reserves the icon slot, so labels line up.
     let icon_size = DESIGN_TOKENS.sizing.icon_sm;
@@ -286,7 +312,11 @@ fn command_row(ui: &mut egui::Ui, cmd: &Command, is_selected: bool) -> egui::Res
         if right <= metadata_left {
             break;
         }
-        let mut job = LayoutJob::simple_singleline(label.clone(), small.clone(), secondary);
+        let mut job = LayoutJob::simple_singleline(
+            l10n::text(ui.ctx(), label.clone()),
+            small.clone(),
+            secondary,
+        );
         job.wrap = TextWrapping::truncate_at_width(right - metadata_left);
         let galley = painter.layout_job(job);
         let pos = egui::pos2(
@@ -308,7 +338,8 @@ fn command_row(ui: &mut egui::Ui, cmd: &Command, is_selected: bool) -> egui::Res
         (cmd.description.as_ref(), small, secondary, 0.0),
     ] {
         if let Some(label) = label {
-            let mut job = LayoutJob::simple_singleline(label.clone(), font, color);
+            let mut job =
+                LayoutJob::simple_singleline(l10n::text(ui.ctx(), label.clone()), font, color);
             job.wrap = TextWrapping::truncate_at_width((right - text_x).max(0.0));
             let galley = painter.layout_job(job);
             let pos = egui::pos2(text_x, rect.center().y - galley.size().y * align);
@@ -417,24 +448,29 @@ mod tests {
     }
 
     #[test]
-    fn tab_leaves_search_and_enter_executes_the_focused_row() {
+    fn search_and_focused_rows_consume_their_activation_key() {
         for (_, theme) in crate::theme::presets() {
-            let ctx = Context::default();
-            crate::theme::apply_to_egui(&ctx, &theme);
-            let mut palette = CommandPalette::new(vec![
-                Command::new("a", "First"),
-                Command::new("b", "Second"),
-            ]);
-            frame(&ctx, &mut palette, None);
-            frame(&ctx, &mut palette, None);
-            let search = ctx.memory(|m| m.focused());
-            frame(&ctx, &mut palette, Some(Key::Tab));
-            assert_ne!(ctx.memory(|m| m.focused()), search);
-            frame(&ctx, &mut palette, Some(Key::Tab));
-            assert_eq!(
-                frame(&ctx, &mut palette, Some(Key::Enter)).as_deref(),
-                Some("b")
-            );
+            for (focus_row, key) in [(false, Key::Enter), (true, Key::Enter), (true, Key::Space)] {
+                let ctx = Context::default();
+                crate::theme::apply_to_egui(&ctx, &theme);
+                let mut palette = CommandPalette::new(vec![
+                    Command::new("a", "First"),
+                    Command::new("b", "Second"),
+                ]);
+                frame(&ctx, &mut palette, None);
+                frame(&ctx, &mut palette, None);
+                if focus_row {
+                    let search = ctx.memory(|m| m.focused());
+                    frame(&ctx, &mut palette, Some(Key::Tab));
+                    assert_ne!(ctx.memory(|m| m.focused()), search);
+                    frame(&ctx, &mut palette, Some(Key::Tab));
+                }
+                assert_eq!(
+                    frame(&ctx, &mut palette, Some(key)).as_deref(),
+                    Some(if focus_row { "b" } else { "a" })
+                );
+                assert!(!ctx.input(|i| i.key_pressed(key)));
+            }
         }
     }
 
@@ -524,6 +560,33 @@ mod tests {
         frame(&ctx, &mut p, None);
         frame(&ctx, &mut p, Some(Key::ArrowDown));
         p.remove_command("a");
+        assert_eq!(frame(&ctx, &mut p, Some(Key::Enter)).as_deref(), Some("b"));
+
+        let (ctx, mut p) = (Context::default(), palette());
+        l10n::set_translator(&ctx, |english| (english == "b").then(|| "zweite".into()));
+        for (query, expected) in [("zweite", vec!["b"]), ("b", vec!["b"])] {
+            p.search_query = query.into();
+            frame(&ctx, &mut p, None);
+            let ids: Vec<_> = p
+                .filtered
+                .iter()
+                .map(|(i, _)| p.commands[*i].id.as_str())
+                .collect();
+            assert_eq!(ids, expected);
+        }
+        p.search_query = "zweite".into();
+        l10n::clear_translator(&ctx);
+        frame(&ctx, &mut p, None);
+        assert!(p.filtered.is_empty());
+
+        let (ctx, mut p) = (Context::default(), palette());
+        l10n::set_translator(&ctx, |english| Some(format!("Aktion {english}")));
+        p.search_query = "Aktion".into();
+        frame(&ctx, &mut p, None);
+        frame(&ctx, &mut p, None);
+        frame(&ctx, &mut p, Some(Key::ArrowDown));
+        assert_eq!(p.selected_index, 1);
+        p.remove_command("c");
         assert_eq!(frame(&ctx, &mut p, Some(Key::Enter)).as_deref(), Some("b"));
     }
 }

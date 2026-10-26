@@ -1,9 +1,11 @@
 //! Coordinates tab - staged price and UTC time points.
 
 use crate::drawings::{ChartPoint, Drawing};
-use crate::ext::UiExt;
+use crate::localization as l10n;
+use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
 use crate::ui_kit::FormGrid;
+use crate::ui_kit::ext::UiExt;
 use crate::widget::Chart;
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use egui::Ui;
@@ -119,17 +121,24 @@ impl CoordinatesTab {
     pub fn show(ui: &mut Ui, state: &mut CoordinatesState) {
         ui.space_md();
         if state.points.is_empty() {
-            ui.label("Open a drawing to edit its coordinates.");
+            ui.label(l10n::text(
+                ui.ctx(),
+                "Open a drawing to edit its coordinates.",
+            ));
         }
         for (i, point) in state.points.iter_mut().enumerate() {
             if i > 0 {
                 ui.space_sm();
             }
             ui.group(|ui| {
-                ui.strong(format!("Point {}", i + 1));
+                ui.strong(l10n::format_text(
+                    ui.ctx(),
+                    "Point {0}",
+                    &[("0", format!("{}", i + 1))],
+                ));
                 ui.space_sm();
                 FormGrid::new(format!("coord_grid_{i}"))
-                    .spacing(DESIGN_TOKENS.spacing.lg, DESIGN_TOKENS.spacing.sm)
+                    .spacing(ui.active_theme().spacing.lg, ui.active_theme().spacing.sm)
                     .show(ui, |ui| {
                         field(ui, "Price", &mut point.price, "");
                         if point.original.is_some_and(|(_, time)| time.is_none()) {
@@ -145,11 +154,11 @@ impl CoordinatesTab {
 }
 
 fn field(ui: &mut Ui, label: &str, value: &mut String, hint: &str) {
-    let label = ui.label(label);
+    let label = ui.label(l10n::text(ui.ctx(), label));
     ui.add(
         egui::TextEdit::singleline(value)
             .desired_width(DESIGN_TOKENS.sizing.dialog.input_width)
-            .hint_text(hint),
+            .hint_text(l10n::text(ui.ctx(), hint)),
     )
     .labelled_by(label.id);
     ui.end_row();

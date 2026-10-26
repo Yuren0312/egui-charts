@@ -6,6 +6,8 @@
 //! action, in a horizontally scrolling strip after the fixed main menu.
 
 use crate::icons::{Icon, icons as embedded_icons};
+use crate::localization as l10n;
+use crate::model::Timeframe;
 use crate::theme::ThemeExt;
 use crate::ui_kit::buttons::IconButton;
 use crate::ui_kit::list_item::ListItem;
@@ -18,7 +20,7 @@ use super::{
         chart_grid_selector::ChartGridSelector,
         chart_type_selector::{ChartTypeAction, ChartTypeSelector},
         layout_menu::{LayoutAction, LayoutMenu},
-        timeframe_selector::{Timeframe, TimeframeAction, TimeframeSelector, TimeframeUnit},
+        timeframe_selector::{TimeframeAction, TimeframeSelector},
     },
     config::TopToolbarConfig,
     state::TopToolbarState,
@@ -79,22 +81,22 @@ const RIGHT: &[&[Slot]] = &[
 ];
 
 /// Space between the controls of a group.
-fn gap() -> f32 {
-    DESIGN_TOKENS.spacing.sm
+fn gap(ui: &Ui) -> f32 {
+    ui.active_theme().spacing.sm
 }
 
 /// Width of the group rule with its padding.
-fn separator() -> f32 {
-    2.0 * gap() + DESIGN_TOKENS.sizing.toolbar.separator_width
+fn separator(ui: &Ui) -> f32 {
+    2.0 * gap(ui) + DESIGN_TOKENS.sizing.toolbar.separator_width
 }
 
 /// Neutral group rule, centred in the strip.
 fn show_separator(ui: &mut Ui) {
-    ui.add_space(gap());
+    ui.add_space(gap(ui));
     let (rect, _) = ui.allocate_exact_size(egui::vec2(1.0, 22.0), egui::Sense::hover());
     let color = super::buttons::rule_color(&ui.active_theme());
     ui.painter().rect_filled(rect, 0.0, color);
-    ui.add_space(gap());
+    ui.add_space(gap(ui));
 }
 
 impl Slot {
@@ -168,7 +170,9 @@ impl Slot {
 
 /// Top toolbar widget
 pub struct TopToolbar {
+    /// Display and layout options for this component.
     pub config: TopToolbarConfig,
+    /// Mutable interaction state of this component.
     pub state: TopToolbarState,
     /// Timeframe selector dropdown
     pub timeframe_selector: TimeframeSelector,
@@ -194,7 +198,7 @@ impl Default for TopToolbar {
         Self {
             config: TopToolbarConfig::default(),
             state: TopToolbarState::default(),
-            timeframe_selector: TimeframeSelector::new(Timeframe::new(1, TimeframeUnit::Day)),
+            timeframe_selector: TimeframeSelector::new(Timeframe::Day1),
             chart_type_selector: ChartTypeSelector::new(ChartType::Candles),
             layout_menu: LayoutMenu::new(),
             chart_grid_selector: ChartGridSelector::default(),
@@ -331,7 +335,7 @@ impl TopToolbar {
                                         if response.clicked() {
                                             host_action = TopToolbarAction::Host(id.clone());
                                         }
-                                        ui.add_space(gap());
+                                        ui.add_space(gap(ui));
                                     }
                                 },
                             )
@@ -399,12 +403,12 @@ impl TopToolbar {
             .text_styles
             .insert(egui::TextStyle::Button, font);
 
-        ui.add_space(DESIGN_TOKENS.spacing.lg);
+        ui.add_space(ui.active_theme().spacing.lg);
         self.show_groups(ui, LEFT, symbol, &mut action);
-        let right = self.groups_width(ui, RIGHT) + DESIGN_TOKENS.spacing.lg;
-        ui.add_space((ui.available_width() - right).max(separator()));
+        let right = self.groups_width(ui, RIGHT) + ui.active_theme().spacing.lg;
+        ui.add_space((ui.available_width() - right).max(separator(ui)));
         self.show_groups(ui, RIGHT, symbol, &mut action);
-        ui.add_space(DESIGN_TOKENS.spacing.lg);
+        ui.add_space(ui.active_theme().spacing.lg);
         action
     }
 
@@ -424,11 +428,11 @@ impl TopToolbar {
                 count += 1;
             }
             if count > 0 {
-                width += gap() * (count - 1) as f32;
+                width += gap(ui) * (count - 1) as f32;
                 shown += 1;
             }
         }
-        width + separator() * shown.saturating_sub(1) as f32
+        width + separator(ui) * shown.saturating_sub(1) as f32
     }
 
     /// Draw the visible controls of `groups`, with separators between groups.
@@ -455,7 +459,7 @@ impl TopToolbar {
             first_group = false;
             for (i, control) in visible.into_iter().enumerate() {
                 if i > 0 {
-                    ui.add_space(gap());
+                    ui.add_space(gap(ui));
                 }
                 self.show_control(ui, control, symbol, action);
             }
@@ -484,9 +488,7 @@ impl TopToolbar {
                 return;
             }
             S::Interval => {
-                if let TimeframeAction::Select(tf) = self.timeframe_selector.show(ui)
-                    && let Some(tf) = tf.to_model()
-                {
+                if let TimeframeAction::Select(tf) = self.timeframe_selector.show(ui) {
                     *action = TopToolbarAction::IntervalSelected(tf);
                 }
                 return;
@@ -530,8 +532,13 @@ impl TopToolbar {
                     response.id.with("save_menu"),
                     egui::Sense::click(),
                 );
+                let translated_label = l10n::text(ui.ctx(), "Layout options");
                 arrow.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::Role::Button, arrow.enabled(), "Layout options")
+                    egui::WidgetInfo::labeled(
+                        egui::Role::Button,
+                        arrow.enabled(),
+                        &translated_label,
+                    )
                 });
                 crate::styles::focus::draw_focus_ring(ui, &arrow, self.config.rounding);
                 egui::Popup::menu(&arrow)
@@ -561,7 +568,7 @@ impl TopToolbar {
                         ui.set_width(240.0);
                         ui.style_mut().override_font_id = Some(egui::FontId::proportional(14.0));
                         ui.label(
-                            egui::RichText::new("SNAPSHOT")
+                            egui::RichText::new(l10n::text(ui.ctx(), "SNAPSHOT"))
                                 .size(11.0)
                                 .color(ui.active_theme().ui.text_secondary),
                         );
@@ -585,11 +592,14 @@ impl TopToolbar {
                 ui.add_enabled(enabled, |ui: &mut Ui| {
                     ToolbarIconButton::new(icon, label, &self.config).show(ui)
                 })
-                .on_disabled_hover_text(if control == S::Undo {
-                    "Nothing to undo"
-                } else {
-                    "Nothing to redo"
-                })
+                .on_disabled_hover_text(l10n::text(
+                    ui.ctx(),
+                    if control == S::Undo {
+                        "Nothing to undo"
+                    } else {
+                        "Nothing to redo"
+                    },
+                ))
             }
             S::Indicators | S::Alert | S::Replay => {
                 IconTextButton::new(icon, label, &self.config).show(ui)
@@ -736,7 +746,7 @@ mod tests {
                 let ctx = egui::Context::default();
                 crate::theme::apply_to_egui(&ctx, &theme);
                 let mut toolbar = TopToolbar::new();
-                toolbar.timeframe_selector.current = Timeframe::new(1, TimeframeUnit::Hour);
+                toolbar.timeframe_selector.current = Timeframe::Hour1;
                 toolbar.state.can_undo = true;
                 toolbar.state.can_redo = true;
                 ctx.global_style_mut(|style| {

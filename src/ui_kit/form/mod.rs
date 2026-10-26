@@ -22,9 +22,10 @@
 //! # });
 //! ```
 
+use crate::localization as l10n;
+use crate::theme::ThemeExt;
 pub mod grid;
 
-use crate::styles::typography;
 use crate::tokens::DESIGN_TOKENS;
 use egui::{Align, Layout, RichText, Ui, vec2};
 
@@ -38,6 +39,7 @@ pub struct FormRow<'a> {
 }
 
 impl<'a> FormRow<'a> {
+    /// Create a form row with the supplied label.
     pub fn new(label: &'a str) -> Self {
         Self {
             label,
@@ -46,11 +48,13 @@ impl<'a> FormRow<'a> {
         }
     }
 
+    /// Set explanatory text displayed with the form row.
     pub fn description(mut self, desc: &'a str) -> Self {
         self.description = Some(desc);
         self
     }
 
+    /// Set the label column width in egui logical points.
     pub fn label_width(mut self, width: f32) -> Self {
         self.label_width = width;
         self
@@ -62,15 +66,15 @@ impl<'a> FormRow<'a> {
     /// widget are centred on one line; the description follows below them.
     pub fn show(self, ui: &mut Ui, add_widget: impl FnOnce(&mut Ui)) {
         let spacing = ui.spacing().item_spacing;
-        ui.spacing_mut().item_spacing.y = DESIGN_TOKENS.spacing.md;
+        ui.spacing_mut().item_spacing.y = ui.active_theme().spacing.md;
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = DESIGN_TOKENS.spacing.lg;
+            ui.spacing_mut().item_spacing.x = ui.active_theme().spacing.lg;
             let label = ui.allocate_ui_with_layout(
                 vec2(self.label_width, ui.spacing().interact_size.y),
                 Layout::left_to_right(Align::Center),
                 |ui| {
                     ui.set_width(self.label_width);
-                    ui.label(self.label)
+                    ui.label(l10n::text(ui.ctx(), self.label))
                 },
             );
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
@@ -79,8 +83,8 @@ impl<'a> FormRow<'a> {
         });
         if let Some(desc) = self.description {
             ui.label(
-                RichText::new(desc)
-                    .size(typography::SM)
+                RichText::new(l10n::text(ui.ctx(), desc))
+                    .size(ui.active_theme().text.small)
                     .color(ui.visuals().weak_text_color()),
             );
         }

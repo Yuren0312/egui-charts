@@ -6,6 +6,7 @@
 //! A second table prints first, steady, tick and new-bar frame times for candles and the five
 //! price-based chart types on 1,000,000 one-minute bars; `-- price-based` runs it alone.
 //! A third prints the frame of volume bubbles from 100,000 trades; `-- bubbles` runs it alone.
+//! `--regression <scenario>` runs a compact workload for `benches/check-regressions.sh`.
 
 use egui::{Rect, UiBuilder, pos2, vec2};
 use egui_charts::ChartType;
@@ -20,6 +21,7 @@ use egui_charts::widget::Chart;
 #[expect(dead_code, reason = "the bench draws only the example's sample bars")]
 mod example;
 mod frame;
+mod regression;
 
 /// A scenario: its name, how many bars each chart has and shows, and how many charts.
 struct Scenario {
@@ -118,6 +120,11 @@ const SCENARIOS: [Scenario; 7] = [
 fn main() {
     let frames: usize =
         std::env::var("FRAME_TIME_FRAMES").map_or(300, |v| v.parse().expect("a frame count"));
+    let args: Vec<_> = std::env::args().collect();
+    if let Some(at) = args.iter().position(|arg| arg == "--regression") {
+        regression::run(args.get(at + 1).expect("a regression scenario"), frames);
+        return;
+    }
     // `cargo bench` passes `--bench`; anything else selects scenarios.
     let filters: Vec<String> = std::env::args()
         .skip(1)
@@ -355,7 +362,7 @@ fn bubbles(filters: &[String], frames: usize) {
     use egui_charts::data::{
         Datafeed, HistoryPage, HistoryRequest, Reply, TradePage, TradeRequest,
     };
-    use egui_charts::model::{Bar, Tick, Timeframe, TradeSide};
+    use egui_charts::model::{Bar, OrderSide, Tick, Timeframe};
     use std::sync::Arc;
 
     struct Feed(Vec<Bar>, Vec<Tick>);
@@ -390,9 +397,9 @@ fn bubbles(filters: &[String], frames: usize) {
     let trades: Vec<Tick> = (0..count)
         .map(|i| {
             let side = if unit() < 0.5 {
-                TradeSide::Buy
+                OrderSide::Buy
             } else {
-                TradeSide::Sell
+                OrderSide::Sell
             };
             let time = start + Duration::minutes(i / 60) + Duration::seconds(i % 60);
             let price = 100.0 + (i % levels) as f64 * step;

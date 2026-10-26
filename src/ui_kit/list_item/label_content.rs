@@ -1,12 +1,13 @@
 //! LabelContent - Simple text content with optional icon
 
+use crate::localization as l10n;
+use crate::theme::ThemeExt;
 use egui::{Response, RichText, Role, Ui, Vec2, WidgetInfo};
 
 use crate::icons::Icon;
 use crate::styles::icons;
 
 use super::content::{ContentContext, ListItemContent};
-use crate::tokens::DESIGN_TOKENS;
 
 /// Simple text content with optional icon
 ///
@@ -97,13 +98,14 @@ impl<'a> ListItemContent for LabelContent<'a> {
 
         // Calculate layout
         let icon_width = if self.icon.is_some() {
-            self.icon_size + DESIGN_TOKENS.spacing.sm
+            self.icon_size + ui.active_theme().spacing.sm
         } else {
             0.0
         };
 
         let content_rect = context.rect;
         let is_menu = ui.stack().contained_in(egui::UiKind::Menu);
+        let translated_label = l10n::text(ui.ctx(), &self.text);
         context.response.widget_info(|| {
             WidgetInfo::labeled(
                 if is_menu {
@@ -114,7 +116,7 @@ impl<'a> ListItemContent for LabelContent<'a> {
                     Role::ListItem
                 },
                 context.response.enabled(),
-                &self.text,
+                &translated_label,
             )
         });
 
@@ -140,7 +142,7 @@ impl<'a> ListItemContent for LabelContent<'a> {
             // Draw text
             let text_pos = egui::pos2(content_rect.min.x + icon_width, content_rect.center().y);
 
-            let mut rich_text = RichText::new(&self.text).color(text_color);
+            let mut rich_text = RichText::new(l10n::text(ui.ctx(), &self.text)).color(text_color);
             if self.italics {
                 rich_text = rich_text.italics();
             }

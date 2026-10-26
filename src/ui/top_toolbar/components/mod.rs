@@ -1,6 +1,6 @@
-//! Upper toolbar components
+//! Symbol search, interval and chart type pickers, study selection and layout controls.
 //!
-//! Individual components for the upper toolbar.
+//! Use these components individually when composing a custom top toolbar.
 
 pub mod chart_grid_selector;
 pub mod chart_type_selector;
@@ -36,8 +36,7 @@ pub use layout_menu::{LayoutAction, LayoutMenu, LayoutMenuConfig};
 
 // From settings_menu (ChartType comes from chart_type_selector - single source of truth)
 pub use settings_menu::{
-    CandleColorConfig, ChartSettings, ChartSettingsState, PrecisionMode, ScaleMode, SettingsAction,
-    SettingsDialog, SettingsDialogConfig, SettingsMenu, SettingsTab, StatusLineOptions,
+    ChartSettings, SettingsAction, SettingsDialog, SettingsDialogConfig, SettingsMenu, SettingsTab,
 };
 
 // From symbol_search
@@ -48,6 +47,6 @@ pub use symbol_search::{
 
 // From timeframe_selector
 pub use timeframe_selector::{
-    Timeframe, TimeframeAction, TimeframePreferences, TimeframeSelector, TimeframeSelectorConfig,
+    TimeframeAction, TimeframePreferences, TimeframeSelector, TimeframeSelectorConfig,
     TimeframeUnit,
 };

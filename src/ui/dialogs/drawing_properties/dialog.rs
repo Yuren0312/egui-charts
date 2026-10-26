@@ -1,5 +1,6 @@
 //! Drawing properties dialog - modal popup for editing drawing properties.
 
+use crate::localization as l10n;
 use egui::{Context, Event, Key, Modifiers, Ui, Vec2};
 
 use super::actions::{DrawingId, DrawingPropertiesAction, DrawingProps};
@@ -16,12 +17,19 @@ use crate::ui_kit::tab_bar::TabBar;
 
 /// Drawing properties dialog
 pub struct DrawingPropertiesDialog {
+    /// Display and layout options for this component.
     pub config: DrawingPropertiesConfig,
+    /// Whether the dialog is currently visible.
     pub is_open: bool,
+    /// Identifier of the drawing being edited, when open.
     pub drawing_id: Option<DrawingId>,
+    /// Display name of the drawing being edited.
     pub drawing_name: String,
+    /// Currently selected tab.
     pub active_tab: PropertiesTab,
+    /// Editable drawing appearance and tool settings.
     pub props: DrawingProps,
+    /// Editable drawing anchors.
     pub coordinates: CoordinatesState,
     /// Validation error from the most recent Apply attempt.
     pub error: Option<String>,
@@ -34,6 +42,7 @@ impl Default for DrawingPropertiesDialog {
 }
 
 impl DrawingPropertiesDialog {
+    /// Create a [`DrawingPropertiesDialog`] with default settings.
     pub fn new() -> Self {
         Self {
             config: DrawingPropertiesConfig::default(),
@@ -162,7 +171,7 @@ impl DrawingPropertiesDialog {
                     StyleTab::show(ui, &mut self.props, &mut state.pickers);
                     ui.checkbox(
                         &mut self.props.save_as_default,
-                        "Save as default for this tool",
+                        l10n::text(ui.ctx(), "Save as default for this tool"),
                     );
                 }
                 PropertiesTab::Inputs => {
@@ -178,7 +187,7 @@ impl DrawingPropertiesDialog {
             });
 
         if let Some(error) = &self.error {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            ui.colored_label(ui.visuals().error_fg_color, l10n::text(ui.ctx(), error));
         }
 
         let mut delete = false;

@@ -8,6 +8,7 @@
 
 use crate::drawings::DrawingToolType;
 use crate::icons::{Icon, icons};
+use crate::localization as l10n;
 use egui::Ui;
 
 use super::{DrawingToolbarAction, ToolCategory};
@@ -17,14 +18,20 @@ use crate::ui::drawing_toolbar::toolbar::CursorStateData;
 /// Cursor tool types (not drawing tools, but cursor modes)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorType {
+    /// Crosshair cursor.
     Cross,
+    /// Dot cursor.
     Dot,
+    /// Arrow cursor.
     Arrow,
+    /// Pointer with a presentation halo.
     Demonstration,
+    /// Click a drawing to delete it.
     Eraser,
 }
 
 impl CursorType {
+    /// Values in display order.
     pub fn all() -> &'static [CursorType] {
         &[
             CursorType::Cross,
@@ -35,6 +42,7 @@ impl CursorType {
         ]
     }
 
+    /// Display name for this value.
     pub fn name(&self) -> &'static str {
         match self {
             CursorType::Cross => "Cross",
@@ -45,6 +53,7 @@ impl CursorType {
         }
     }
 
+    /// Icon representing this value.
     pub fn icon(&self) -> &'static Icon {
         match self {
             CursorType::Cross => &icons::CROSSHAIR,
@@ -55,6 +64,7 @@ impl CursorType {
         }
     }
 
+    /// Keyboard shortcut label, when one is assigned.
     pub fn shortcut(&self) -> Option<&'static str> {
         match self {
             CursorType::Cross => None,
@@ -117,7 +127,7 @@ impl ToolCategory for CursorsCategory {
         let width = ui
             .painter()
             .layout_no_wrap(
-                values_label.into(),
+                l10n::text(ui.ctx(), values_label),
                 egui::FontId::proportional(14.0),
                 theme.ui.text,
             )
@@ -162,16 +172,17 @@ impl ToolCategory for CursorsCategory {
             ui.painter().text(
                 egui::pos2(rect.left() + 40.0, rect.center().y),
                 egui::Align2::LEFT_CENTER,
-                cursor.name(),
+                l10n::text(ui.ctx(), cursor.name()),
                 font.clone(),
                 foreground,
             );
+            let translated_label = l10n::text(ui.ctx(), cursor.name());
             response.widget_info(|| {
                 egui::WidgetInfo::selected(
                     egui::Role::RadioButton,
                     response.enabled(),
                     active,
-                    cursor.name(),
+                    &translated_label,
                 )
             });
             if response.has_focus() {
@@ -203,7 +214,7 @@ impl ToolCategory for CursorsCategory {
         ui.painter().text(
             rect.left_center() + egui::vec2(8.0, 0.0),
             egui::Align2::LEFT_CENTER,
-            values_label,
+            l10n::text(ui.ctx(), values_label),
             egui::FontId::proportional(14.0),
             theme.ui.text,
         );
@@ -230,12 +241,13 @@ impl ToolCategory for CursorsCategory {
             7.0,
             theme.ui.panel_bg,
         );
+        let translated_label = l10n::text(ui.ctx(), values_label);
         response.widget_info(|| {
             egui::WidgetInfo::selected(
                 egui::Role::Switch,
                 response.enabled(),
                 state.values_tooltip,
-                values_label,
+                &translated_label,
             )
         });
         if response.has_focus() {

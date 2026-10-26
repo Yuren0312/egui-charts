@@ -1,12 +1,14 @@
 //! Chart data export and renderer-independent image frames.
 
 use super::Chart;
-use crate::studies::StudyFormat;
+use crate::localization as l10n;
+use crate::scales::StudyFormat;
 use crate::theme::ThemeExt;
 use chrono::{DateTime, Utc};
 
 /// Image options shared by the export dialog and offscreen rendering.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ImageExportOptions {
     /// Output width and height in pixels.
     pub size: [u32; 2],
@@ -39,6 +41,7 @@ impl Default for ImageExportOptions {
 /// This uses its own texture namespace; render with a dedicated egui renderer. Hosts must also
 /// bind any user textures referenced by their image sources before drawing.
 #[must_use = "Render the frame and apply its texture deltas, or clear them before dropping"]
+#[non_exhaustive]
 pub struct ChartImage {
     /// Exact output dimensions in pixels.
     pub size: [u32; 2],
@@ -53,7 +56,7 @@ impl Chart {
         match self.display_timezone() {
             crate::scales::TimezoneMode::Local => time.with_timezone(&chrono::Local).to_rfc3339(),
             zone => time
-                .with_timezone(&zone.to_tz().unwrap_or(chrono_tz::UTC))
+                .with_timezone(&zone.to_tz().unwrap_or(crate::model::TimezoneId::utc()))
                 .to_rfc3339(),
         }
     }
@@ -106,7 +109,7 @@ impl Chart {
             .filter(|(_, study)| study.is_visible())
         {
             let names = study.line_names();
-            for line in (0..study.line_cnt()).filter(|line| study.plot_style(*line).visible) {
+            for line in (0..study.line_count()).filter(|line| study.plot_style(*line).visible) {
                 header.push(format!(
                     "{}: {}",
                     study.name(),
@@ -230,7 +233,7 @@ impl Chart {
                     if title.is_some() || timestamp.is_some() {
                         ui.horizontal(|ui| {
                             if let Some(title) = &title {
-                                ui.label(title);
+                                ui.label(l10n::text(ui.ctx(), title));
                             }
                             if let Some(timestamp) = &timestamp {
                                 ui.label(timestamp);
@@ -304,6 +307,7 @@ impl Chart {
                 visible: series.visible,
                 bars: series.bars.clone(),
                 revision: series.revision,
+                heikin_ashi: Default::default(),
                 feed: series.feed.clone(),
                 markers: series.markers.clone(),
                 marker_options: series.marker_options,
@@ -327,8 +331,11 @@ impl Chart {
         chart.time_formatter = self.time_formatter.clone();
         chart.price_formatter = self.price_formatter.clone();
         chart.percentage_formatter = self.percentage_formatter.clone();
+        chart.volume_formatter = self.volume_formatter.clone();
+        chart.series_formatters = self.series_formatters.clone();
         chart.extended_hours = self.extended_hours;
         chart.theme_override = self.theme_override.clone();
+        chart.inherited_theme = self.inherited_theme.clone();
         #[cfg(feature = "drawings")]
         {
             chart.drawings.registry = self.drawings.registry.clone();
@@ -394,7 +401,7 @@ mod tests {
         ]
         .map(|time| DateTime::parse_from_rfc3339(time).unwrap().to_utc())
         .into();
-        for (zone, expected_times) in [
+        let zones = [
             (
                 crate::scales::TimezoneMode::Utc,
                 [
@@ -402,21 +409,24 @@ mod tests {
                     "2024-11-03T06:30:00.125+00:00",
                 ],
             ),
+            #[cfg(feature = "timezones")]
             (
-                crate::scales::TimezoneMode::Timezone(chrono_tz::America::New_York),
+                crate::scales::TimezoneMode::Timezone("America/New_York".parse().unwrap()),
                 [
                     "2024-11-03T01:30:00.125-04:00",
                     "2024-11-03T01:30:00.125-05:00",
                 ],
             ),
+            #[cfg(feature = "timezones")]
             (
-                crate::scales::TimezoneMode::Exchange(chrono_tz::UTC),
+                crate::scales::TimezoneMode::Exchange(crate::model::TimezoneId::utc()),
                 [
                     "2024-11-03T01:30:00.125-04:00",
                     "2024-11-03T01:30:00.125-05:00",
                 ],
             ),
-        ] {
+        ];
+        for (zone, expected_times) in zones {
             let bars: Vec<_> = times
                 .iter()
                 .zip([10.0, 14.0, 18.0])
@@ -445,7 +455,7 @@ mod tests {
                         })
                         .collect()
                 })
-                .with_line_cnt(3)
+                .with_line_count(3)
                 .with_line_names(vec!["mean".into(), "shifted".into(), "hidden".into()])
                 .with_offsets(vec![0, -1, 0]),
             ));

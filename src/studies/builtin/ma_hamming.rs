@@ -1,9 +1,9 @@
 use crate::model::Bar;
-/// Hamming Weighted Moving Average
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
+/// Hamming Weighted Moving Average
 #[derive(Clone)]
 pub struct HammingMA {
     period: usize,
@@ -13,15 +13,17 @@ pub struct HammingMA {
 }
 
 impl HammingMA {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.indicators.ma,
+            color: palette::ORANGE,
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

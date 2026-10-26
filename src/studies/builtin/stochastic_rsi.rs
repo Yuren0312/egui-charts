@@ -25,8 +25,9 @@
 
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Stochastic RSI indicator
@@ -57,8 +58,8 @@ impl StochasticRSI {
             smooth_k: smooth_k.max(1),
             smooth_d: smooth_d.max(1),
             values: IndicatorValues::new(),
-            k_color: DESIGN_TOKENS.semantic.extended.info,
-            d_color: DESIGN_TOKENS.semantic.extended.error,
+            k_color: palette::BLUE,
+            d_color: palette::RED,
             visible: true,
         }
     }
@@ -122,21 +123,6 @@ impl StochasticRSI {
         rsi
     }
 
-    /// Calculate SMA for a slice
-    fn sma(data: &[f64], start: usize, period: usize) -> f64 {
-        if start + 1 < period {
-            return f64::NAN;
-        }
-        let begin = start + 1 - period;
-        let sum: f64 = data[begin..=start].iter().filter(|x| !x.is_nan()).sum();
-        let count = data[begin..=start].iter().filter(|x| !x.is_nan()).count();
-        if count == period {
-            sum / period as f64
-        } else {
-            f64::NAN
-        }
-    }
-
     /// The values over `data`, every bar of which has a finite close.
     fn compute(&self, data: &[Bar]) -> IndicatorValues {
         let mut values = IndicatorValues::new();
@@ -182,17 +168,8 @@ impl StochasticRSI {
             }
         }
 
-        // Step 3: Calculate %K (SMA of StochRSI)
-        let mut k_line = vec![f64::NAN; data.len()];
-        for i in 0..data.len() {
-            k_line[i] = Self::sma(&stoch_rsi, i, self.smooth_k);
-        }
-
-        // Step 4: Calculate %D (SMA of %K)
-        let mut d_line = vec![f64::NAN; data.len()];
-        for i in 0..data.len() {
-            d_line[i] = Self::sma(&k_line, i, self.smooth_d);
-        }
+        let k_line = helpers::sma(&stoch_rsi, self.smooth_k);
+        let d_line = helpers::sma(&k_line, self.smooth_d);
 
         // Build output
         for i in 0..data.len() {
@@ -264,7 +241,7 @@ impl Indicator for StochasticRSI {
         false // StochRSI is a separate oscillator pane
     }
 
-    fn line_cnt(&self) -> usize {
+    fn line_count(&self) -> usize {
         2 // %K and %D
     }
 

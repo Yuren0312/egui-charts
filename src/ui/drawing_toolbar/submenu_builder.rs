@@ -28,11 +28,12 @@
 //! ```
 
 use super::actions::DrawingToolbarAction;
-use crate::ext::UiExt;
 use crate::icons::{Icon, icons};
+use crate::localization as l10n;
 use crate::styles::{focus::focus_ring_color, icons as icon_sizes};
 use crate::theme::ThemeExt;
 use crate::tokens::DESIGN_TOKENS;
+use crate::ui_kit::ext::UiExt;
 use egui::{
     Align2, FontId, Frame, Id, Key, Modifiers, Popup, PopupCloseBehavior, Pos2, Rect, RectAlign,
     Response, Role, ScrollArea, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetInfo,
@@ -56,22 +57,29 @@ pub struct SubmenuBuilder<'a> {
 /// A single item in a submenu
 #[derive(Default)]
 pub struct SubmenuItem {
+    /// Glyph displayed by the component.
     pub icon: Option<&'static Icon>,
+    /// Text displayed by the component.
     pub label: String,
+    /// Help text displayed on hover.
     pub tooltip: String,
     /// Draw the row in the accent fill.
     pub is_sel: bool,
+    /// Whether the entry is marked as a favorite.
     pub is_favorite: bool,
     /// Show a check mark in the right column.
     pub is_checked: bool,
     /// Draw the row in the error colour, for an action that destroys data.
     pub is_danger: bool,
+    /// Callback invoked when the row is clicked, optionally returning an action.
     pub on_click: Option<Box<dyn Fn() -> Option<DrawingToolbarAction>>>,
 }
 
 /// Configuration for a toggle checkbox at the bottom of a submenu
 pub struct ToggleConfig<'a> {
+    /// Text displayed by the component.
     pub label: String,
+    /// Mutable toggle state.
     pub value: &'a mut bool,
 }
 
@@ -199,12 +207,12 @@ impl<'a> SubmenuBuilder<'a> {
             {
                 result = on_click();
             }
-            response.on_hover_text(&item.tooltip);
+            response.on_hover_text(l10n::text(ui.ctx(), &item.tooltip));
         }
 
         if let Some(toggle) = &mut toggle {
             ui.spaced_separator();
-            ui.checkbox(toggle.value, &toggle.label);
+            ui.checkbox(toggle.value, l10n::text(ui.ctx(), &toggle.label));
         }
 
         result
@@ -259,7 +267,11 @@ pub(super) fn row_width(ui: &Ui, row: &FlyoutRow) -> f32 {
     let theme = ui.active_theme();
     let text_width = |text: &str, size: f32| {
         ui.painter()
-            .layout_no_wrap(text.to_owned(), FontId::proportional(size), theme.ui.text)
+            .layout_no_wrap(
+                l10n::text(ui.ctx(), text),
+                FontId::proportional(size),
+                theme.ui.text,
+            )
             .size()
             .x
     };
@@ -275,12 +287,13 @@ pub(super) fn flyout_row(ui: &mut Ui, width: f32, row: &FlyoutRow) -> RowRespons
     let theme = ui.active_theme();
     let gap = gap(ui);
     let (rect, row_response) = ui.allocate_exact_size(Vec2::new(width, ROW_HEIGHT), Sense::click());
+    let translated_label = l10n::text(ui.ctx(), row.label);
     row_response.widget_info(|| {
         WidgetInfo::selected(
             Role::MenuItem,
             row_response.enabled(),
             row.selected || row.check,
-            row.label,
+            &translated_label,
         )
     });
 
@@ -294,12 +307,14 @@ pub(super) fn flyout_row(ui: &mut Ui, width: f32, row: &FlyoutRow) -> RowRespons
     // The star answers its own clicks, so the row's click never selects the tool.
     let star_response = row.star.map(|favorite| {
         let response = ui.interact(right_slot, row_response.id.with("star"), Sense::click());
+        let translated_label =
+            l10n::format_text(ui.ctx(), "Favourite {0}", &[("0", row.label.to_string())]);
         response.widget_info(|| {
             WidgetInfo::selected(
                 Role::Button,
                 response.enabled(),
                 favorite,
-                format!("Favourite {}", row.label),
+                &translated_label,
             )
         });
         response
@@ -307,7 +322,7 @@ pub(super) fn flyout_row(ui: &mut Ui, width: f32, row: &FlyoutRow) -> RowRespons
     let hovered = row_response.hovered() || star_response.as_ref().is_some_and(Response::hovered);
 
     if ui.is_rect_visible(rect) {
-        let radius = DESIGN_TOKENS.rounding.sm;
+        let radius = ui.active_theme().radius.sm;
         let painter = ui.painter();
         let fill = match (row.selected, hovered) {
             (true, true) => Some(theme.ui.accent_hover),
@@ -339,7 +354,7 @@ pub(super) fn flyout_row(ui: &mut Ui, width: f32, row: &FlyoutRow) -> RowRespons
         ui.painter().text(
             Pos2::new(x, rect.center().y),
             Align2::LEFT_CENTER,
-            row.label,
+            l10n::text(ui.ctx(), row.label),
             FontId::proportional(theme.text.body),
             text,
         );
@@ -347,7 +362,7 @@ pub(super) fn flyout_row(ui: &mut Ui, width: f32, row: &FlyoutRow) -> RowRespons
             ui.painter().text(
                 Pos2::new(right_slot.left() - gap, rect.center().y),
                 Align2::RIGHT_CENTER,
-                shortcut,
+                l10n::text(ui.ctx(), shortcut),
                 FontId::proportional(theme.text.small),
                 secondary,
             );
@@ -410,7 +425,7 @@ pub(super) fn section_header(ui: &mut Ui, text: &str, width: f32) {
     ui.painter().text(
         Pos2::new(rect.left() + gap, rect.bottom() - gap / 2.0),
         Align2::LEFT_BOTTOM,
-        text,
+        l10n::text(ui.ctx(), text),
         FontId::proportional(theme.text.small),
         theme.ui.text_secondary,
     );

@@ -4,6 +4,7 @@
 //! Uses [`crate::model::ChartType`] for the data definition.
 
 use crate::icons::{Icon, icons as embedded_icons};
+use crate::localization as l10n;
 use crate::model::ChartType;
 use crate::styles::icons as icon_sizes;
 use crate::theme::{Theme, ThemeExt};
@@ -75,7 +76,8 @@ impl Default for ChartTypeSelectorConfig {
         // ui.style().visuals at render time for proper theme support.
         Self {
             btn_width: 0.0,
-            dropdown_width: DESIGN_TOKENS.sizing.dialog.submenu_width + DESIGN_TOKENS.spacing.xxl,
+            dropdown_width: DESIGN_TOKENS.sizing.dialog.submenu_width
+                + crate::theme::Theme::default().spacing.xxl,
             item_height: DESIGN_TOKENS.sizing.button_lg,
             bg_color: Color32::TRANSPARENT,
             hover_color: Color32::TRANSPARENT,
@@ -88,8 +90,11 @@ impl Default for ChartTypeSelectorConfig {
 
 /// Action from chart type selector
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ChartTypeAction {
+    /// No action requested.
     None,
+    /// Select the supplied value.
     Select(ChartType),
 }
 
@@ -110,6 +115,7 @@ impl Default for ChartTypeSelector {
 }
 
 impl ChartTypeSelector {
+    /// Create a selector with `initial` as its selected chart type.
     pub fn new(initial: ChartType) -> Self {
         Self {
             current: initial,
@@ -118,6 +124,7 @@ impl ChartTypeSelector {
         }
     }
 
+    /// Use the supplied display and layout options.
     pub fn with_config(mut self, config: ChartTypeSelectorConfig) -> Self {
         self.config = config;
         self
@@ -225,12 +232,13 @@ impl ListItemContent for ChartTypeRow<'_> {
         } else {
             theme.ui.text
         };
+        let translated_label = l10n::text(ui.ctx(), self.chart_type.name());
         context.response.widget_info(|| {
             WidgetInfo::selected(
                 Role::MenuItemRadio,
                 context.response.enabled(),
                 context.selected,
-                self.chart_type.name(),
+                &translated_label,
             )
         });
 
@@ -246,7 +254,7 @@ impl ListItemContent for ChartTypeRow<'_> {
         ui.painter().text(
             pos2(icon_rect.max.x + theme.spacing.lg, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            self.chart_type.name(),
+            l10n::text(ui.ctx(), self.chart_type.name()),
             egui::FontId::proportional(14.0),
             color,
         );

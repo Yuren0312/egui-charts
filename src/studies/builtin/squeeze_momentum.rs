@@ -1,12 +1,13 @@
 use super::{clamp_param, over_finite_bars};
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Squeeze Momentum Indicator
 /// Combines Bollinger Bands and Keltner Channels to identify periods of low volatility
 /// When BB is inside KC = "squeeze" (low volatility period)
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct SqueezeMomentum {
     /// Bollinger Bands period (typically 20)
@@ -26,6 +27,7 @@ pub struct SqueezeMomentum {
 }
 
 impl SqueezeMomentum {
+    /// Create with the default Bollinger and Keltner channel settings.
     pub fn new() -> Self {
         Self {
             bb_period: 20,
@@ -35,10 +37,10 @@ impl SqueezeMomentum {
             momentum_period: 12,
             values: IndicatorValues::new(),
             colors: vec![
-                DESIGN_TOKENS.semantic.extended.success, // Green - Momentum positive
-                DESIGN_TOKENS.semantic.extended.disabled, // Gray - Squeeze on
-                DESIGN_TOKENS.semantic.extended.error,   // Red - Momentum negative
-                DESIGN_TOKENS.semantic.extended.info,    // Blue - Squeeze off
+                palette::GREEN,    // Green - Momentum positive
+                palette::DISABLED, // Gray - Squeeze on
+                palette::RED,      // Red - Momentum negative
+                palette::BLUE,     // Blue - Squeeze off
             ],
             visible: true,
         }
@@ -60,44 +62,10 @@ impl SqueezeMomentum {
         self
     }
 
+    /// Set plot colors in the order returned by [`Indicator::line_names`].
     pub fn with_colors(mut self, colors: Vec<Color32>) -> Self {
         self.colors = colors;
         self
-    }
-
-    fn calculate_sma(data: &[f64], period: usize) -> Vec<f64> {
-        let mut result = Vec::with_capacity(data.len());
-
-        for i in 0..data.len() {
-            if i < period - 1 {
-                result.push(f64::NAN);
-            } else {
-                let sum: f64 = data[i + 1 - period..=i].iter().sum();
-                result.push(sum / period as f64);
-            }
-        }
-
-        result
-    }
-
-    fn calculate_std_dev(data: &[f64], sma: &[f64], period: usize) -> Vec<f64> {
-        let mut result = Vec::with_capacity(data.len());
-
-        for i in 0..data.len() {
-            if i < period - 1 || sma[i].is_nan() {
-                result.push(f64::NAN);
-            } else {
-                let mean = sma[i];
-                let variance: f64 = data[i + 1 - period..=i]
-                    .iter()
-                    .map(|&x| (x - mean).powi(2))
-                    .sum::<f64>()
-                    / period as f64;
-                result.push(variance.sqrt());
-            }
-        }
-
-        result
     }
 
     fn calculate_atr(data: &[Bar], period: usize) -> Vec<f64> {
@@ -111,7 +79,7 @@ impl SqueezeMomentum {
             tr.push(high_low.max(high_close).max(low_close));
         }
 
-        Self::calculate_sma(&tr, period)
+        helpers::sma(&tr, period)
     }
 
     fn linear_regression(data: &[f64], period: usize) -> Vec<f64> {
@@ -164,16 +132,16 @@ impl SqueezeMomentum {
         let closes: Vec<f64> = data.iter().map(|b| b.close).collect();
 
         // Calculate Bollinger Bands
-        let bb_sma = Self::calculate_sma(&closes, self.bb_period);
-        let bb_std = Self::calculate_std_dev(&closes, &bb_sma, self.bb_period);
+        let bb_sma = helpers::sma(&closes, self.bb_period);
+        let bb_std = helpers::stdev(&closes, self.bb_period);
 
         // Calculate Keltner Channels
-        let kc_sma = Self::calculate_sma(&closes, self.kc_period);
+        let kc_sma = helpers::sma(&closes, self.kc_period);
         let atr = Self::calculate_atr(data, self.kc_period);
 
         // Calculate midline and deviations for squeeze calculation
         let hl2: Vec<f64> = data.iter().map(|b| (b.high + b.low) / 2.0).collect();
-        let hl2_sma = Self::calculate_sma(&hl2, self.momentum_period);
+        let hl2_sma = helpers::sma(&hl2, self.momentum_period);
 
         // Calculate momentum using linear regression
         let mut deviation = Vec::with_capacity(data.len());
@@ -221,8 +189,8 @@ impl Indicator for SqueezeMomentum {
         momentum_period: length("Momentum period", 1, usize::MAX)
     ; {});
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Price
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Price
     }
 
     fn name(&self) -> &str {

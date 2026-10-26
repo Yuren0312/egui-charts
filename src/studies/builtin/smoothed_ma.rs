@@ -1,10 +1,10 @@
 use super::over_finite_bars;
 use crate::model::Bar;
-/// Smoothed Moving Average (Wilder's Smoothing)
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
+/// Smoothed Moving Average (Wilder's Smoothing)
 #[derive(Clone)]
 pub struct SmoothedMA {
     period: usize,
@@ -14,15 +14,17 @@ pub struct SmoothedMA {
 }
 
 impl SmoothedMA {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.indicators.ma,
+            color: palette::ORANGE,
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

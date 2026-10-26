@@ -1,6 +1,7 @@
 //! The account panel: the connected account's summary, positions, working orders, order and
 //! balance history and trading journal, shown at the bottom of the terminal.
 
+use crate::localization as l10n;
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
@@ -23,6 +24,8 @@ const HEADER_HEIGHT: f32 = 52.0;
 const ROW_HEIGHT: f32 = 36.0;
 /// Room at the end of each row for its edit and close buttons and the column chooser.
 const ACTIONS_WIDTH: f32 = 64.0;
+/// Maximum entries retained in each completed account history.
+pub(super) const HISTORY_LIMIT: usize = 1_000;
 
 /// What the user asked for in the [`AccountPanel`] that the host carries out. Cancelling or
 /// changing an order and closing a position go to the broker from the panel itself.
@@ -60,7 +63,8 @@ pub enum AccountPanelAction {
 /// with a column chooser and an export. Order History also lists individual executions. A
 /// position offers close, and an order offers edit and cancel on hover; each waits for the
 /// user's confirmation like the chart's lines. Clicking
-/// a symbol asks the host to show it.
+/// a symbol asks the host to show it. Each history keeps the most recent 1,000 entries in
+/// arrival order; active orders are retained independently. Older history remains host-owned.
 #[derive(Default)]
 pub struct AccountPanel {
     /// The broker's name, shown on the tab and in the account selector.
@@ -316,11 +320,21 @@ impl AccountPanel {
             AccountEvent::Order(order) if order.status != OrderStatus::Working => {
                 self.history.retain(|finished| finished.id != order.id);
                 self.history.push(order.clone());
+                if self.history.len() > HISTORY_LIMIT {
+                    let old = self.history.remove(0);
+                    self.fills.forget(&old.id);
+                }
             }
             AccountEvent::Execution(fill) => self.fills.execution(fill),
             AccountEvent::Balance(change) => self.balance.push(change.clone()),
             AccountEvent::Journal(entry) => self.journal.push(entry.clone()),
             _ => {}
+        }
+        if self.balance.len() > HISTORY_LIMIT {
+            self.balance.remove(0);
+        }
+        if self.journal.len() > HISTORY_LIMIT {
+            self.journal.remove(0);
         }
     }
 
@@ -360,14 +374,20 @@ impl Trading {
             ui.set_height(TAB_HEIGHT);
             let tab = egui::Frame::new()
                 .fill(theme.ui.panel_bg)
-                .corner_radius(4)
+                .corner_radius(ui.active_theme().radius.sm)
                 .inner_margin(egui::Margin::symmetric(10, 4));
             tab.show(ui, |ui| {
                 ui.add(icons::CANDLESTICK.as_image_tinted(vec2(20.0, 20.0), theme.ui.text));
-                ui.label(RichText::new(&self.account_panel.broker).color(theme.ui.text));
+                ui.label(
+                    RichText::new(l10n::text(ui.ctx(), &self.account_panel.broker))
+                        .color(theme.ui.text),
+                );
                 if ui
-                    .add(egui::Button::new("Trade").corner_radius(4))
-                    .on_hover_text("Open the order ticket")
+                    .add(
+                        egui::Button::new(l10n::text(ui.ctx(), "Trade"))
+                            .corner_radius(ui.active_theme().radius.sm),
+                    )
+                    .on_hover_text(l10n::text(ui.ctx(), "Open the order ticket"))
                     .clicked()
                 {
                     self.toggle_ticket(chart_symbol.to_owned());
@@ -418,7 +438,7 @@ impl Trading {
                     .image_tint_follows_text_color(true),
                 );
                 egui::Popup::menu(&broker).show(|ui| {
-                    if ui.button("Disconnect").clicked() {
+                    if ui.button(l10n::text(ui.ctx(), "Disconnect")).clicked() {
                         action = Some(AccountPanelAction::Disconnect);
                     }
                 });
@@ -430,7 +450,10 @@ impl Trading {
                 );
                 egui::Popup::menu(&account).show(|ui| {
                     for (index, name) in panel.accounts.iter().enumerate() {
-                        if ui.selectable_label(index == panel.active, name).clicked() {
+                        if ui
+                            .selectable_label(index == panel.active, l10n::text(ui.ctx(), name))
+                            .clicked()
+                        {
                             action = Some(AccountPanelAction::SelectAccount(index));
                         }
                     }
@@ -481,11 +504,15 @@ impl Trading {
                                 theme.ui.text
                             };
                             let label = painter.layout_job(semibold(
-                                label,
+                                &l10n::text(ui.ctx(), label),
                                 theme.text.small,
                                 theme.ui.text,
                             ));
-                            let value = painter.layout_no_wrap(text, value_font.clone(), color);
+                            let value = painter.layout_no_wrap(
+                                l10n::text(ui.ctx(), text),
+                                value_font.clone(),
+                                color,
+                            );
                             let info_width = if info.is_some() { 18.0 } else { 0.0 };
                             let width = (label.size().x + info_width).max(value.size().x);
                             Some((label, value, color, info, width))
@@ -512,7 +539,7 @@ impl Trading {
                                 .as_image_tinted(icon.size(), theme.ui.text_muted)
                                 .paint_at(ui, icon);
                             ui.interact(icon, ui.scope_id().with(info), Sense::hover())
-                                .on_hover_text(info);
+                                .on_hover_text(l10n::text(ui.ctx(), info));
                         }
                         let painter = ui.painter();
                         painter.galley(egui::pos2(left, top + label.size().y + 2.0), value, color);
@@ -535,7 +562,7 @@ impl Trading {
                             Tab::Orders => self.orders.len(),
                             _ => 0,
                         };
-                        let mut title = RichText::new(tab.title());
+                        let mut title = RichText::new(l10n::text(ui.ctx(), tab.title()));
                         let active = self.account_panel.tab == tab;
                         title = title.color(if active {
                             theme.ui.text
@@ -545,7 +572,8 @@ impl Trading {
                         let label = if count > 0 {
                             egui::Atoms::new((
                                 title,
-                                RichText::new(count.to_string()).color(theme.ui.text_secondary),
+                                RichText::new(l10n::text(ui.ctx(), count.to_string()))
+                                    .color(theme.ui.text_secondary),
                             ))
                         } else {
                             egui::Atoms::new(title)
@@ -566,8 +594,16 @@ impl Trading {
             });
         if self.account_panel.tab == Tab::History {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.account_panel.show_executions, false, "Orders");
-                ui.selectable_value(&mut self.account_panel.show_executions, true, "Executions");
+                ui.selectable_value(
+                    &mut self.account_panel.show_executions,
+                    false,
+                    l10n::text(ui.ctx(), "Orders"),
+                );
+                ui.selectable_value(
+                    &mut self.account_panel.show_executions,
+                    true,
+                    l10n::text(ui.ctx(), "Executions"),
+                );
             });
         }
         let rule = ui.available_rect_before_wrap();
@@ -819,7 +855,7 @@ impl Trading {
             .iter()
             .map(|(_, column)| {
                 let title = ui.painter().layout_no_wrap(
-                    column.title.to_owned(),
+                    l10n::text(ui.ctx(), column.title),
                     heading.clone(),
                     theme.ui.text,
                 );
@@ -870,7 +906,7 @@ impl Trading {
                         .text(
                             egui::pos2(x, cell.center().y),
                             align,
-                            column.title,
+                            l10n::text(ui.ctx(), column.title),
                             heading.clone(),
                             theme.ui.text_secondary,
                         );
@@ -887,7 +923,10 @@ impl Trading {
                         for column in tab.columns() {
                             let key = (tab, column.title);
                             let mut shown = !self.account_panel.hidden.contains(&key);
-                            if ui.checkbox(&mut shown, column.title).changed() {
+                            if ui
+                                .checkbox(&mut shown, l10n::text(ui.ctx(), column.title))
+                                .changed()
+                            {
                                 if shown {
                                     self.account_panel.hidden.remove(&key);
                                 } else {
@@ -896,7 +935,7 @@ impl Trading {
                             }
                         }
                         ui.separator();
-                        if ui.button("Export as CSV").clicked() {
+                        if ui.button(l10n::text(ui.ctx(), "Export as CSV")).clicked() {
                             action = Some(AccountPanelAction::Export {
                                 name: tab.title().to_owned(),
                                 csv: csv(&columns, &rows),
@@ -994,7 +1033,7 @@ impl Trading {
                                     let unit = painter.text(
                                         egui::pos2(right, y + 1.0),
                                         Align2::RIGHT_CENTER,
-                                        &cell.unit,
+                                        l10n::text(ui.ctx(), &cell.unit),
                                         unit_font.clone(),
                                         theme.ui.text_muted,
                                     );
@@ -1008,7 +1047,7 @@ impl Trading {
                                 painter.text(
                                     egui::pos2(x, y),
                                     align,
-                                    &cell.text,
+                                    l10n::text(ui.ctx(), &cell.text),
                                     font.clone(),
                                     cell.color,
                                 );
@@ -1079,75 +1118,82 @@ impl Trading {
         };
         let mut open = true;
         let mut save = false;
-        egui::Window::new(format!("Modify order {}", order.id))
-            .id(egui::Id::unique("account_panel_modify"))
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                egui::Grid::new("account_panel_modify_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 8.0])
-                    .show(ui, |ui| {
-                        let price = |ui: &mut Ui, label: &str, value: &mut f64| {
-                            ui.label(label);
-                            ui.add(
-                                egui::DragValue::new(value)
-                                    .range(0.0..=f64::MAX)
-                                    .max_decimals(decimals)
-                                    .speed(10f64.powi(-(decimals as i32))),
-                            );
-                            ui.end_row();
-                        };
-                        ui.label("Quantity");
-                        ui.add(egui::DragValue::new(&mut request.quantity).range(0.0..=f64::MAX));
+        egui::Window::new(l10n::format_text(
+            ctx,
+            "Modify order {0}",
+            &[("0", order.id.to_string())],
+        ))
+        .id(egui::Id::unique("account_panel_modify"))
+        .collapsible(false)
+        .resizable(false)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            egui::Grid::new("account_panel_modify_grid")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    let price = |ui: &mut Ui, label: &str, value: &mut f64| {
+                        ui.label(l10n::text(ui.ctx(), label));
+                        ui.add(
+                            egui::DragValue::new(value)
+                                .range(0.0..=f64::MAX)
+                                .max_decimals(decimals)
+                                .speed(10f64.powi(-(decimals as i32))),
+                        );
                         ui.end_row();
-                        match &mut request.order_type {
-                            OrderType::Limit(limit) => price(ui, "Limit price", limit),
-                            OrderType::Stop(stop) => price(ui, "Stop price", stop),
-                            OrderType::StopLimit { stop, limit } => {
-                                price(ui, "Stop price", stop);
-                                price(ui, "Limit price", limit);
-                            }
-                            _ => {}
+                    };
+                    ui.label(l10n::text(ui.ctx(), "Quantity"));
+                    ui.add(egui::DragValue::new(&mut request.quantity).range(0.0..=f64::MAX));
+                    ui.end_row();
+                    match &mut request.order_type {
+                        OrderType::Limit(limit) => price(ui, "Limit price", limit),
+                        OrderType::Stop(stop) => price(ui, "Stop price", stop),
+                        OrderType::StopLimit { stop, limit } => {
+                            price(ui, "Stop price", stop);
+                            price(ui, "Limit price", limit);
                         }
-                        if brackets {
-                            let reference = match request.order_type {
-                                OrderType::Limit(p) | OrderType::Stop(p) => p,
-                                OrderType::StopLimit { limit, .. } => limit,
-                                _ => 0.0,
-                            };
-                            for (label, bracket) in [
-                                ("Take profit", &mut request.take_profit),
-                                ("Stop loss", &mut request.stop_loss),
-                            ] {
-                                let mut on = bracket.is_some();
-                                ui.checkbox(&mut on, label);
-                                if on {
-                                    let value = bracket.get_or_insert(reference);
-                                    ui.add(
-                                        egui::DragValue::new(value)
-                                            .range(0.0..=f64::MAX)
-                                            .max_decimals(decimals)
-                                            .speed(10f64.powi(-(decimals as i32))),
-                                    );
-                                } else {
-                                    *bracket = None;
-                                }
-                                ui.end_row();
+                        _ => {}
+                    }
+                    if brackets {
+                        let reference = match request.order_type {
+                            OrderType::Limit(p) | OrderType::Stop(p) => p,
+                            OrderType::StopLimit { limit, .. } => limit,
+                            _ => 0.0,
+                        };
+                        for (label, bracket) in [
+                            ("Take profit", &mut request.take_profit),
+                            ("Stop loss", &mut request.stop_loss),
+                        ] {
+                            let mut on = bracket.is_some();
+                            ui.checkbox(&mut on, label);
+                            if on {
+                                let value = bracket.get_or_insert(reference);
+                                ui.add(
+                                    egui::DragValue::new(value)
+                                        .range(0.0..=f64::MAX)
+                                        .max_decimals(decimals)
+                                        .speed(10f64.powi(-(decimals as i32))),
+                                );
+                            } else {
+                                *bracket = None;
                             }
+                            ui.end_row();
                         }
-                    });
-                ui.add_space(8.0);
-                let valid = self.rules_ready
-                    && self.rules.symbol == request.symbol
-                    && super::ticket::order_quantity(request.quantity, &self.rules)
-                        .is_ok_and(|quantity| quantity == request.quantity)
-                    && request != &order.request;
-                save = ui
-                    .add_enabled(valid, egui::Button::new("Modify order"))
-                    .clicked();
-            });
+                    }
+                });
+            ui.add_space(8.0);
+            let valid = self.rules_ready
+                && self.rules.symbol == request.symbol
+                && super::ticket::order_quantity(request.quantity, &self.rules)
+                    .is_ok_and(|quantity| quantity == request.quantity)
+                && request != &order.request;
+            save = ui
+                .add_enabled(
+                    valid,
+                    egui::Button::new(l10n::text(ui.ctx(), "Modify order")),
+                )
+                .clicked();
+        });
         if save {
             let (order, request) = self.account_panel.editing.take().expect("editing");
             self.execute(Some(TradingLineAction::Modify(order, request)));
@@ -1236,6 +1282,87 @@ mod tests {
         }
         panel.clear();
         assert!(panel.fills.executions.is_empty());
+    }
+
+    #[test]
+    fn history_retention_preserves_working_orders_and_latest_fills() {
+        let mut panel = AccountPanel::default();
+        let mut order = Order::new(
+            crate::model::OrderId::new("active"),
+            OrderRequest::new("OLD", OrderSide::Buy, 5_000.0, OrderType::Market),
+            OrderStatus::Working,
+        );
+        let time = DateTime::from_timestamp(1_704_067_200, 0).unwrap();
+        panel.record(&AccountEvent::Order(order.clone()));
+        panel.record(&AccountEvent::Execution(Execution::new(
+            order.id.clone(),
+            time,
+            OrderSide::Buy,
+            99.0,
+            1.0,
+        )));
+        order.status = OrderStatus::Filled;
+        for i in 0..2_005 {
+            order.id = crate::model::OrderId::new(i.to_string());
+            order.request.symbol = format!("NEW-{i}");
+            let time = time + chrono::Duration::seconds(i);
+            panel.record(&AccountEvent::Order(order.clone()));
+            panel.record(&AccountEvent::Execution(Execution::new(
+                order.id.clone(),
+                time,
+                OrderSide::Buy,
+                100.0,
+                1.0,
+            )));
+            panel.record(&AccountEvent::Balance(BalanceChange::new(
+                time,
+                1000.0,
+                1.0,
+                i.to_string(),
+            )));
+            panel.record(&AccountEvent::Journal(JournalEntry::new(
+                time,
+                i.to_string(),
+            )));
+        }
+        assert_eq!(panel.history.len(), 1_000);
+        assert_eq!(panel.balance.len(), 1_000);
+        assert_eq!(panel.journal.len(), 1_000);
+        assert_eq!(panel.fills.executions.len(), 1_000);
+        assert_eq!(panel.history[0].id.0, "1005");
+        assert_eq!(panel.fills.executions[0].order.0, "1005");
+        assert_eq!(panel.fills.orders.len(), 1_001);
+        assert!(
+            panel
+                .fills
+                .orders
+                .contains_key(&crate::model::OrderId::new("active"))
+        );
+        assert_eq!(panel.fills.price("OLD"), Some(99.0));
+        assert_eq!(panel.fills.price("NEW-0"), Some(100.0));
+        assert_eq!(panel.fills.price("NEW-2004"), Some(100.0));
+        // Orders without fills must not accumulate metadata either.
+        order.status = OrderStatus::Cancelled;
+        for i in 2_005..4_010 {
+            order.id = crate::model::OrderId::new(i.to_string());
+            panel.record(&AccountEvent::Order(order.clone()));
+        }
+        assert!(panel.fills.orders.len() <= 2_001);
+        let active = crate::model::OrderId::new("active");
+        for _ in 0..1_005 {
+            panel.record(&AccountEvent::Execution(Execution::new(
+                active.clone(),
+                time,
+                OrderSide::Buy,
+                99.0,
+                1.0,
+            )));
+        }
+        assert_eq!(panel.fills.executions.len(), 1_000);
+        assert_eq!(panel.fills.filled_quantity(&active), 1_006.0);
+        panel.clear();
+        assert!(panel.fills.orders.is_empty());
+        assert_eq!(panel.fills.price("OLD"), None);
     }
 
     #[test]

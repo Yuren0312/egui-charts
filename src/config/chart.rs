@@ -23,12 +23,16 @@ pub enum BackgroundStyle {
     Solid,
     /// Vertical gradient from top to bottom
     VerticalGradient {
+        /// Color at the top edge of the gradient.
         top_color: Color32,
+        /// Color at the bottom edge of the gradient.
         bottom_color: Color32,
     },
     /// Horizontal gradient from left to right
     HorizontalGradient {
+        /// Color at the left edge of the gradient.
         left_color: Color32,
+        /// Color at the right edge of the gradient.
         right_color: Color32,
     },
 }
@@ -43,22 +47,6 @@ pub enum NavigationButtons {
     /// Hide the buttons (the default).
     #[default]
     Never,
-}
-
-/// Style for session break lines
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub enum SessionBreakStyle {
-    /// Solid line
-    #[default]
-    Solid,
-    /// Dashed line
-    Dashed,
-    /// Dotted line
-    Dotted,
-    /// Dashes twice as long as `Dashed`, with twice the gap
-    LargeDashed,
-    /// Dots with twice the spacing of `Dotted`
-    SparseDotted,
 }
 
 /// Appearance of the price axis: its border, tick marks and which labels it shows. It applies to
@@ -97,7 +85,9 @@ impl Default for PriceAxisOptions {
     }
 }
 
-/// Trading session configuration
+/// Trading session configuration.
+///
+/// Presets use exchange time zones with `timezones`, or fixed standard-time offsets without it.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SessionConfig {
     /// Session start time in HH:MM format (24-hour)
@@ -122,7 +112,12 @@ impl Default for SessionConfig {
         Self {
             session_start: "09:30".to_string(),
             session_end: "16:00".to_string(),
-            timezone: "America/New_York".to_string(),
+            timezone: if cfg!(feature = "timezones") {
+                "America/New_York"
+            } else {
+                "-05:00"
+            }
+            .to_string(),
             show_premarket: false,
             show_postmarket: false,
             premarket_start: Some("04:00".to_string()),
@@ -142,7 +137,12 @@ impl SessionConfig {
         Self {
             session_start: "08:00".to_string(),
             session_end: "16:30".to_string(),
-            timezone: "Europe/London".to_string(),
+            timezone: if cfg!(feature = "timezones") {
+                "Europe/London"
+            } else {
+                "+00:00"
+            }
+            .to_string(),
             show_premarket: false,
             show_postmarket: false,
             premarket_start: None,
@@ -155,7 +155,12 @@ impl SessionConfig {
         Self {
             session_start: "09:00".to_string(),
             session_end: "15:00".to_string(),
-            timezone: "Asia/Tokyo".to_string(),
+            timezone: if cfg!(feature = "timezones") {
+                "Asia/Tokyo"
+            } else {
+                "+09:00"
+            }
+            .to_string(),
             show_premarket: false,
             show_postmarket: false,
             premarket_start: None,
@@ -181,7 +186,12 @@ impl SessionConfig {
         Self {
             session_start: "17:00".to_string(), // Sunday 5PM EST
             session_end: "17:00".to_string(),   // Friday 5PM EST
-            timezone: "America/New_York".to_string(),
+            timezone: if cfg!(feature = "timezones") {
+                "America/New_York"
+            } else {
+                "-05:00"
+            }
+            .to_string(),
             show_premarket: false,
             show_postmarket: false,
             premarket_start: None,
@@ -198,6 +208,7 @@ impl SessionConfig {
 ///
 /// Defaults follow a common dark-theme charting palette.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 pub struct ChartConfig {
     /// Color for bullish (up) bars/candles body
     pub bullish_color: Color32,
@@ -299,19 +310,19 @@ pub struct ChartConfig {
     pub show_high_low: bool,
     /// Whether to show countdown to next candle
     pub show_countdown: bool,
-    /// Whether to show "Go to Realtime" button when scrolled away from live edge
+    /// Whether to show the scroll-to-latest button when scrolled away from the live edge.
     pub show_realtime_btn: bool,
-    /// Pos of the realtime button
+    /// Position of the realtime button; bottom-right by default.
     pub realtime_button_pos: RealtimeButtonPos,
-    /// Custom text for the realtime button (None = "Go to Realtime")
+    /// Custom text for the realtime button (`None` draws a double right chevron).
     pub realtime_button_text: Option<String>,
-    /// Size of the realtime button (width, height)
+    /// Size of the realtime button (width, height), 28 by 28 points by default.
     pub realtime_button_size: (f32, f32),
-    /// Background color for the realtime button
+    /// Background color for the realtime button; `PLACEHOLDER` follows the theme.
     pub realtime_button_color: Color32,
-    /// Hover background color for the realtime button
+    /// Hover background color for the realtime button; `PLACEHOLDER` follows the theme.
     pub realtime_button_hover_color: Color32,
-    /// Text color for the realtime button
+    /// Text or icon color for the realtime button; `PLACEHOLDER` follows the theme.
     pub realtime_button_text_color: Color32,
     /// When to show the navigation buttons.
     pub navigation_buttons: NavigationButtons,
@@ -320,7 +331,7 @@ pub struct ChartConfig {
     /// Color for session break lines
     pub session_break_color: Color32,
     /// Style for session break lines
-    pub session_break_style: SessionBreakStyle,
+    pub session_break_style: LineStyle,
     /// Session configuration (market hours)
     pub session_config: Option<SessionConfig>,
     /// Shade bars identified as extended hours by the session metadata.
@@ -346,8 +357,7 @@ pub struct ChartConfig {
 pub enum RealtimeButtonPos {
     /// Top-left of the chart
     TopLeft,
-    /// Top-center of the chart (default)
-    #[default]
+    /// Top-center of the chart
     TopCenter,
     /// Top-right of the chart
     TopRight,
@@ -355,7 +365,8 @@ pub enum RealtimeButtonPos {
     BottomLeft,
     /// Bottom-center of the chart
     BottomCenter,
-    /// Bottom-right of the chart
+    /// Bottom-right of the chart (default)
+    #[default]
     BottomRight,
 }
 
@@ -440,17 +451,20 @@ impl Default for ChartConfig {
             show_high_low: false,
             show_countdown: true,
             show_realtime_btn: true,
-            realtime_button_pos: RealtimeButtonPos::TopCenter,
+            realtime_button_pos: RealtimeButtonPos::BottomRight,
             realtime_button_text: None,
-            realtime_button_size: (110.0, 28.0),
-            realtime_button_color: DESIGN_TOKENS.semantic.extended.chart_tooltip_bg,
-            realtime_button_hover_color: DESIGN_TOKENS.semantic.extended.chart_axis_bg,
-            realtime_button_text_color: chart.axis_text,
+            realtime_button_size: (
+                DESIGN_TOKENS.sizing.charts_ext.realtime_button_width,
+                DESIGN_TOKENS.sizing.button_md,
+            ),
+            realtime_button_color: Color32::PLACEHOLDER,
+            realtime_button_hover_color: Color32::PLACEHOLDER,
+            realtime_button_text_color: Color32::PLACEHOLDER,
             navigation_buttons: NavigationButtons::default(),
             // Session breaks disabled by default
             show_session_breaks: false,
             session_break_color: chart.grid_line_major,
-            session_break_style: SessionBreakStyle::Dashed,
+            session_break_style: LineStyle::Dashed,
             session_config: None,
             show_extended_hours: true,
             extended_hours_color: Color32::PLACEHOLDER,
@@ -463,5 +477,28 @@ impl Default for ChartConfig {
             // Background enabled by default (set false when inside a container)
             skip_background: false,
         }
+    }
+}
+
+impl ChartConfig {
+    /// Apply the theme's background, grid, axis text and candle colours to this configuration.
+    ///
+    /// Only the configuration changes. A chart paints its legend, quote boxes, labels and
+    /// overlays from its own theme, which [`ChartBuilder::with_theme`](crate::ChartBuilder::with_theme)
+    /// keeps for that chart, so switch a chart's theme with
+    /// [`Chart::set_theme`](crate::Chart::set_theme) or
+    /// [`Chart::set_theme_override`](crate::Chart::set_theme_override), which apply these
+    /// colours too.
+    pub fn with_theme(mut self, theme: &Theme) -> Self {
+        self.background_color = theme.chart.bg;
+        self.grid_color = theme.chart.grid_line;
+        self.text_color = theme.chart.axis_text;
+        self.bullish_color = theme.chart.candle_up;
+        self.bearish_color = theme.chart.candle_down;
+        self.bullish_border_color = Some(theme.chart.candle_up);
+        self.bearish_border_color = Some(theme.chart.candle_down);
+        self.bullish_wick_color = Some(theme.chart.candle_up);
+        self.bearish_wick_color = Some(theme.chart.candle_down);
+        self
     }
 }

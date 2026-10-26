@@ -1,11 +1,11 @@
 use super::over_finite_bars;
 use crate::model::Bar;
-/// Volume Weighted Moving Avg (VWMA)
-/// Moving avg weighted by volume - gives more importance to high-volume periods
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
+/// Volume Weighted Moving Avg (VWMA)
+/// Moving avg weighted by volume - gives more importance to high-volume periods
 #[derive(Clone)]
 pub struct VWMA {
     period: usize,
@@ -15,15 +15,17 @@ pub struct VWMA {
 }
 
 impl VWMA {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.success, // Green
+            color: palette::GREEN, // Green
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

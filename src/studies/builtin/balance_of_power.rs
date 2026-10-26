@@ -1,7 +1,7 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Balance of Power (BoP): the strength of buyers against sellers,
@@ -23,15 +23,17 @@ pub struct BalanceOfPower {
 }
 
 impl BalanceOfPower {
+    /// Create with `smooth_period` in bars, each clamped to at least one.
     pub fn new(smooth_period: usize) -> Self {
         Self {
             smooth_period: smooth_period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.bullish, // Teal
+            color: palette::UP, // Teal
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

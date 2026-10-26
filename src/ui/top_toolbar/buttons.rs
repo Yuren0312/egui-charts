@@ -1,7 +1,8 @@
-//! Reusable button components for the top toolbar.
+//! Icon, text and dropdown buttons sized for the top toolbar.
 //!
-//! Eliminates ~180 lines of repetitive button rendering code.
+//! Use these components when extending the top toolbar with host controls.
 
+use crate::localization as l10n;
 use std::sync::Arc;
 
 use crate::icons::Icon;
@@ -9,9 +10,9 @@ use crate::styles::{icons as icon_sizes, stroke};
 use egui::{Color32, Galley, Pos2, Rect, Response, Role, Sense, Ui, Vec2, WidgetInfo};
 
 use super::TopToolbarConfig;
-use crate::ext::UiExt;
 use crate::theme::{Theme, ThemeExt};
 use crate::tokens::DESIGN_TOKENS;
+use crate::ui_kit::ext::UiExt;
 
 /// Menu glyph with three 18 px bars spanning 14 px on the toolbar's 24 px icon grid.
 pub const MENU_ICON: Icon = Icon::new("top-toolbar-menu.svg", include_bytes!("menu.svg"));
@@ -19,17 +20,20 @@ pub const MENU_ICON: Icon = Icon::new("top-toolbar-menu.svg", include_bytes!("me
 /// Small icon-only button (config-driven size)
 ///
 /// Used for: undo, redo, settings, theme, fullscreen, screenshot, save, etc.
-/// This component eliminates ~161 lines of duplication (used 7 times in show()).
 ///
 /// Note: This is the top-toolbar-specific variant that uses [`TopToolbarConfig`]
 /// for sizing. For a generic icon button, see [`crate::ui_kit::buttons::IconButton`].
 pub struct ToolbarIconButton<'a> {
+    /// Glyph displayed by the component.
     pub icon: &'a Icon,
+    /// Help text displayed on hover.
     pub tooltip: &'static str,
+    /// Display and layout options for this component.
     pub config: TopToolbarConfig,
 }
 
 impl<'a> ToolbarIconButton<'a> {
+    /// Create an icon button with hover text and toolbar sizing.
     pub fn new(icon: &'a Icon, tooltip: &'static str, config: &TopToolbarConfig) -> Self {
         Self {
             icon,
@@ -38,6 +42,7 @@ impl<'a> ToolbarIconButton<'a> {
         }
     }
 
+    /// Show the component and return its response.
     pub fn show(self, ui: &mut Ui) -> Response {
         // Match glyph ink bounds while preserving the host's configured icon scale.
         let icon_size = match self.icon.name() {
@@ -79,7 +84,9 @@ impl<'a> ToolbarIconButton<'a> {
                 .paint_at(ui, icon_rect);
         }
 
-        response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), self.tooltip));
+        let translated_label = l10n::text(ui.ctx(), self.tooltip);
+        response
+            .widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &translated_label));
         toolbar_tooltip(response, self.tooltip, None)
     }
 }
@@ -87,14 +94,17 @@ impl<'a> ToolbarIconButton<'a> {
 /// Icon button with text label
 ///
 /// Used for: Indicators, Alert, Replay btns.
-/// This component eliminates ~117 lines of duplication (used 3 times in show()).
 pub struct IconTextButton<'a> {
+    /// Glyph displayed by the component.
     pub icon: &'a Icon,
+    /// Text displayed by the component.
     pub label: &'static str,
+    /// Display and layout options for this component.
     pub config: TopToolbarConfig,
 }
 
 impl<'a> IconTextButton<'a> {
+    /// Create an icon and label button with toolbar sizing.
     pub fn new(icon: &'a Icon, label: &'static str, config: &TopToolbarConfig) -> Self {
         Self {
             icon,
@@ -105,13 +115,14 @@ impl<'a> IconTextButton<'a> {
 
     pub(crate) fn width(&self, ui: &Ui) -> f32 {
         let galley = ui.painter().layout_no_wrap(
-            self.label.to_owned(),
+            l10n::text(ui.ctx(), self.label),
             egui::FontId::proportional(ui.active_theme().text.title),
             Color32::PLACEHOLDER,
         );
         self.config.small_icon_size + self.config.padding * 3.0 + galley.size().x
     }
 
+    /// Show the component and return its response.
     pub fn show(self, ui: &mut Ui) -> Response {
         let icon_size = self.config.small_icon_size;
         let padding = self.config.padding;
@@ -164,13 +175,15 @@ impl<'a> IconTextButton<'a> {
             ui.painter().text(
                 Pos2::new(rect.min.x + padding + icon_size + padding, rect.center().y),
                 egui::Align2::LEFT_CENTER,
-                self.label,
+                l10n::text(ui.ctx(), self.label),
                 egui::FontId::proportional(ui.active_theme().text.title),
                 color,
             );
         }
 
-        response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), self.label));
+        let translated_label = l10n::text(ui.ctx(), self.label);
+        response
+            .widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &translated_label));
         toolbar_tooltip(
             response,
             if self.label == "Alert" {
@@ -187,12 +200,16 @@ impl<'a> IconTextButton<'a> {
 ///
 /// Displays text with hover/pressed background.
 pub struct TextButton {
+    /// Button label.
     pub text: String,
+    /// Help text displayed on hover.
     pub tooltip: Option<&'static str>,
+    /// Display and layout options for this component.
     pub config: TopToolbarConfig,
 }
 
 impl TextButton {
+    /// Create a text button with toolbar sizing.
     pub fn new(text: String, config: &TopToolbarConfig) -> Self {
         Self {
             text,
@@ -201,19 +218,21 @@ impl TextButton {
         }
     }
 
+    /// Set help text shown on hover.
     pub fn with_tooltip(mut self, tooltip: &'static str) -> Self {
         self.tooltip = Some(tooltip);
         self
     }
 
+    /// Show the component and return its response.
     pub fn show(self, ui: &mut Ui) -> Response {
         let padding = self.config.padding;
         // Measure actual text width
         let font_id = egui::FontId::proportional(ui.active_theme().text.title);
         let galley = ui.painter().layout_no_wrap(
-            self.text.clone(),
+            l10n::text(ui.ctx(), self.text.clone()),
             font_id,
-            DESIGN_TOKENS.semantic.ui.text_light,
+            ui.active_theme().ui.text,
         );
         let text_width = galley.rect.width();
         let total_width = text_width + padding * 2.0;
@@ -239,13 +258,14 @@ impl TextButton {
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            &self.text,
+            l10n::text(ui.ctx(), &self.text),
             egui::FontId::proportional(ui.active_theme().text.title),
             ui.visuals().text_color(),
         );
 
+        let translated_label = l10n::text(ui.ctx(), &self.text);
         response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::Role::Button, response.enabled(), &self.text)
+            egui::WidgetInfo::labeled(egui::Role::Button, response.enabled(), &translated_label)
         });
         if let Some(tooltip) = self.tooltip {
             toolbar_tooltip(response, tooltip, None)
@@ -271,13 +291,18 @@ pub fn separator(ui: &mut Ui) {
 
 /// Text + icon dropdown button (Save dropdown, etc.)
 pub struct TextIconButton<'a> {
+    /// Button label.
     pub text: &'static str,
+    /// Glyph displayed by the component.
     pub icon: &'a crate::icons::Icon,
+    /// Help text displayed on hover.
     pub tooltip: &'static str,
+    /// Display and layout options for this component.
     pub config: TopToolbarConfig,
 }
 
 impl<'a> TextIconButton<'a> {
+    /// Create a text and icon button with hover text and toolbar sizing.
     pub fn new(
         text: &'static str,
         icon: &'a crate::icons::Icon,
@@ -294,12 +319,15 @@ impl<'a> TextIconButton<'a> {
 
     pub(crate) fn width(&self, ui: &Ui) -> f32 {
         let font_id = egui::FontId::proportional(ui.active_theme().text.title);
-        let galley =
-            ui.painter()
-                .layout_no_wrap(self.text.to_owned(), font_id, Color32::PLACEHOLDER);
+        let galley = ui.painter().layout_no_wrap(
+            l10n::text(ui.ctx(), self.text),
+            font_id,
+            Color32::PLACEHOLDER,
+        );
         galley.rect.width() + self.config.padding * 3.0 + icon_sizes::XS
     }
 
+    /// Show the component and return its response.
     pub fn show(self, ui: &mut Ui) -> Response {
         let padding = self.config.padding;
         let icon_size = icon_sizes::XS;
@@ -331,7 +359,7 @@ impl<'a> TextIconButton<'a> {
             ui.painter().text(
                 Pos2::new(text_x, rect.center().y),
                 egui::Align2::LEFT_CENTER,
-                self.text,
+                l10n::text(ui.ctx(), self.text),
                 font_id,
                 text_color,
             );
@@ -350,7 +378,9 @@ impl<'a> TextIconButton<'a> {
                 .paint_at(ui, icon_rect);
         }
 
-        response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), self.tooltip));
+        let translated_label = l10n::text(ui.ctx(), self.tooltip);
+        response
+            .widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &translated_label));
         toolbar_tooltip(response, self.tooltip, None)
     }
 }
@@ -375,10 +405,12 @@ pub(crate) struct PillButton<'a> {
 impl PillButton<'_> {
     pub(crate) fn width(&self, ui: &Ui) -> f32 {
         let font_id = egui::FontId::proportional(ui.active_theme().text.title);
-        let galley =
-            ui.painter()
-                .layout_no_wrap(self.label.to_owned(), font_id, Color32::PLACEHOLDER);
-        galley.size().x + 2.0 * DESIGN_TOKENS.spacing.xl
+        let galley = ui.painter().layout_no_wrap(
+            l10n::text(ui.ctx(), self.label),
+            font_id,
+            Color32::PLACEHOLDER,
+        );
+        galley.size().x + 2.0 * ui.active_theme().spacing.xl
     }
 
     pub(crate) fn show(self, ui: &mut Ui) -> Response {
@@ -425,13 +457,15 @@ impl PillButton<'_> {
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                self.label,
+                l10n::text(ui.ctx(), self.label),
                 egui::FontId::proportional(theme.text.title),
                 text,
             );
         }
 
-        response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), self.label));
+        let translated_label = l10n::text(ui.ctx(), self.label);
+        response
+            .widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &translated_label));
         match self.tooltip {
             Some(tooltip) => toolbar_tooltip(response, tooltip, None),
             None => response,
@@ -461,7 +495,7 @@ impl Trigger<'_> {
         }
         ui.painter()
             .layout_job(egui::text::LayoutJob::single_section(
-                self.label.clone(),
+                l10n::text(ui.ctx(), self.label.clone()),
                 format,
             ))
     }
@@ -551,7 +585,9 @@ impl Trigger<'_> {
             }
         }
 
-        response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &self.name));
+        let translated_label = l10n::text(ui.ctx(), &self.name);
+        response
+            .widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &translated_label));
         toolbar_tooltip(response, &self.name, None)
     }
 }
@@ -591,7 +627,7 @@ pub fn toolbar_tooltip(
         .frame(
             egui::Frame::new()
                 .fill(fill)
-                .corner_radius(3)
+                .corner_radius(response.ctx.active_theme().radius.sm)
                 .inner_margin(egui::Margin::symmetric(8, 3)),
         )
         .show(|ui| {
@@ -599,7 +635,7 @@ pub fn toolbar_tooltip(
             ui.spacing_mut().interact_size.y = 17.0;
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new(text)
+                    egui::RichText::new(l10n::text(ui.ctx(), text))
                         .size(14.0)
                         .color(Color32::from_gray(240)),
                 );
@@ -611,10 +647,14 @@ pub fn toolbar_tooltip(
                         }
                         egui::Frame::new()
                             .fill(Color32::from_gray(80))
-                            .corner_radius(2)
+                            .corner_radius(ui.active_theme().radius.xs)
                             .inner_margin(egui::Margin::symmetric(4, 0))
                             .show(ui, |ui| {
-                                ui.label(egui::RichText::new(key).size(14.0).color(Color32::WHITE));
+                                ui.label(
+                                    egui::RichText::new(l10n::text(ui.ctx(), key))
+                                        .size(14.0)
+                                        .color(Color32::WHITE),
+                                );
                             });
                     }
                 }

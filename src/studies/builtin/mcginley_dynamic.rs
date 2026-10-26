@@ -1,12 +1,12 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// McGinley Dynamic
 /// Adaptive moving avg designed to track price better than traditional MAs
 /// Self-adjusts based on price volatility
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct McGinleyDynamic {
     /// Period (typically 10 or 14)
@@ -17,15 +17,17 @@ pub struct McGinleyDynamic {
 }
 
 impl McGinleyDynamic {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.pink, // Pink
+            color: palette::PINK, // Pink
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self

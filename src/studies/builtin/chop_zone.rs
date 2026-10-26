@@ -35,11 +35,12 @@
 //! assert!(zone.plot_color(0, 59).is_some());
 //! ```
 
-use super::{over_finite_bars, seeded_average};
+use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
 use crate::studies::stepper::{rolling_max, rolling_min};
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 const EMA_LENGTH: usize = 34;
@@ -59,20 +60,19 @@ pub struct ChopZone {
 impl ChopZone {
     /// Create the Chop Zone; its lengths are fixed by the definition.
     pub fn new() -> Self {
-        let palette = &DESIGN_TOKENS.semantic.extended;
         Self {
             values: IndicatorValues::new(),
             angles: IndicatorValues::new(),
             colors: [
-                palette.cyan,
-                palette.success_dark,
-                palette.success_light,
-                palette.teal,
-                palette.caution,
-                palette.favorite_gold,
-                palette.warning,
-                palette.pink,
-                palette.error_darker,
+                palette::CYAN,
+                palette::DARK_GREEN,
+                palette::LIGHT_GREEN,
+                palette::TEAL,
+                palette::YELLOW,
+                palette::GOLD,
+                palette::ORANGE,
+                palette::PINK,
+                palette::DEEP_RED,
             ],
             visible: true,
         }
@@ -81,7 +81,7 @@ impl ChopZone {
     /// The angles over `data`, every bar of which has a finite high, low and close.
     fn compute(data: &[Bar]) -> IndicatorValues {
         let closes: Vec<f64> = data.iter().map(|b| b.close).collect();
-        let ema = seeded_average(&closes, EMA_LENGTH, 2.0 / (EMA_LENGTH as f64 + 1.0));
+        let ema = helpers::ema_sma(&closes, EMA_LENGTH);
         let highest = rolling_max(data.iter().map(|b| b.high), RANGE_LENGTH);
         let lowest = rolling_min(data.iter().map(|b| b.low), RANGE_LENGTH);
         (0..data.len())
@@ -112,7 +112,7 @@ impl Indicator for ChopZone {
         crate::studies::PlotStyle {
             color: self.colors[0],
             width: 1.0,
-            pattern: crate::studies::PlotPattern::Solid,
+            pattern: crate::model::LineStyle::Solid,
             plot_type: crate::studies::PlotType::Columns,
             visible: true,
         }
@@ -134,8 +134,8 @@ impl Indicator for ChopZone {
         Some(self.colors[band])
     }
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Fixed(0)
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Fixed(0)
     }
 
     fn name(&self) -> &str {

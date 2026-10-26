@@ -7,22 +7,21 @@
 //! The kit `Modal`, `ConfirmDialog` and `PromptDialog` use the same frame, header and footer
 //! over a scrim.
 
-use egui::{
-    Align, Align2, Context, Frame, Layout, RichText, Style, Ui, UiBuilder, UiStackInfo, Vec2,
-};
+use crate::localization as l10n;
+use crate::theme::ThemeExt;
+use egui::{Align, Align2, Context, Frame, Layout, RichText, Ui, UiBuilder, UiStackInfo, Vec2};
 
 use crate::icons::icons;
-use crate::tokens::DESIGN_TOKENS;
 use crate::ui_kit::buttons::{Button, ButtonSize, IconButton};
 
 /// Marks the content Ui of a fixed-height [`DialogFrame`].
 const FIXED_HEIGHT_TAG: &str = "egui_charts::dialog_frame::fixed_height";
 
 /// The dialog surface: the theme's panel fill, window border, radius and shadow, padded 16 px.
-pub(crate) fn dialog_frame(style: &Style) -> Frame {
-    Frame::window(style)
-        .fill(style.visuals.panel_fill)
-        .inner_margin(DESIGN_TOKENS.spacing.xxl)
+pub(crate) fn dialog_frame(ctx: &Context) -> Frame {
+    Frame::window(&ctx.global_style())
+        .fill(ctx.global_style().visuals.panel_fill)
+        .inner_margin(ctx.active_theme().spacing.xxl)
 }
 
 /// A centered dialog window with standard styling.
@@ -83,11 +82,14 @@ impl DialogFrame {
 
     /// Show the dialog. The closure receives `&mut Ui` for the dialog content.
     pub fn show(self, ctx: &Context, add_contents: impl FnOnce(&mut Ui)) {
-        let mut frame = dialog_frame(&ctx.global_style());
+        let mut frame = dialog_frame(ctx);
         if let Some(r) = self.rounding {
             frame = frame.corner_radius(r);
         }
-        let max = ctx.content_rect().shrink(DESIGN_TOKENS.spacing.xxxl).size()
+        let max = ctx
+            .content_rect()
+            .shrink(ctx.active_theme().spacing.xxxl)
+            .size()
             - frame.total_margin().sum();
         let inner = self.size.min(max).max(Vec2::ZERO);
 
@@ -110,8 +112,9 @@ impl DialogFrame {
         let input_blocked = ctx.text_edit_focused() || egui::Popup::is_any_open(ctx);
         let auto_height = self.auto_height;
         window.show(ctx, |ui| {
+            let translated_label = l10n::text(ui.ctx(), &self.id);
             ui.response().widget_info(|| {
-                egui::WidgetInfo::labeled(egui::Role::Dialog, ui.is_enabled(), &self.id)
+                egui::WidgetInfo::labeled(egui::Role::Dialog, ui.is_enabled(), &translated_label)
             });
             ui.data_mut(|d| {
                 d.insert_temp(ui.layer_id().id.with("dialog_input_blocked"), input_blocked)
@@ -172,7 +175,11 @@ pub(crate) fn title_row(ui: &mut Ui, title: &str, closable: bool) -> bool {
     let row = Vec2::new(ui.available_width(), ButtonSize::MD.pixels());
     let close = ui
         .allocate_ui_with_layout(row, Layout::left_to_right(Align::Center), |ui| {
-            ui.label(RichText::new(title).strong().size(14.0));
+            ui.label(
+                RichText::new(l10n::text(ui.ctx(), title))
+                    .strong()
+                    .size(ui.active_theme().text.title),
+            );
             closable
                 && ui
                     .with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -184,7 +191,7 @@ pub(crate) fn title_row(ui: &mut Ui, title: &str, closable: bool) -> bool {
                     .inner
         })
         .inner;
-    ui.add_space(DESIGN_TOKENS.spacing.sm);
+    ui.add_space(ui.active_theme().spacing.sm);
     close
 }
 
@@ -213,6 +220,7 @@ pub struct DialogFooter {
 }
 
 impl DialogFooter {
+    /// Create a footer with a primary action label.
     pub fn new(primary_label: impl Into<String>) -> Self {
         Self {
             primary_label: primary_label.into(),
@@ -262,29 +270,33 @@ impl DialogFooter {
         }
         let top = ui.cursor().top();
 
-        ui.add_space(DESIGN_TOKENS.spacing.lg);
+        ui.add_space(ui.active_theme().spacing.lg);
         ui.separator();
-        ui.add_space(DESIGN_TOKENS.spacing.lg);
+        ui.add_space(ui.active_theme().spacing.lg);
 
         let row = ui.horizontal(|ui| {
             left_content(ui);
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = DESIGN_TOKENS.spacing.lg;
+                ui.spacing_mut().item_spacing.x = ui.active_theme().spacing.lg;
                 let font = egui::TextStyle::Button.resolve(ui.style());
                 let width = std::iter::once(&self.primary_label)
                     .chain(self.secondary_label.iter())
                     .map(|label| {
                         (ui.painter()
-                            .layout_no_wrap(label.clone(), font.clone(), egui::Color32::PLACEHOLDER)
+                            .layout_no_wrap(
+                                l10n::text(ui.ctx(), label.clone()),
+                                font.clone(),
+                                egui::Color32::PLACEHOLDER,
+                            )
                             .size()
                             .x
-                            + 2.0 * DESIGN_TOKENS.spacing.xl)
+                            + 2.0 * ui.active_theme().spacing.xl)
                             .max(ButtonSize::MD.pixels())
                     })
                     .sum::<f32>()
                     + if self.secondary_label.is_some() {
-                        DESIGN_TOKENS.spacing.lg
+                        ui.active_theme().spacing.lg
                     } else {
                         0.0
                     };
@@ -433,7 +445,7 @@ mod tests {
             first.0, second.0,
             "the window moved after its first visible frame"
         );
-        let inner_bottom = second.0.bottom() - DESIGN_TOKENS.spacing.xxl;
+        let inner_bottom = second.0.bottom() - ctx.active_theme().spacing.xxl;
         assert!((second.1.top() + ButtonSize::MD.pixels() - inner_bottom).abs() <= 1.5);
     }
 

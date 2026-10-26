@@ -1,12 +1,13 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// Chaikin Volatility
 /// Measures the rate of change of the trading range
 /// High values indicate increased volatility
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct ChaikinVolatility {
     /// EMA period (typically 10)
@@ -19,36 +20,21 @@ pub struct ChaikinVolatility {
 }
 
 impl ChaikinVolatility {
+    /// Create with `ema_period`, `roc_period` in bars, each clamped to at least one.
     pub fn new(ema_period: usize, roc_period: usize) -> Self {
         Self {
             ema_period: ema_period.max(1),
             roc_period: roc_period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.deep_orange,
+            color: palette::DEEP_ORANGE,
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
-    }
-
-    fn ema(data: &[f64], period: usize) -> Vec<f64> {
-        let mut result = Vec::with_capacity(data.len());
-        if data.is_empty() || period == 0 {
-            return result;
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        result.push(data[0]);
-
-        for i in 1..data.len() {
-            let ema = (data[i] - result[i - 1]) * multiplier + result[i - 1];
-            result.push(ema);
-        }
-
-        result
     }
 
     /// The values over `data`, every bar of which has a finite high and low.
@@ -67,7 +53,7 @@ impl ChaikinVolatility {
         let hl_range: Vec<f64> = data.iter().map(|b| b.high - b.low).collect();
 
         // Calculate EMA of H-L range
-        let hl_ema = Self::ema(&hl_range, self.ema_period);
+        let hl_ema = helpers::ema(&hl_range, self.ema_period);
 
         // Calculate Rate of Change of EMA
         for i in 0..data.len() {
@@ -103,8 +89,8 @@ impl Indicator for ChaikinVolatility {
         roc_period: length("Roc period", 1, usize::MAX)
     ; {});
 
-    fn value_format(&self) -> crate::studies::StudyFormat {
-        crate::studies::StudyFormat::Percent
+    fn value_format(&self) -> crate::scales::StudyFormat {
+        crate::scales::StudyFormat::Percent
     }
 
     fn name(&self) -> &str {

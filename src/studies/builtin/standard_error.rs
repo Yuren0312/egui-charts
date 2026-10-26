@@ -1,6 +1,6 @@
 use crate::model::Bar;
+use crate::studies::palette;
 use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
 use egui::Color32;
 
 /// Standard Error of the linear regression of close prices over a rolling window.
@@ -13,11 +13,12 @@ pub struct StandardError {
 }
 
 impl StandardError {
+    /// Create with a lookback of `period` bars, clamped to at least 2.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(2),
             values: IndicatorValues::new(),
-            colors: vec![DESIGN_TOKENS.semantic.extended.teal],
+            colors: vec![palette::TEAL],
             visible: true,
         }
     }

@@ -1,12 +1,13 @@
 use super::over_finite_bars;
 use crate::model::Bar;
+use crate::studies::helpers;
+use crate::studies::palette;
+use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
+use egui::Color32;
+
 /// VIDYA - Variable Index Dynamic Avg
 /// Adaptive moving avg that adjusts based on volatility
 /// Uses Chande Momentum Oscillator for volatility measurement
-use crate::studies::{Indicator, IndicatorValue, IndicatorValues};
-use crate::tokens::DESIGN_TOKENS;
-use egui::Color32;
-
 #[derive(Clone)]
 pub struct VIDYA {
     /// Period for calculation
@@ -17,15 +18,17 @@ pub struct VIDYA {
 }
 
 impl VIDYA {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.deep_purple, // Deep Purple
+            color: palette::DEEP_PURPLE, // Deep Purple
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
@@ -161,35 +164,20 @@ pub struct ZLEMA {
 }
 
 impl ZLEMA {
+    /// Create with a lookback of `period` bars, clamped to at least 1.
     pub fn new(period: usize) -> Self {
         Self {
             period: period.max(1),
             values: IndicatorValues::new(),
-            color: DESIGN_TOKENS.semantic.extended.cyan, // Cyan
+            color: palette::CYAN, // Cyan
             visible: true,
         }
     }
 
+    /// Set the plot color.
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
-    }
-
-    fn ema(data: &[f64], period: usize) -> Vec<f64> {
-        let mut result = Vec::with_capacity(data.len());
-        if data.is_empty() || period == 0 {
-            return result;
-        }
-
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        result.push(data[0]);
-
-        for i in 1..data.len() {
-            let ema = (data[i] - result[i - 1]) * multiplier + result[i - 1];
-            result.push(ema);
-        }
-
-        result
     }
 
     /// The values over `data`, every bar of which has a finite close.
@@ -214,7 +202,7 @@ impl ZLEMA {
         }
 
         // Apply EMA to de-lagged data
-        let zlema = Self::ema(&delagged, self.period);
+        let zlema = helpers::ema(&delagged, self.period);
 
         for i in 0..data.len() {
             if i < self.period - 1 {

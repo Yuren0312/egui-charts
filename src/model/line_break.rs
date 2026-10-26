@@ -1,9 +1,9 @@
-//! Three-Line Break chart transformation.
+//! Line Break chart transformation.
 //!
-//! A Line Break chart (also called "N-Line Break") draws a new line only
-//! when the closing price exceeds the high or low of the previous *N*
-//! lines. This filters out minor noise while preserving significant
-//! reversals.
+//! A Line Break chart extends the current direction when the selected price
+//! passes the last line's extreme. A reversal requires a break past the opposite
+//! extreme of the configured number of preceding lines. Use
+//! [`to_line_break_lines`] to transform OHLCV bars without rendering.
 //!
 //! - [`to_line_break_lines`] converts OHLCV bars into line-break lines.
 //! - [`detect_signal`] classifies the relationship between the last two
@@ -16,12 +16,12 @@ use chrono::{DateTime, Utc};
 
 /// Configuration for the Line Break chart transformation.
 ///
-/// The `line_cnt` parameter (typically 3) controls how many prior lines
+/// The `line_count` parameter (typically 3) controls how many prior lines
 /// must be exceeded for a reversal to register.
 #[derive(Debug, Clone)]
 pub struct LineBreakConfig {
     /// Number of lines to look back for reversal
-    pub line_cnt: usize,
+    pub line_count: usize,
     /// Price input; high/low gives continuation priority when a bar crosses both thresholds.
     pub source: PriceBasedSource,
 }
@@ -29,7 +29,7 @@ pub struct LineBreakConfig {
 impl Default for LineBreakConfig {
     fn default() -> Self {
         Self {
-            line_cnt: 3,
+            line_count: 3,
             source: PriceBasedSource::Close,
         }
     }
@@ -37,9 +37,9 @@ impl Default for LineBreakConfig {
 
 impl LineBreakConfig {
     /// Create a Line Break config with the given look-back count.
-    pub fn new(line_cnt: usize) -> Self {
+    pub fn new(line_count: usize) -> Self {
         Self {
-            line_cnt,
+            line_count,
             source: PriceBasedSource::Close,
         }
     }
@@ -48,7 +48,9 @@ impl LineBreakConfig {
 /// Direction of a single line in a Line Break chart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineDirection {
+    /// An upward direction.
     Up,
+    /// A downward direction.
     Down,
 }
 
@@ -107,7 +109,7 @@ pub(crate) const MAX_LINES: usize = 10_000;
 /// Builds Line Break lines bar by bar.
 #[derive(Clone)]
 pub(crate) struct LineBreakBuilder {
-    line_cnt: usize,
+    line_count: usize,
     source: PriceBasedSource,
     lines: Vec<LineBreakLine>,
 }
@@ -115,7 +117,7 @@ pub(crate) struct LineBreakBuilder {
 impl LineBreakBuilder {
     pub(crate) fn new(config: &LineBreakConfig) -> Self {
         Self {
-            line_cnt: config.line_cnt,
+            line_count: config.line_count,
             source: config.source,
             lines: Vec::new(),
         }
@@ -173,7 +175,7 @@ impl PriceBuilder for LineBreakBuilder {
                 }
                 // For a reversal, close must break below the low of the last N lines
                 else {
-                    let lookback = self.line_cnt.min(lines.len());
+                    let lookback = self.line_count.min(lines.len());
                     let reversal_low = lines[lines.len() - lookback..]
                         .iter()
                         .map(|l| l.low())
@@ -199,7 +201,7 @@ impl PriceBuilder for LineBreakBuilder {
                 }
                 // For a reversal, close must exceed the high of the last N lines
                 else {
-                    let lookback = self.line_cnt.min(lines.len());
+                    let lookback = self.line_count.min(lines.len());
                     let reversal_high = lines[lines.len() - lookback..]
                         .iter()
                         .map(|l| l.high())
@@ -216,8 +218,8 @@ impl PriceBuilder for LineBreakBuilder {
         };
         self.lines.extend(new_line);
 
-        // Bound memory by dropping the oldest lines; only the last `line_cnt` are read.
-        let keep = MAX_LINES.max(self.line_cnt);
+        // Bound memory by dropping the oldest lines; only the last `line_count` are read.
+        let keep = MAX_LINES.max(self.line_count);
         if self.lines.len() >= keep.saturating_mul(2) {
             self.lines.drain(..self.lines.len() - keep);
         }
@@ -315,7 +317,7 @@ mod tests {
     #[test]
     fn test_config_creation() {
         let config = LineBreakConfig::new(3);
-        assert_eq!(config.line_cnt, 3);
+        assert_eq!(config.line_count, 3);
     }
 
     #[test]
