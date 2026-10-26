@@ -164,6 +164,7 @@ mod replay;
 mod selection;
 mod series;
 #[cfg(feature = "ui")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ui")))]
 mod snapshot;
 #[cfg(feature = "drawings")]
 #[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
@@ -177,6 +178,7 @@ pub use pane_layout::VisualOrder;
 pub use price_series::SeriesOptions;
 pub use series::{BarsInRange, MismatchDirection, PriceLineId};
 #[cfg(feature = "ui")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ui")))]
 pub use snapshot::{ChartSnapshot, SavedLayout, SavedPane, SavedStudy};
 mod volume;
 pub use layout::{ChartLayout, ChartLayoutMode, ChartSyncOptions};
@@ -1020,6 +1022,7 @@ impl Chart {
 
     /// The chart's drawings and drawing tools.
     #[cfg(feature = "drawings")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
     pub fn drawings(&self) -> &DrawingManager {
         &self.drawings
     }
@@ -1028,6 +1031,7 @@ impl Chart {
     /// drawings. Direct host edits do not enter chart history; wrap UI-originated edits in
     /// [`Self::user_action`]. The manager's own history is for standalone drawing use.
     #[cfg(feature = "drawings")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "drawings")))]
     pub fn drawings_mut(&mut self) -> &mut DrawingManager {
         &mut self.drawings
     }

@@ -95,8 +95,9 @@ assert!(skipped.is_empty());
 `load_drawings` rejects unreadable files and symbol mismatches without replacing
 current drawings. Report skipped records to the user. The host stores the JSON in
 its own file or service. For automatic per-symbol persistence, implement
-`services::Storage` and attach it with `Chart::set_storage`. `Chart::snapshot` and
-`Chart::restore` additionally save and restore chart settings, studies and view.
+`services::Storage` and attach it with `Chart::set_storage`. With the `ui` feature,
+`Chart::snapshot` and `Chart::restore` additionally save and restore chart settings,
+studies and view.
 
 ## Synchronize charts
 

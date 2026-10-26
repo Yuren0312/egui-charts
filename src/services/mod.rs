@@ -26,6 +26,7 @@ mod paper;
 mod quotes;
 mod search;
 #[cfg(feature = "widget")]
+#[cfg_attr(docsrs, doc(cfg(feature = "widget")))]
 mod settings;
 mod signals;
 mod storage;
