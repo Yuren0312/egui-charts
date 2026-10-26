@@ -24,6 +24,8 @@ pub enum StoreKind {
     /// Named chart layouts: the arrangement of the charts and the symbol, interval, chart type,
     /// studies, panes, scales, settings and drawings of each.
     Layouts,
+    /// Recently opened instruments, newest first.
+    RecentSymbols,
 }
 
 /// Where the library keeps settings and drawings between sessions: files, browser storage or a

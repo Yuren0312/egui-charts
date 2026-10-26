@@ -164,6 +164,7 @@ enum SidePanel {
     Highlights,
     Screener,
     Hotlists,
+    MarketHeatmap,
     Calendar,
     News,
     Notifications,
@@ -173,13 +174,14 @@ enum SidePanel {
 
 impl SidePanel {
     /// Panels the demo renders behind a built-in rail entry, with the entry.
-    const BUILT_IN: [(SidePanel, RightBarIcon); 11] = [
+    const BUILT_IN: [(SidePanel, RightBarIcon); 12] = [
         (SidePanel::Watchlist, RightBarIcon::Watchlist),
         (SidePanel::Alerts, RightBarIcon::Alerts),
         (SidePanel::ObjectTree, RightBarIcon::ObjectTree),
         (SidePanel::Highlights, RightBarIcon::Highlights),
         (SidePanel::Screener, RightBarIcon::Screener),
         (SidePanel::Hotlists, RightBarIcon::Hotlists),
+        (SidePanel::MarketHeatmap, RightBarIcon::MarketHeatmap),
         (SidePanel::Calendar, RightBarIcon::Calendar),
         (SidePanel::News, RightBarIcon::News),
         (SidePanel::Notifications, RightBarIcon::Notifications),
@@ -359,6 +361,7 @@ pub struct DemoApp {
     calendar: CalendarPanel,
     screener: ScreenerPanel,
     hotlists: HotlistsPanel,
+    market_heatmap: egui_charts::ui::widget_bar::MarketHeatmapPanel,
     // The demo's event log: its messages and alert triggers.
     notifications: NotificationsPanel,
     notification_host: Arc<feeds::DemoNotifications>,
@@ -593,6 +596,9 @@ impl DemoApp {
             calendar: CalendarPanel::new(),
             screener: ScreenerPanel::new(feeds::screener_sets()),
             hotlists: HotlistsPanel::new(feeds::HOTLISTS.map(String::from).to_vec()),
+            market_heatmap: egui_charts::ui::widget_bar::MarketHeatmapPanel {
+                entries: feeds::heatmap(),
+            },
             notifications: NotificationsPanel::new(),
             notification_host: Arc::default(),
             chats: ChatsPanel::new(),
@@ -653,6 +659,26 @@ impl DemoApp {
         app.drawing_templates
             .templates
             .set_storage(app.storage.clone());
+        let catalog: Vec<_> = DemoSymbol::symbols()
+            .into_iter()
+            .map(|symbol| {
+                let mut instrument = egui_charts::model::Instrument::new(&symbol.name)
+                    .with_description(&symbol.display_name)
+                    .with_exchange(&symbol.exchange);
+                instrument.symbol_type = symbol.symbol_type;
+                instrument
+            })
+            .collect();
+        let search: Arc<dyn egui_charts::services::SymbolSearch> = Arc::new(catalog);
+        app.symbol_search.set_search_service(Some(search.clone()));
+        app.compare_dialog.set_search_service(Some(search));
+        app.symbol_search.set_storage(app.storage.clone());
+        if let Some(row) = DemoSymbol::symbols()
+            .into_iter()
+            .find(|row| row.name == symbol)
+        {
+            app.symbol_search.record_symbol(&row);
+        }
         app.alerts.set_service(app.alert_host.clone());
         app.top_toolbar.state.can_trade = true;
         app.watchlist.set_selected(symbol);
@@ -733,6 +759,12 @@ impl DemoApp {
     }
 
     pub(crate) fn switch_symbol(&mut self, symbol: &str) {
+        if let Some(row) = DemoSymbol::symbols()
+            .into_iter()
+            .find(|row| row.name == symbol)
+        {
+            self.symbol_search.record_symbol(&row);
+        }
         self.copied_drawing = None;
         let spec = DemoSymbol::find(symbol);
         self.live.set_symbol(spec.symbol);
@@ -939,8 +971,6 @@ impl DemoApp {
         self.sync_comparisons();
         let action = self.compare_dialog.show(ctx, &symbols);
         self.handle_comparison(action);
-        self.symbol_search
-            .set_recent_symbols(vec![self.state.symbol.clone()]);
         if let Some(picked) = self.symbol_search.show(ctx, &symbols) {
             if self.watchlist_search {
                 self.watchlist.add_symbol(&picked.name);
@@ -1807,6 +1837,11 @@ impl DemoApp {
                     }
                     _ => {}
                 },
+                SidePanel::MarketHeatmap => {
+                    if let Some(symbol) = self.market_heatmap.show(ui) {
+                        self.open_catalog_symbol(&symbol);
+                    }
+                }
                 SidePanel::Hotlists => {
                     if let HotlistsAction::SelectSymbol(symbol) = self.hotlists.show(ui) {
                         self.open_catalog_symbol(&symbol);
@@ -1966,6 +2001,12 @@ impl DemoApp {
     /// and sales the executions of the live feed. The demo has no audio: a filter's sound shows
     /// as a notification.
     fn feed_market_panels(&mut self, ctx: &egui::Context) {
+        let now = chrono::Utc::now();
+        for entry in &mut self.market_heatmap.entries {
+            if let Some(quote) = live::watchlist_quote(&entry.symbol, now) {
+                entry.change_percent = (quote.last - quote.prev_close) / quote.prev_close * 100.0;
+            }
+        }
         let chart_symbol = self.chart.symbol().to_owned();
         let symbols: Vec<String> = self.watchlist.symbols().map(str::to_owned).collect();
         let mut selected = chart_symbol.clone();

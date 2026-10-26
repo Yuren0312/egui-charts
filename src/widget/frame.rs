@@ -894,6 +894,9 @@ impl Chart {
             );
         }
 
+        self.pump_signals(ui.ctx());
+        self.pump_targets(ui.ctx());
+
         // Draw watermark overlay (if enabled)
         self.draw_watermark(&painter, chart_rect);
         if let Some(watermark) = &self.watermark {
@@ -944,6 +947,7 @@ impl Chart {
         // Fit the price scale, then apply this frame's price zoom
         let series_values = self.fit_secondary_series();
         let primitive_prices = self.main_primitive_prices();
+        let target_prices = self.target_prices();
         let source_marks = self
             .mark_source
             .as_ref()
@@ -968,7 +972,10 @@ impl Chart {
             .map(|(study, _)| study.as_ref()),
             self.main_series_visible,
             self.main_series_style.autoscale.as_ref(),
-            marker_prices.into_iter().chain(primitive_prices),
+            marker_prices
+                .into_iter()
+                .chain(primitive_prices)
+                .chain(target_prices),
             series_values,
         );
         self.apply_price_zoom(pending_price_zoom, &response, price_rect, transform);
@@ -1530,6 +1537,11 @@ impl Chart {
             _ if main_on_top => paint_main_series(),
             _ => {}
         }
+        self.paint_signals(ui, &coords);
+        let target_lines = self
+            .show_price_targets
+            .then(|| painter.add(egui::Shape::Noop));
+
         self.paint_primitives(&painter, &coords, PrimitivePass::Series);
 
         // Resolve a click on the main chart area into a selection. Overlay
@@ -2318,13 +2330,16 @@ impl Chart {
                 legend_bottom = bottom;
             }
         }
-        self.paint_secondary_legend(
+        let legend_bottom = self.paint_secondary_legend(
             ui,
             &painter,
             price_rect,
             legend_bottom + 4.0,
             self.main_pane_series(),
         );
+        if let Some(lines) = target_lines {
+            self.paint_targets(ui, &coords, legend_bottom + 4.0, lines);
+        }
 
         if let Some(hover_pos) = hover_pos {
             // Cache the hover bar index for multi-chart sync
@@ -2707,6 +2722,7 @@ impl Chart {
         // Focus ring for keyboard accessibility
         crate::styles::focus::draw_focus_ring(ui, &shown, 0.0);
 
+        self.show_signal_menu(ui, price_rect);
         if let Some(action) = study_action {
             self.apply_study_action(action);
         }
