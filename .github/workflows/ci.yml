@@ -76,6 +76,8 @@ jobs:
         run: cargo test --all-features --lib
       - name: Run library tests (no default features)
         run: cargo test --no-default-features --lib
+      - name: Run workflow example tests
+        run: cargo test --all-features --example scripting --example backtesting
       - name: Run doc tests (all features)
         run: cargo test --doc --all-features
 

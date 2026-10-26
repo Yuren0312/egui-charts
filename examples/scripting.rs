@@ -76,10 +76,13 @@ impl eframe::App for ScriptingApp {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ui, |ui| {
             ui.label("Example host language: close - close[N]. Edit N and apply to recalculate.");
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let label = ui.label("Script");
-                ui.text_edit_singleline(&mut self.source)
-                    .labelled_by(label.id);
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.source)
+                        .desired_width(ui.available_width().min(280.0)),
+                )
+                .labelled_by(label.id);
                 if ui.button("Apply script").clicked() {
                     match compile_script(&self.source) {
                         Ok(study) => {
@@ -94,5 +97,50 @@ impl eframe::App for ScriptingApp {
             ui.label(&self.status);
             self.chart.show(ui);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_charts::{model::Bar, studies::Indicator};
+
+    #[test]
+    fn scripts_preserve_warmup_and_reject_invalid_lookbacks() {
+        let bars: Vec<_> = [100.0, 103.0, 101.0]
+            .into_iter()
+            .map(|close| {
+                Bar::new(
+                    chrono::DateTime::UNIX_EPOCH,
+                    close,
+                    close,
+                    close,
+                    close,
+                    1.0,
+                )
+            })
+            .collect();
+        for (source, expected) in [
+            (" close - close[1] ", [None, Some(3.0), Some(-2.0)]),
+            ("close - close[2]", [None, None, Some(1.0)]),
+            ("close - close[10000]", [None; 3]),
+        ] {
+            let mut study = compile_script(source).unwrap();
+            study.calculate(&bars);
+            for (i, value) in expected.into_iter().enumerate() {
+                assert_eq!(study.values().value(0, i), value, "{source}, bar {i}");
+            }
+        }
+        for source in [
+            "",
+            "close",
+            "close - close[0]",
+            "close - close[-1]",
+            "close - close[10001]",
+            "close - close[999999999999999999999999999999]",
+            "close - close[1]extra",
+        ] {
+            assert!(compile_script(source).is_err(), "{source}");
+        }
     }
 }

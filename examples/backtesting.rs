@@ -61,3 +61,62 @@ fn main() {
     );
     println!("{}", report.trades_csv());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn equity_includes_entry_and_exit_fees() {
+        for (prices, expected_equity, expected_profit, expected_drawdown) in [
+            (vec![], vec![], 0.0, None),
+            (
+                vec![(100.0_f64, 90.0_f64)],
+                vec![10_000.0, 9_978.0],
+                -22.0,
+                Some(22.0),
+            ),
+            (
+                vec![(100.0, 110.0), (110.0, 90.0), (90.0, 120.0)],
+                vec![10_000.0, 10_019.0, 9_979.0, 10_038.0],
+                38.0,
+                Some(40.0),
+            ),
+        ] {
+            let bars: Vec<_> = prices
+                .into_iter()
+                .enumerate()
+                .map(|(i, (open, close))| {
+                    Bar::new(
+                        chrono::DateTime::UNIX_EPOCH + TimeDelta::hours(i as i64),
+                        open,
+                        open.max(close),
+                        open.min(close),
+                        close,
+                        1.0,
+                    )
+                })
+                .collect();
+            let report = buy_and_hold(&bars);
+            let metrics = report.performance();
+            assert_eq!(metrics.closed_trades, usize::from(!bars.is_empty()));
+            assert_eq!(metrics.net_profit, expected_profit);
+            assert_eq!(metrics.max_drawdown, expected_drawdown);
+            assert_eq!(
+                report
+                    .equity
+                    .iter()
+                    .map(|(_, equity)| *equity)
+                    .collect::<Vec<_>>(),
+                expected_equity
+            );
+            if let Some(trade) = report.trades.first() {
+                assert_eq!(trade.fees, 2.0);
+                assert_eq!(
+                    trade.exit.as_ref().unwrap().time,
+                    bars.last().unwrap().time + TimeDelta::hours(1)
+                );
+            }
+        }
+    }
+}

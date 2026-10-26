@@ -55,7 +55,7 @@ impl DrawingPersistenceApp {
 impl eframe::App for DrawingPersistenceApp {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui.button("Save drawings").clicked() {
                     match self.chart.save_drawings().and_then(|saved| saved.to_json()) {
                         Ok(json) => {
