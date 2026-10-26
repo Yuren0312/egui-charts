@@ -150,6 +150,7 @@ pub mod chart;
 pub mod drawings;
 pub mod model;
 pub mod scales;
+#[warn(missing_docs)]
 pub mod studies;
 
 // ─── Configuration & data ────────────────────────────────────────────────────
